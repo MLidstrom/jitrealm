@@ -573,3 +573,6 @@ secrets.json
 *.sqlite3
 *.db-shm
 *.db-wal
+
+# Local AI assistant instructions (repo-specific)
+/CLAUDE.md
