@@ -14,6 +14,14 @@ public sealed class CommandLoop
         {
             Console.Write("> ");
             var input = Console.ReadLine();
+            if (input is null)
+            {
+                // When stdin is closed/redirected (e.g. background run), ReadLine() can return null immediately,
+                // which would otherwise cause a tight loop printing prompts forever.
+                Console.WriteLine();
+                Console.WriteLine("Input closed. Exiting.");
+                return;
+            }
             if (string.IsNullOrWhiteSpace(input))
                 continue;
 
