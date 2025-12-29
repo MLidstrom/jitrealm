@@ -1,7 +1,9 @@
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Text.Json;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using JitRealm.Mud.Persistence;
 
 namespace JitRealm.Mud;
 
@@ -118,7 +120,8 @@ public sealed class ObjectManager
         // Swap each instance
         foreach (var oldHandle in affectedInstances)
         {
-            var newInstance = CreateObjectInstance(newBlueprint, oldHandle.Id.ToString());
+            var instanceId = oldHandle.Id.ToString();
+            var newInstance = CreateObjectInstance(newBlueprint, instanceId);
 
             // Build context with preserved state
             var ctx = new MudContext
@@ -126,11 +129,17 @@ public sealed class ObjectManager
                 World = state,
                 State = oldHandle.State, // Preserve state!
                 Clock = _clock,
-                CurrentObjectId = oldHandle.Id.ToString()
+                CurrentObjectId = instanceId,
+                RoomId = instanceId // For rooms, their own ID is the room ID
             };
 
-            // Call lifecycle hooks
-            if (newInstance is IOnLoad onLoad)
+            // Call lifecycle hooks - prefer IOnReload during reload
+            var oldTypeName = oldHandle.Instance.GetType().FullName ?? "Unknown";
+            if (newInstance is IOnReload onReload)
+            {
+                onReload.OnReload(ctx, oldTypeName);
+            }
+            else if (newInstance is IOnLoad onLoad)
             {
                 onLoad.OnLoad(ctx);
             }
@@ -141,7 +150,7 @@ public sealed class ObjectManager
             }
 
             // Update registry
-            _instances[oldHandle.Id.ToString()] = new InstanceHandle
+            _instances[instanceId] = new InstanceHandle
             {
                 Id = oldHandle.Id,
                 Blueprint = newBlueprint,
@@ -149,6 +158,13 @@ public sealed class ObjectManager
                 State = oldHandle.State,
                 CreatedAt = oldHandle.CreatedAt // Preserve creation time
             };
+
+            // Update heartbeat registration
+            state.Heartbeats.Unregister(instanceId);
+            if (newInstance is IHeartbeat heartbeat)
+            {
+                state.Heartbeats.Register(instanceId, heartbeat.HeartbeatInterval);
+            }
         }
 
         // Replace blueprint in registry
@@ -174,19 +190,25 @@ public sealed class ObjectManager
         }
 
         // Maybe it's a blueprint ID used as singleton - try unload/load
-        await UnloadAsync(id);
+        await UnloadAsync(id, state);
         return await LoadAsync<T>(id, state);
     }
 
     /// <summary>
     /// Destruct (remove) an instance.
     /// </summary>
-    public Task DestructAsync(string instanceId)
+    public Task DestructAsync(string instanceId, WorldState state)
     {
         instanceId = ObjectId.Normalize(instanceId);
 
         if (!_instances.TryGetValue(instanceId, out var handle))
             return Task.CompletedTask;
+
+        // Cancel scheduled callouts
+        state.CallOuts.CancelAllForTarget(instanceId);
+
+        // Unregister heartbeat if applicable
+        state.Heartbeats.Unregister(instanceId);
 
         _instances.Remove(instanceId);
         handle.Blueprint.InstanceCount--;
@@ -198,7 +220,7 @@ public sealed class ObjectManager
     /// Unload a blueprint and all its instances.
     /// For backward compatibility, also works with instance IDs.
     /// </summary>
-    public Task UnloadAsync(string id)
+    public Task UnloadAsync(string id, WorldState state)
     {
         id = ObjectId.Normalize(id);
 
@@ -206,17 +228,17 @@ public sealed class ObjectManager
         if (_instances.TryGetValue(id, out var instHandle))
         {
             var blueprintId = instHandle.Blueprint.BlueprintId;
-            return UnloadBlueprintAsync(blueprintId);
+            return UnloadBlueprintAsync(blueprintId, state);
         }
 
         // Otherwise treat as blueprint ID
-        return UnloadBlueprintAsync(id);
+        return UnloadBlueprintAsync(id, state);
     }
 
     /// <summary>
     /// Unload a blueprint and all its instances.
     /// </summary>
-    public Task UnloadBlueprintAsync(string blueprintId)
+    public Task UnloadBlueprintAsync(string blueprintId, WorldState state)
     {
         blueprintId = ObjectId.Normalize(blueprintId);
 
@@ -230,7 +252,14 @@ public sealed class ObjectManager
             .ToList();
 
         foreach (var id in toRemove)
+        {
+            // Cancel scheduled callouts
+            state.CallOuts.CancelAllForTarget(id);
+
+            // Unregister heartbeat if applicable
+            state.Heartbeats.Unregister(id);
             _instances.Remove(id);
+        }
 
         // Remove blueprint and unload ALC
         _blueprints.Remove(blueprintId);
@@ -276,6 +305,124 @@ public sealed class ObjectManager
         }
 
         return null;
+    }
+
+    // === Persistence Methods ===
+
+    /// <summary>
+    /// Export all instances for persistence.
+    /// </summary>
+    public List<InstanceSaveData> ExportInstances()
+    {
+        var result = new List<InstanceSaveData>();
+        foreach (var kvp in _instances)
+        {
+            var handle = kvp.Value;
+            var stateDict = handle.State is DictionaryStateStore dss
+                ? dss.ToJsonDictionary()
+                : null;
+
+            result.Add(new InstanceSaveData
+            {
+                InstanceId = kvp.Key,
+                BlueprintId = handle.Blueprint.BlueprintId,
+                CreatedAt = handle.CreatedAt,
+                State = stateDict
+            });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Restore instances from saved data.
+    /// Re-compiles blueprints and re-creates instances with saved state.
+    /// </summary>
+    public async Task RestoreInstancesAsync(List<InstanceSaveData>? instances, WorldState state)
+    {
+        if (instances is null || instances.Count == 0)
+            return;
+
+        foreach (var saved in instances)
+        {
+            try
+            {
+                // Ensure blueprint is compiled
+                var blueprint = await EnsureBlueprintAsync(saved.BlueprintId);
+
+                // Create object instance
+                var instance = CreateObjectInstance(blueprint, saved.InstanceId);
+
+                // Restore state
+                var stateStore = new DictionaryStateStore();
+                stateStore.FromJsonDictionary(saved.State);
+
+                var ctx = new MudContext
+                {
+                    World = state,
+                    State = stateStore,
+                    Clock = _clock,
+                    CurrentObjectId = saved.InstanceId,
+                    RoomId = saved.InstanceId
+                };
+
+                // Call lifecycle hooks (OnLoad for restored instances)
+                if (instance is IOnLoad onLoad)
+                {
+                    onLoad.OnLoad(ctx);
+                }
+                else
+                {
+                    instance.Create(state);
+                }
+
+                var handle = new InstanceHandle
+                {
+                    Id = ObjectId.Parse(saved.InstanceId),
+                    Blueprint = blueprint,
+                    Instance = instance,
+                    State = stateStore,
+                    CreatedAt = saved.CreatedAt
+                };
+
+                blueprint.InstanceCount++;
+                _instances[saved.InstanceId] = handle;
+
+                // Register for heartbeat if applicable
+                if (instance is IHeartbeat heartbeat)
+                {
+                    state.Heartbeats.Register(saved.InstanceId, heartbeat.HeartbeatInterval);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but continue with other instances
+                Console.WriteLine($"Failed to restore {saved.InstanceId}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Clear all instances and blueprints (for fresh restore).
+    /// </summary>
+    public void ClearAll(WorldState state)
+    {
+        // Clear all callouts and heartbeats
+        foreach (var id in _instances.Keys.ToList())
+        {
+            state.CallOuts.CancelAllForTarget(id);
+            state.Heartbeats.Unregister(id);
+        }
+
+        _instances.Clear();
+
+        // Unload all blueprints
+        foreach (var bp in _blueprints.Values)
+        {
+            bp.Alc.Unload();
+        }
+        _blueprints.Clear();
+
+        TriggerGC();
     }
 
     // === Internal Methods ===
@@ -350,7 +497,8 @@ public sealed class ObjectManager
             World = state,
             State = stateStore,
             Clock = _clock,
-            CurrentObjectId = instanceId
+            CurrentObjectId = instanceId,
+            RoomId = instanceId // For rooms, their own ID is the room ID
         };
 
         // Call lifecycle hooks
@@ -375,6 +523,12 @@ public sealed class ObjectManager
 
         blueprint.InstanceCount++;
         _instances[instanceId] = handle;
+
+        // Register for heartbeat if applicable
+        if (instance is IHeartbeat heartbeat)
+        {
+            state.Heartbeats.Register(instanceId, heartbeat.HeartbeatInterval);
+        }
 
         return Task.FromResult(handle);
     }

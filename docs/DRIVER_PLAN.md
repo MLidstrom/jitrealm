@@ -46,72 +46,132 @@ This document is the implementation plan for evolving **JitRealm** from a minima
 
 ---
 
-## Phase 2 — Driver hooks + messaging (NEXT)
+## Phase 2 — Driver hooks + messaging ✅ COMPLETE
 
-### Hook interfaces (optional)
+### Hook interfaces ✅
 
-- `IOnLoad` → `OnLoad(IMudContext ctx)` — already wired in ObjectManager
-- `IOnEnter` → `OnEnter(IMudContext ctx, string whoId)`
-- `IOnLeave` → `OnLeave(IMudContext ctx, string whoId)`
-- `IHeartbeat` → `HeartbeatInterval` + `Heartbeat(IMudContext ctx)`
-- `IResettable` → `Reset(IMudContext ctx)`
+- `IOnLoad` → `OnLoad(IMudContext ctx)` — wired in ObjectManager ✅
+- `IOnEnter` → `OnEnter(IMudContext ctx, string whoId)` — called when player enters room ✅
+- `IOnLeave` → `OnLeave(IMudContext ctx, string whoId)` — called when player leaves room ✅
+- `IHeartbeat` → `HeartbeatInterval` + `Heartbeat(IMudContext ctx)` — scheduled periodic tick ✅
+- `IResettable` → `Reset(IMudContext ctx)` — triggered via `reset` command ✅
 
-### Messaging primitives
+### Messaging primitives ✅
 
-- `Tell(targetId, msg)`
-- `Say(roomId, msg)`
-- `Emote(roomId, msg)`
+- `Tell(targetId, msg)` — private message via IMudContext ✅
+- `Say(msg)` — room broadcast via IMudContext ✅
+- `Emote(action)` — room emote via IMudContext ✅
+
+### Implementation details
+
+- `MessageQueue` in WorldState — thread-safe queue for messages
+- `HeartbeatScheduler` in WorldState — tracks next fire time per object
+- CommandLoop processes heartbeats and drains messages each iteration
 
 ---
 
-## Phase 3 — Hot reload with state rebinding
+## Phase 3 — Hot reload with state rebinding ✅ COMPLETE
 
-### Preferred approach
+### Preferred approach ✅
 
 **State-external instances** (driver holds state store). On reload:
 
-1. Compile new blueprint version
-2. Create new object instance
-3. Attach existing `IStateStore`
-4. Call optional `OnReload(IMudContext ctx, string oldType)`
-5. Swap instance handle
+1. Compile new blueprint version ✅
+2. Create new object instance ✅
+3. Attach existing `IStateStore` ✅
+4. Call optional `IOnReload.OnReload(IMudContext ctx, string oldTypeName)` ✅
+5. Swap instance handle ✅
 
-### Unload safety
+### Implementation details
+
+- `IOnReload` interface added to Hooks.cs
+- `ReloadBlueprintAsync` checks for IOnReload first, then IOnLoad, then Create
+- Old type name passed to allow custom migration logic
+
+### Unload safety ✅
 
 Only unload old ALC when:
-- no instances reference it
-- no scheduled callbacks reference its types
+- no instances reference it ✅
+- no scheduled callbacks reference its types (N/A until Phase 4)
 
 ---
 
-## Phase 4 — Scheduling & callouts
+## Phase 4 — Scheduling & callouts ✅ COMPLETE
 
-- `CallOut(targetId, method, delay, args...)`
-- `Every(interval, ...)`
-- Priority queue + main-loop time budget
+### Implementation ✅
 
----
+- `CallOut(methodName, delay, args...)` — schedule one-time delayed call ✅
+- `Every(methodName, interval, args...)` — schedule repeating call ✅
+- `CancelCallOut(calloutId)` — cancel a scheduled callout ✅
+- `CallOutScheduler` — priority queue for scheduled calls ✅
+- CommandLoop processes due callouts each iteration ✅
+- Callouts cancelled automatically on destruct/unload ✅
 
-## Phase 5 — Persistence
+### Details
 
-Persist:
-- players (location/inventory)
-- instances + state stores
-- container memberships
-
-Start with JSON files, then consider SQLite.
-
----
-
-## Phase 6 — Multi-user networking
-
-- `ISession` abstraction
-- telnet TCP server
-- single-threaded game loop + async IO
+- Methods invoked via reflection
+- First parameter can be `IMudContext` (injected automatically)
+- Additional args passed from schedule call
+- Repeating callouts re-schedule after each execution
 
 ---
 
-## Phase 7 — Security sandboxing (required if public)
+## Phase 5 — Persistence ✅ COMPLETE
+
+### Implementation ✅
+
+- `IPersistenceProvider` interface for storage abstraction ✅
+- `JsonPersistenceProvider` for JSON file storage ✅
+- `WorldStatePersistence` service for coordinating save/load ✅
+- `save` command — persist current world state ✅
+- `load` command — restore from saved state ✅
+- Automatic load on startup if save file exists ✅
+
+### What gets persisted ✅
+
+- Player state (name, location)
+- All loaded instances with their state stores
+- Container registry (room contents, inventories)
+
+### Technical details
+
+- Save data stored in `save/world.json`
+- Atomic writes via temp file + rename
+- Version field for future schema migrations
+- IStateStore data serialized as JSON elements
+
+---
+
+## Phase 6 — Multi-user networking ✅ COMPLETE
+
+### Implementation ✅
+
+- `ISession` abstraction for connection types ✅
+- `ConsoleSession` for single-player console mode ✅
+- `TelnetSession` for TCP clients ✅
+- `TelnetServer` for accepting connections ✅
+- `SessionManager` for tracking active sessions ✅
+- `GameServer` for multi-player game loop ✅
+
+### Features ✅
+
+- Telnet-compatible TCP server on configurable port (default 4000)
+- Multiple concurrent players
+- Players see others in same room
+- `say` command for room chat
+- `who` command to list online players
+- Automatic player creation on connect
+
+### Technical details
+
+- Single-threaded game loop with async IO
+- Non-blocking input polling per session
+- Message routing to sessions by room/player
+- Graceful shutdown via Ctrl+C
+
+---
+
+## Phase 7 — Security sandboxing (NEXT)
 
 In-process runtime compilation = full trust.
 For public use, execute world code out-of-process and expose only a capability-limited API.

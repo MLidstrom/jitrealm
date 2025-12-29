@@ -1,6 +1,6 @@
 namespace JitRealm.Mud;
 
-// Optional hook interfaces (lpMUD-ish). Not wired in yet.
+// Optional hook interfaces (lpMUD-ish).
 
 public interface IOnLoad
 {
@@ -26,4 +26,15 @@ public interface IHeartbeat
 public interface IResettable
 {
     void Reset(IMudContext ctx);
+}
+
+public interface IOnReload
+{
+    /// <summary>
+    /// Called after a blueprint reload, before the old instance is discarded.
+    /// Allows custom state migration or reinitialization logic.
+    /// </summary>
+    /// <param name="ctx">Context with preserved state store</param>
+    /// <param name="oldTypeName">Fully qualified name of the previous type</param>
+    void OnReload(IMudContext ctx, string oldTypeName);
 }

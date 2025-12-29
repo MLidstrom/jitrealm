@@ -64,4 +64,43 @@ public sealed class ContainerRegistry
     {
         return _location.TryGetValue(objectId, out var c) ? c : null;
     }
+
+    /// <summary>
+    /// Export all container data for serialization.
+    /// </summary>
+    public Dictionary<string, List<string>> ToSerializable()
+    {
+        var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in _contents)
+        {
+            if (kvp.Value.Count > 0)
+            {
+                result[kvp.Key] = kvp.Value.ToList();
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Import container data from serialization.
+    /// </summary>
+    public void FromSerializable(Dictionary<string, List<string>>? data)
+    {
+        _contents.Clear();
+        _location.Clear();
+
+        if (data is null)
+            return;
+
+        foreach (var kvp in data)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var objectId in kvp.Value)
+            {
+                set.Add(objectId);
+                _location[objectId] = kvp.Key;
+            }
+            _contents[kvp.Key] = set;
+        }
+    }
 }
