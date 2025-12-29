@@ -11,63 +11,46 @@ This document is the implementation plan for evolving **JitRealm** from a minima
 
 ---
 
-## Milestone v0.2: Clones + state (next PR)
+## Milestone v0.2: Clones + state ✅ COMPLETE
 
 ### Deliverables
 
-1. **Driver-assigned object identity**
-   - Introduce `MudObjectBase : IMudObject` with `Id` set by the driver (internal set)
-   - Enforce stable IDs (normalized paths for blueprints; `#NNNNNN` for clones)
+1. **Driver-assigned object identity** ✅
+   - Introduced `MudObjectBase : IMudObject` with `Id` set by the driver (internal set)
+   - Stable IDs: normalized paths for blueprints; `#NNNNNN` for clones
 
-2. **Blueprint & instance model**
-   - `BlueprintHandle` holds compiled assembly/type/ALC and metadata (mtime/hash)
+2. **Blueprint & instance model** ✅
+   - `BlueprintHandle` holds compiled assembly/type/ALC and metadata (mtime)
    - `InstanceHandle` holds runtime instance + `IStateStore` + ref to blueprint
 
-3. **State externalization**
-   - Add `IMudContext` passed into lifecycle hooks
-   - Add `IStateStore` per instance (dictionary-backed initially)
-   - World objects should not rely on private fields for long-lived state
+3. **State externalization** ✅
+   - `IMudContext` implemented via `MudContext` class
+   - `IStateStore` per instance via `DictionaryStateStore`
+   - State preserved across blueprint reloads
 
-4. **Room contents driven by driver containers**
-   - Driver manages `ContainerId -> members`
-   - Room objects become lightweight; `look` resolves object names
+4. **Room contents driven by driver containers** ✅
+   - `ContainerRegistry` in `WorldState` manages containerId -> members
+   - `look` command resolves contents from registry
 
-5. **New commands**
-   - `clone <blueprintId> [count]`
-   - `destruct <objectId>`
-   - `stat <id>`
+5. **New commands** ✅
+   - `clone <blueprintId>` — creates instance like `Rooms/meadow.cs#000001`
+   - `destruct <objectId>` — removes instance
+   - `stat <id>` — shows blueprint/instance info
+   - `blueprints` — lists loaded blueprints
 
-### Acceptance criteria
+### Acceptance criteria ✅
 
-- You can `clone Rooms/meadow.cs` and get a unique runtime object id.
-- Reloading a **blueprint** does not crash the driver.
-- The driver stores per-instance state independently of the world object instance.
-
----
-
-## Phase 1 — Blueprint vs Clones (core lpMUD feel)
-
-### Concepts
-
-- **Blueprint id**: path under `World/`, e.g. `Rooms/meadow.cs`
-- **Clone id**: blueprint id + suffix, e.g. `Rooms/meadow.cs#000001`
-- **Handle tracking** ensures old code can unload when no longer referenced
-
-### Implementation tasks
-
-- Add `ObjectId` type helpers (parse/format)
-- Add registry tables:
-  - `Dictionary<string, BlueprintHandle>`
-  - `Dictionary<string, InstanceHandle>`
-- Add lazy-load of blueprints on demand
+- `clone Rooms/meadow.cs` produces unique runtime object id ✅
+- Reloading a **blueprint** does not crash the driver ✅
+- The driver stores per-instance state independently of the world object instance ✅
 
 ---
 
-## Phase 2 — Driver hooks + messaging
+## Phase 2 — Driver hooks + messaging (NEXT)
 
 ### Hook interfaces (optional)
 
-- `IOnLoad` → `OnLoad(IMudContext ctx)`
+- `IOnLoad` → `OnLoad(IMudContext ctx)` — already wired in ObjectManager
 - `IOnEnter` → `OnEnter(IMudContext ctx, string whoId)`
 - `IOnLeave` → `OnLeave(IMudContext ctx, string whoId)`
 - `IHeartbeat` → `HeartbeatInterval` + `Heartbeat(IMudContext ctx)`

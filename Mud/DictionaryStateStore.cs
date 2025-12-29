@@ -17,4 +17,6 @@ public sealed class DictionaryStateStore : IStateStore
     public void Set<T>(string key, T? value) => _data[key] = value;
 
     public bool Remove(string key) => _data.TryRemove(key, out _);
+
+    public IEnumerable<string> Keys => _data.Keys;
 }

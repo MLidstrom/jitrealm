@@ -1,20 +1,24 @@
 # Roadmap (lpMUD-inspired)
 
-## Phase 1 — Blueprints vs Clones (core lpMUD feel)
+## Phase 1 — Blueprints vs Clones (core lpMUD feel) ✅ COMPLETE
 
-- File-backed object = blueprint: `Rooms/meadow.cs`
-- Runtime instance = clone: `Rooms/meadow.cs#12345`
-- Add commands:
+- File-backed object = blueprint: `Rooms/meadow.cs` ✅
+- Runtime instance = clone: `Rooms/meadow.cs#000001` ✅
+- Commands implemented: ✅
   - `clone <blueprintId>`
   - `destruct <instanceId>`
-- Keep instance state separate from blueprint code.
+  - `stat <id>`
+  - `blueprints`
+- Instance state separate from blueprint code via `IStateStore` ✅
 
-## Phase 2 — Driver hooks
+## Phase 2 — Driver hooks (NEXT)
 
-- `Init(Player player)` when a player enters
-- `Reset()` periodic / on-demand reset
-- `Heartbeat()` scheduled tick
-- `CatchTell(string msg)` for room/object messaging
+- `IOnLoad(IMudContext ctx)` — already wired
+- `IOnEnter(IMudContext ctx, string whoId)` when a player enters
+- `IOnLeave(IMudContext ctx, string whoId)` when a player leaves
+- `IHeartbeat()` scheduled tick
+- `IResettable.Reset()` periodic / on-demand reset
+- Messaging: `Tell`, `Say`, `Emote`
 
 ## Phase 3 — Security model (important if exposed)
 
@@ -26,6 +30,7 @@
 
 - Serialize player + instance state
 - Hot reboot without losing world
+- JSON files initially, SQLite later
 
 ## Phase 5 — Multi-user networking
 

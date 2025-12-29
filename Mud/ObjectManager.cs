@@ -5,48 +5,303 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace JitRealm.Mud;
 
+/// <summary>
+/// Manages runtime compilation and loading of world objects.
+/// Separates blueprints (compiled code) from instances (runtime objects with state).
+/// </summary>
 public sealed class ObjectManager
 {
     private readonly string _worldRoot;
+    private readonly IClock _clock;
 
-    private sealed class LoadedObject
+    // Blueprint cache: blueprintPath -> handle
+    private readonly Dictionary<string, BlueprintHandle> _blueprints =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    // Instance registry: instanceId -> handle
+    private readonly Dictionary<string, InstanceHandle> _instances =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public ObjectManager(string worldRoot, IClock? clock = null)
     {
-        public required string Id { get; init; }
-        public required AssemblyLoadContext Alc { get; init; }
-        public required IMudObject Instance { get; init; }
+        _worldRoot = worldRoot;
+        _clock = clock ?? new SystemClock();
     }
 
-    private readonly Dictionary<string, LoadedObject> _loaded = new(StringComparer.OrdinalIgnoreCase);
+    // === Public API ===
 
-    public ObjectManager(string worldRoot) => _worldRoot = worldRoot;
+    public IEnumerable<string> ListBlueprintIds() => _blueprints.Keys.OrderBy(x => x);
+    public IEnumerable<string> ListInstanceIds() => _instances.Keys.OrderBy(x => x);
 
-    public IEnumerable<string> ListLoadedIds() => _loaded.Keys.OrderBy(x => x);
+    /// <summary>
+    /// Get all loaded IDs (both blueprints acting as singletons and instances).
+    /// For backward compatibility with existing code.
+    /// </summary>
+    public IEnumerable<string> ListLoadedIds() => _instances.Keys.OrderBy(x => x);
 
+    /// <summary>
+    /// Get an existing instance by ID.
+    /// Returns null if not found.
+    /// </summary>
     public T? Get<T>(string id) where T : class, IMudObject
     {
-        id = Normalize(id);
-        return _loaded.TryGetValue(id, out var lo) ? lo.Instance as T : null;
+        id = ObjectId.Normalize(id);
+        return _instances.TryGetValue(id, out var handle) ? handle.Instance as T : null;
     }
 
-    public async Task<T> LoadAsync<T>(string id, WorldState state) where T : class, IMudObject
+    /// <summary>
+    /// Load a blueprint and create a singleton instance (legacy behavior).
+    /// If already loaded, returns existing instance.
+    /// The instance ID matches the blueprint ID.
+    /// </summary>
+    public async Task<T> LoadAsync<T>(string blueprintId, WorldState state) where T : class, IMudObject
     {
-        id = Normalize(id);
+        blueprintId = ObjectId.Normalize(blueprintId);
 
-        if (_loaded.TryGetValue(id, out var existing))
+        // If instance exists with this exact ID, return it
+        if (_instances.TryGetValue(blueprintId, out var existing))
         {
             return existing.Instance as T
-                ?? throw new InvalidOperationException($"Loaded object {id} is not {typeof(T).Name}");
+                ?? throw new InvalidOperationException($"Instance {blueprintId} is not {typeof(T).Name}");
         }
 
-        var sourcePath = Path.Combine(_worldRoot, id);
-        if (!File.Exists(sourcePath))
-            throw new FileNotFoundException($"World object source not found: {sourcePath}");
+        // Ensure blueprint is compiled
+        var blueprint = await EnsureBlueprintAsync(blueprintId);
 
+        // Create singleton instance (legacy mode - ID matches blueprint)
+        var instance = await CreateInstanceInternalAsync(blueprint, blueprintId, state);
+
+        return instance.Instance as T
+            ?? throw new InvalidOperationException($"Instance {blueprintId} is not {typeof(T).Name}");
+    }
+
+    /// <summary>
+    /// Clone a blueprint to create a new instance with unique ID.
+    /// </summary>
+    public async Task<T> CloneAsync<T>(string blueprintId, WorldState state) where T : class, IMudObject
+    {
+        blueprintId = ObjectId.Normalize(blueprintId);
+
+        var blueprint = await EnsureBlueprintAsync(blueprintId);
+        var cloneNum = blueprint.GetNextCloneNumber();
+        var instanceId = new ObjectId(blueprintId, cloneNum).ToString();
+
+        var instance = await CreateInstanceInternalAsync(blueprint, instanceId, state);
+
+        return instance.Instance as T
+            ?? throw new InvalidOperationException($"Instance {instanceId} is not {typeof(T).Name}");
+    }
+
+    /// <summary>
+    /// Reload a blueprint, updating all instances that use it.
+    /// State is preserved via IStateStore.
+    /// </summary>
+    public async Task ReloadBlueprintAsync(string blueprintId, WorldState state)
+    {
+        blueprintId = ObjectId.Normalize(blueprintId);
+
+        if (!_blueprints.TryGetValue(blueprintId, out var oldBlueprint))
+        {
+            // Not loaded, nothing to reload
+            return;
+        }
+
+        // Collect instances using this blueprint
+        var affectedInstances = _instances.Values
+            .Where(i => i.Blueprint == oldBlueprint)
+            .ToList();
+
+        // Compile new blueprint
+        var newBlueprint = await CompileBlueprintAsync(blueprintId);
+        newBlueprint.InstanceCount = affectedInstances.Count;
+
+        // Swap each instance
+        foreach (var oldHandle in affectedInstances)
+        {
+            var newInstance = CreateObjectInstance(newBlueprint, oldHandle.Id.ToString());
+
+            // Build context with preserved state
+            var ctx = new MudContext
+            {
+                World = state,
+                State = oldHandle.State, // Preserve state!
+                Clock = _clock,
+                CurrentObjectId = oldHandle.Id.ToString()
+            };
+
+            // Call lifecycle hooks
+            if (newInstance is IOnLoad onLoad)
+            {
+                onLoad.OnLoad(ctx);
+            }
+            else
+            {
+                // Fall back to legacy Create
+                newInstance.Create(state);
+            }
+
+            // Update registry
+            _instances[oldHandle.Id.ToString()] = new InstanceHandle
+            {
+                Id = oldHandle.Id,
+                Blueprint = newBlueprint,
+                Instance = newInstance,
+                State = oldHandle.State,
+                CreatedAt = oldHandle.CreatedAt // Preserve creation time
+            };
+        }
+
+        // Replace blueprint in registry
+        _blueprints[blueprintId] = newBlueprint;
+
+        // Unload old ALC
+        oldBlueprint.Alc.Unload();
+        TriggerGC();
+    }
+
+    /// <summary>
+    /// Reload an object by its instance ID. For backward compatibility.
+    /// </summary>
+    public async Task<T> ReloadAsync<T>(string id, WorldState state) where T : class, IMudObject
+    {
+        id = ObjectId.Normalize(id);
+
+        // Find the blueprint for this instance
+        if (_instances.TryGetValue(id, out var handle))
+        {
+            await ReloadBlueprintAsync(handle.Blueprint.BlueprintId, state);
+            return Get<T>(id) ?? throw new InvalidOperationException($"Instance {id} not found after reload");
+        }
+
+        // Maybe it's a blueprint ID used as singleton - try unload/load
+        await UnloadAsync(id);
+        return await LoadAsync<T>(id, state);
+    }
+
+    /// <summary>
+    /// Destruct (remove) an instance.
+    /// </summary>
+    public Task DestructAsync(string instanceId)
+    {
+        instanceId = ObjectId.Normalize(instanceId);
+
+        if (!_instances.TryGetValue(instanceId, out var handle))
+            return Task.CompletedTask;
+
+        _instances.Remove(instanceId);
+        handle.Blueprint.InstanceCount--;
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Unload a blueprint and all its instances.
+    /// For backward compatibility, also works with instance IDs.
+    /// </summary>
+    public Task UnloadAsync(string id)
+    {
+        id = ObjectId.Normalize(id);
+
+        // Check if it's an instance first
+        if (_instances.TryGetValue(id, out var instHandle))
+        {
+            var blueprintId = instHandle.Blueprint.BlueprintId;
+            return UnloadBlueprintAsync(blueprintId);
+        }
+
+        // Otherwise treat as blueprint ID
+        return UnloadBlueprintAsync(id);
+    }
+
+    /// <summary>
+    /// Unload a blueprint and all its instances.
+    /// </summary>
+    public Task UnloadBlueprintAsync(string blueprintId)
+    {
+        blueprintId = ObjectId.Normalize(blueprintId);
+
+        if (!_blueprints.TryGetValue(blueprintId, out var blueprint))
+            return Task.CompletedTask;
+
+        // Remove all instances of this blueprint
+        var toRemove = _instances
+            .Where(kv => kv.Value.Blueprint == blueprint)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        foreach (var id in toRemove)
+            _instances.Remove(id);
+
+        // Remove blueprint and unload ALC
+        _blueprints.Remove(blueprintId);
+        blueprint.Alc.Unload();
+        TriggerGC();
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Get statistics about an object (blueprint or instance).
+    /// </summary>
+    public ObjectStats? GetStats(string id)
+    {
+        id = ObjectId.Normalize(id);
+
+        // Check if it's an instance
+        if (_instances.TryGetValue(id, out var inst))
+        {
+            return new ObjectStats
+            {
+                Id = id,
+                IsBlueprint = false,
+                BlueprintId = inst.Blueprint.BlueprintId,
+                TypeName = inst.Instance.GetType().FullName ?? "Unknown",
+                CreatedAt = inst.CreatedAt,
+                StateKeys = inst.State.Keys.ToArray()
+            };
+        }
+
+        // Check if it's a blueprint
+        if (_blueprints.TryGetValue(id, out var bp))
+        {
+            return new ObjectStats
+            {
+                Id = id,
+                IsBlueprint = true,
+                BlueprintId = bp.BlueprintId,
+                TypeName = bp.ObjectType.FullName ?? "Unknown",
+                SourceMtime = bp.SourceMtime,
+                InstanceCount = bp.InstanceCount
+            };
+        }
+
+        return null;
+    }
+
+    // === Internal Methods ===
+
+    private async Task<BlueprintHandle> EnsureBlueprintAsync(string blueprintId)
+    {
+        if (_blueprints.TryGetValue(blueprintId, out var existing))
+            return existing;
+
+        var blueprint = await CompileBlueprintAsync(blueprintId);
+        _blueprints[blueprintId] = blueprint;
+        return blueprint;
+    }
+
+    private async Task<BlueprintHandle> CompileBlueprintAsync(string blueprintId)
+    {
+        var sourcePath = Path.Combine(_worldRoot, blueprintId);
+        if (!File.Exists(sourcePath))
+            throw new FileNotFoundException($"Blueprint source not found: {sourcePath}");
+
+        var mtime = File.GetLastWriteTimeUtc(sourcePath);
         var code = await File.ReadAllTextAsync(sourcePath);
         var syntaxTree = CSharpSyntaxTree.ParseText(code, path: sourcePath);
 
         var compilation = CSharpCompilation.Create(
-            assemblyName: $"JitRealmObj_{Guid.NewGuid():N}",
+            assemblyName: $"JitRealmBP_{Guid.NewGuid():N}",
             syntaxTrees: new[] { syntaxTree },
             references: GetReferences(),
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
@@ -59,57 +314,82 @@ public sealed class ObjectManager
             var errors = string.Join(Environment.NewLine,
                 emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
                     .Select(d => d.ToString()));
-            throw new InvalidOperationException($"Compile failed for {id}:{Environment.NewLine}{errors}");
+            throw new InvalidOperationException($"Compile failed for {blueprintId}:{Environment.NewLine}{errors}");
         }
 
         peStream.Position = 0;
 
-        var alc = new AssemblyLoadContext($"ALC_{id}_{Guid.NewGuid():N}", isCollectible: true);
+        var alc = new AssemblyLoadContext($"ALC_{blueprintId}_{Guid.NewGuid():N}", isCollectible: true);
         var asm = alc.LoadFromStream(peStream);
 
-        var instance = CreateInstance(asm, id);
-        instance.Create(state);
-
-        _loaded[id] = new LoadedObject { Id = id, Alc = alc, Instance = instance };
-
-        return instance as T
-            ?? throw new InvalidOperationException($"Loaded object {id} is not {typeof(T).Name}");
-    }
-
-    public async Task<T> ReloadAsync<T>(string id, WorldState state) where T : class, IMudObject
-    {
-        await UnloadAsync(id);
-        return await LoadAsync<T>(id, state);
-    }
-
-    public Task UnloadAsync(string id)
-    {
-        id = Normalize(id);
-        if (!_loaded.TryGetValue(id, out var lo))
-            return Task.CompletedTask;
-
-        _loaded.Remove(id);
-        lo.Alc.Unload();
-
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-
-        return Task.CompletedTask;
-    }
-
-    private static IMudObject CreateInstance(Assembly asm, string id)
-    {
         var type = asm.GetTypes().FirstOrDefault(t =>
             typeof(IMudObject).IsAssignableFrom(t) &&
-            t is { IsAbstract: false, IsInterface: false });
+            t is { IsAbstract: false, IsInterface: false })
+            ?? throw new InvalidOperationException($"No IMudObject implementation in {blueprintId}");
 
-        if (type is null)
-            throw new InvalidOperationException($"No IMudObject implementation found for {id}");
+        return new BlueprintHandle
+        {
+            BlueprintId = blueprintId,
+            Alc = alc,
+            Assembly = asm,
+            ObjectType = type,
+            SourceMtime = mtime
+        };
+    }
 
-        var obj = Activator.CreateInstance(type) as IMudObject;
-        if (obj is null)
-            throw new InvalidOperationException($"Failed to instantiate {type.FullName} for {id}");
+    private Task<InstanceHandle> CreateInstanceInternalAsync(
+        BlueprintHandle blueprint,
+        string instanceId,
+        WorldState state)
+    {
+        var instance = CreateObjectInstance(blueprint, instanceId);
+        var stateStore = new DictionaryStateStore();
+
+        var ctx = new MudContext
+        {
+            World = state,
+            State = stateStore,
+            Clock = _clock,
+            CurrentObjectId = instanceId
+        };
+
+        // Call lifecycle hooks
+        if (instance is IOnLoad onLoad)
+        {
+            onLoad.OnLoad(ctx);
+        }
+        else
+        {
+            // Legacy Create method
+            instance.Create(state);
+        }
+
+        var handle = new InstanceHandle
+        {
+            Id = ObjectId.Parse(instanceId),
+            Blueprint = blueprint,
+            Instance = instance,
+            State = stateStore,
+            CreatedAt = _clock.Now
+        };
+
+        blueprint.InstanceCount++;
+        _instances[instanceId] = handle;
+
+        return Task.FromResult(handle);
+    }
+
+    private IMudObject CreateObjectInstance(BlueprintHandle blueprint, string instanceId)
+    {
+        var obj = Activator.CreateInstance(blueprint.ObjectType) as IMudObject
+            ?? throw new InvalidOperationException($"Failed to instantiate {blueprint.ObjectType.FullName}");
+
+        // If using MudObjectBase, driver assigns the ID
+        if (obj is MudObjectBase mob)
+        {
+            mob.Id = instanceId;
+        }
+        // Otherwise, object defines its own ID (legacy)
 
         return obj;
     }
@@ -132,5 +412,10 @@ public sealed class ObjectManager
         return refs;
     }
 
-    private static string Normalize(string id) => id.Replace('\\', '/').TrimStart('/');
+    private static void TriggerGC()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
 }

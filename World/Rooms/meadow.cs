@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using JitRealm.Mud;
 
-public sealed class Meadow : IRoom
+public sealed class Meadow : MudObjectBase, IRoom
 {
-    public string Id => "Rooms/meadow.cs";
-    public string Name => "A Quiet Meadow";
+    // Id is assigned by the driver via MudObjectBase
+
+    public override string Name => "A Quiet Meadow";
 
     public string Description => "Soft grass. The sky is ASCII-blue.";
 
@@ -15,6 +16,4 @@ public sealed class Meadow : IRoom
     };
 
     public IReadOnlyList<string> Contents => Array.Empty<string>();
-
-    public void Create(WorldState state) { }
 }

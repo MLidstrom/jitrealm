@@ -9,4 +9,5 @@ public interface IStateStore
     T? Get<T>(string key);
     void Set<T>(string key, T? value);
     bool Remove(string key);
+    IEnumerable<string> Keys { get; }
 }

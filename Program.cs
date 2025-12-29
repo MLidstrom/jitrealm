@@ -5,7 +5,7 @@ var worldDir = Path.Combine(baseDir, "World");
 
 var state = new WorldState
 {
-    Objects = new ObjectManager(worldDir),
+    Objects = new ObjectManager(worldDir, new SystemClock()),
     Player = new Player("you")
 };
 

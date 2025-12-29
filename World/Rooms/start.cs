@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using JitRealm.Mud;
 
-public sealed class StartRoom : IRoom
+public sealed class StartRoom : MudObjectBase, IRoom
 {
-    public string Id => "Rooms/start.cs";
-    public string Name => "The Starting Room";
+    // Id is assigned by the driver via MudObjectBase
+
+    public override string Name => "The Starting Room";
 
     public string Description => "A bare room with stone walls. A flickering terminal cursor seems to watch you.";
 
@@ -15,9 +16,4 @@ public sealed class StartRoom : IRoom
     };
 
     public IReadOnlyList<string> Contents => Array.Empty<string>();
-
-    public void Create(WorldState state)
-    {
-        // Initialization hook
-    }
 }
