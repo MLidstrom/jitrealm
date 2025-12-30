@@ -96,15 +96,14 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `score` — show detailed player stats
 - `time` — show server time and playtime
 
-### Object Management
-- `objects` — list loaded instances
+### Wizard Commands
+These commands are visible in `help` only for wizard users:
 - `blueprints` — list loaded blueprints
-- `clone <blueprintId>` — create a new instance (e.g., `Rooms/meadow.cs#000001`)
+- `objects` — list loaded instances
+- `clone <blueprintId>` — create a new instance in current room
 - `destruct <objectId>` — remove an instance
 - `stat <id>` — show blueprint or instance info
 - `reset <objectId>` — trigger IResettable.Reset on an object
-
-### Hot Reload
 - `reload <blueprintId>` — recompile and update all instances (preserves state)
 - `unload <blueprintId>` — unload blueprint and all its instances
 

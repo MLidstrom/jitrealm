@@ -72,7 +72,19 @@ public sealed class CommandLoop
                 switch (cmd)
                 {
                     case "look":
-                        await LookAsync();
+                    case "l":
+                        if (parts.Length == 1)
+                        {
+                            await LookAsync();
+                        }
+                        else
+                        {
+                            // "look at X" or "look X" or "l X"
+                            var target = parts[1].ToLowerInvariant() == "at" && parts.Length > 2
+                                ? string.Join(" ", parts.Skip(2))
+                                : string.Join(" ", parts.Skip(1));
+                            await LookAtDetailAsync(target);
+                        }
                         break;
 
                     case "go":
@@ -433,6 +445,109 @@ public sealed class CommandLoop
             if (names.Count > 0)
                 Console.WriteLine("You see: " + string.Join(", ", names));
         }
+    }
+
+    private async Task LookAtDetailAsync(string target)
+    {
+        var room = await GetCurrentRoomAsync();
+        var normalizedTarget = target.ToLowerInvariant();
+
+        // 1. Check room details first
+        foreach (var (keyword, description) in room.Details)
+        {
+            if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
+                normalizedTarget.Contains(keyword.ToLowerInvariant()))
+            {
+                Console.WriteLine(description);
+                return;
+            }
+        }
+
+        // 2. Check items in inventory
+        var ctx = CreateContextFor(_playerId!);
+        var itemId = ctx.FindItem(target, _playerId!);
+        if (itemId is not null)
+        {
+            var item = _state.Objects!.Get<IItem>(itemId);
+            if (item is not null)
+            {
+                // Check item details first
+                foreach (var (keyword, description) in item.Details)
+                {
+                    if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(keyword.ToLowerInvariant()))
+                    {
+                        Console.WriteLine(description);
+                        return;
+                    }
+                }
+                // Fall back to item long description
+                Console.WriteLine(item.LongDescription);
+                return;
+            }
+        }
+
+        // 3. Check all objects in room by name and aliases
+        var contents = _state.Containers.GetContents(room.Id);
+        foreach (var objId in contents)
+        {
+            if (objId == _playerId) continue;
+
+            var obj = _state.Objects!.Get<IMudObject>(objId);
+            if (obj is null) continue;
+
+            // Check if name matches
+            bool matches = obj.Name.ToLowerInvariant().Contains(normalizedTarget);
+
+            // For IItem, also check aliases and ShortDescription
+            if (!matches && obj is IItem itemObj)
+            {
+                foreach (var alias in itemObj.Aliases)
+                {
+                    if (alias.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(alias.ToLowerInvariant()))
+                    {
+                        matches = true;
+                        break;
+                    }
+                }
+                if (!matches && itemObj.ShortDescription.ToLowerInvariant().Contains(normalizedTarget))
+                {
+                    matches = true;
+                }
+            }
+
+            if (matches)
+            {
+                // Check object details first
+                foreach (var (keyword, description) in obj.Details)
+                {
+                    if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(keyword.ToLowerInvariant()))
+                    {
+                        Console.WriteLine(description);
+                        return;
+                    }
+                }
+                // For items, show long description
+                if (obj is IItem item)
+                {
+                    Console.WriteLine(item.LongDescription);
+                    return;
+                }
+                // For livings, show a basic description
+                if (obj is ILiving living)
+                {
+                    Console.WriteLine($"You look at {obj.Name}.");
+                    Console.WriteLine($"  HP: {living.HP}/{living.MaxHP}");
+                    return;
+                }
+                Console.WriteLine($"You see {obj.Name}.");
+                return;
+            }
+        }
+
+        Console.WriteLine($"You don't see '{target}' here.");
     }
 
     private async Task GoAsync(string exit)

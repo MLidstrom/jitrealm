@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using JitRealm.Mud;
 
 /// <summary>
@@ -26,21 +27,21 @@ public class RustySword : JitRealm.World.Std.WeaponBase
 
     public override void OnGet(IMudContext ctx, string pickerId)
     {
-        ctx.Say("clanks as you pick it up.");
+        ctx.Emote("clanks as you pick it up.");
     }
 
     public override void OnDrop(IMudContext ctx, string dropperId)
     {
-        ctx.Say("clatters to the ground.");
+        ctx.Emote("clatters to the ground.");
     }
 
     public override void OnEquip(string whoId, IMudContext ctx)
     {
-        ctx.Say("grips the rusty sword despite its worn condition.");
+        ctx.Emote("grips the rusty sword despite its worn condition.");
     }
 
     public override void OnUnequip(string whoId, IMudContext ctx)
     {
-        ctx.Say("sheathes the rusty sword.");
+        ctx.Emote("sheathes the rusty sword.");
     }
 }

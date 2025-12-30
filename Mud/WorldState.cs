@@ -67,8 +67,8 @@ public sealed class WorldState
 
         foreach (var (blueprintId, maxCount) in spawner.Spawns)
         {
-            // Count current spawns of this type in the room
-            var currentCount = CountSpawnsInRoom(roomId, blueprintId);
+            // Count current spawns of this type globally (items can be picked up, NPCs can wander)
+            var currentCount = CountSpawnsGlobally(blueprintId);
             var toSpawn = maxCount - currentCount;
 
             for (int i = 0; i < toSpawn; i++)
@@ -93,9 +93,10 @@ public sealed class WorldState
     }
 
     /// <summary>
-    /// Count how many instances of a specific blueprint are in a room.
+    /// Count how many instances of a specific blueprint exist globally.
+    /// This counts all clones regardless of where they are (room, inventory, etc.)
     /// </summary>
-    private int CountSpawnsInRoom(string roomId, string blueprintId)
+    private int CountSpawnsGlobally(string blueprintId)
     {
         if (Objects is null)
             return 0;
@@ -105,12 +106,12 @@ public sealed class WorldState
             normalizedBlueprint += ".cs";
 
         int count = 0;
-        foreach (var objId in Containers.GetContents(roomId))
+        foreach (var instanceId in Objects.ListInstanceIds())
         {
-            // Check if this object is a clone of the specified blueprint
-            // Clone IDs look like "npcs/goblin.cs#000001"
-            var normalizedObjId = objId.Replace("\\", "/").ToLowerInvariant();
-            if (normalizedObjId.StartsWith(normalizedBlueprint))
+            // Check if this instance is a clone of the specified blueprint
+            // Clone IDs look like "Items/rusty_sword.cs#000001"
+            var normalizedId = instanceId.Replace("\\", "/").ToLowerInvariant();
+            if (normalizedId.StartsWith(normalizedBlueprint))
             {
                 count++;
             }

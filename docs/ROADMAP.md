@@ -180,3 +180,9 @@
   - Direction shortcuts: `n`, `s`, `e`, `w`, `u`, `d`
   - `north`, `south`, `east`, `west`, `up`, `down` as direct commands (no `go` prefix needed)
   - Updated help text to show shortcuts
+
+- **Wizard Commands in Help** ✅
+  - All wizard commands registered via `CommandRegistry` with `IsWizardOnly = true`
+  - Commands: `blueprints`, `objects`, `clone`, `destruct`, `stat`, `reset`, `reload`, `unload`
+  - Wizard commands appear in `help` output only for wizard users
+  - `Mud/Commands/Wizard/WizardCommands.cs` contains all wizard command classes

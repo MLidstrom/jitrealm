@@ -341,6 +341,64 @@ public sealed class GameServer
                 await ShowEquipmentAsync(session);
                 break;
 
+            // Wizard commands
+            case "reload":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: reload <blueprintId>");
+                    break;
+                }
+                await _state.Objects!.ReloadBlueprintAsync(parts[1], _state);
+                await session.WriteLineAsync($"Reloaded blueprint {parts[1]}");
+                break;
+
+            case "unload":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: unload <blueprintId>");
+                    break;
+                }
+                await _state.Objects!.UnloadBlueprintAsync(parts[1], _state);
+                await session.WriteLineAsync($"Unloaded blueprint {parts[1]}");
+                break;
+
+            case "blueprints":
+                await session.WriteLineAsync("=== Blueprints ===");
+                foreach (var id in _state.Objects!.ListBlueprintIds())
+                    await session.WriteLineAsync($"  {id}");
+                break;
+
+            case "objects":
+                await session.WriteLineAsync("=== Instances ===");
+                foreach (var id in _state.Objects!.ListInstanceIds())
+                    await session.WriteLineAsync($"  {id}");
+                break;
+
+            case "clone":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: clone <blueprintId>");
+                    break;
+                }
+                var cloned = await _state.Objects!.CloneAsync<IMudObject>(parts[1], _state);
+                if (cloned is not null && playerLocation is not null)
+                {
+                    _state.Containers.Add(playerLocation, cloned.Id);
+                    await session.WriteLineAsync($"Cloned {parts[1]} -> {cloned.Id}");
+                }
+                break;
+
+            case "destruct":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: destruct <objectId>");
+                    break;
+                }
+                await _state.Objects!.DestructAsync(parts[1], _state);
+                _state.Containers.Remove(parts[1]);
+                await session.WriteLineAsync($"Destructed {parts[1]}");
+                break;
+
             case "quit":
             case "exit":
                 Console.WriteLine($"[{session.SessionId}] {playerName} disconnected");
@@ -850,7 +908,7 @@ public sealed class GameServer
             }
         }
 
-        // 4. Check other objects in room (NPCs, etc.)
+        // 4. Check other objects in room (NPCs, items, etc.) by name and aliases
         var contents = _state.Containers.GetContents(roomId);
         foreach (var objId in contents)
         {
@@ -860,9 +918,29 @@ public sealed class GameServer
             if (obj is null) continue;
 
             // Check if name matches
-            if (obj.Name.ToLowerInvariant().Contains(normalizedTarget))
+            bool matches = obj.Name.ToLowerInvariant().Contains(normalizedTarget);
+
+            // For IItem, also check aliases and ShortDescription
+            if (!matches && obj is IItem itemObj)
             {
-                // Check object details
+                foreach (var alias in itemObj.Aliases)
+                {
+                    if (alias.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(alias.ToLowerInvariant()))
+                    {
+                        matches = true;
+                        break;
+                    }
+                }
+                if (!matches && itemObj.ShortDescription.ToLowerInvariant().Contains(normalizedTarget))
+                {
+                    matches = true;
+                }
+            }
+
+            if (matches)
+            {
+                // Check object details first
                 foreach (var (keyword, description) in obj.Details)
                 {
                     if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
@@ -871,6 +949,12 @@ public sealed class GameServer
                         await session.WriteLineAsync(description);
                         return;
                     }
+                }
+                // For items, show long description
+                if (obj is IItem item)
+                {
+                    await session.WriteLineAsync(item.LongDescription);
+                    return;
                 }
                 // For livings, show a basic description
                 if (obj is ILiving living)

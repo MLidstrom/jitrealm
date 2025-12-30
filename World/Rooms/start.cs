@@ -2,14 +2,13 @@ using System;
 using System.Collections.Generic;
 using JitRealm.Mud;
 
-public sealed class StartRoom : MudObjectBase, IRoom, IResettable
+public sealed class StartRoom : MudObjectBase, IRoom, IResettable, ISpawner
 {
     // Id is assigned by the driver via MudObjectBase
 
     public override string Name => "The Starting Room";
 
-    public string Description => "A bare room with stone walls. A flickering terminal cursor seems to watch you. " +
-        "A rusty sword lies on the ground.";
+    public string Description => "A bare room with stone walls. A flickering terminal cursor seems to watch you.";
 
     public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
     {
@@ -37,9 +36,20 @@ public sealed class StartRoom : MudObjectBase, IRoom, IResettable
 
     public IReadOnlyList<string> Contents => Array.Empty<string>();
 
+    // ISpawner implementation - spawn the rusty sword
+    public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
+    {
+        ["Items/rusty_sword.cs"] = 1
+    };
+
+    public void Respawn(IMudContext ctx)
+    {
+        // Called by the driver to replenish spawns
+    }
+
     public void Reset(IMudContext ctx)
     {
-        // Room reset - could respawn items here in the future
+        // Room reset
         ctx.Say("The room shimmers briefly.");
     }
 }

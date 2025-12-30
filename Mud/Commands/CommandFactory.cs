@@ -1,5 +1,6 @@
 using JitRealm.Mud.Commands.Social;
 using JitRealm.Mud.Commands.Utility;
+using JitRealm.Mud.Commands.Wizard;
 
 namespace JitRealm.Mud.Commands;
 
@@ -20,6 +21,9 @@ public static class CommandFactory
 
         // Register utility commands
         RegisterUtilityCommands(registry);
+
+        // Register wizard commands
+        RegisterWizardCommands(registry);
 
         return registry;
     }
@@ -53,5 +57,17 @@ public static class CommandFactory
         registry.Register(new HelpCommand(registry));
         registry.Register(new TimeCommand());
         registry.Register(new ScoreCommand());
+    }
+
+    private static void RegisterWizardCommands(CommandRegistry registry)
+    {
+        registry.Register(new BlueprintsCommand());
+        registry.Register(new ObjectsCommand());
+        registry.Register(new ReloadCommand());
+        registry.Register(new UnloadCommand());
+        registry.Register(new CloneCommand());
+        registry.Register(new DestructCommand());
+        registry.Register(new StatCommand());
+        registry.Register(new ResetCommand());
     }
 }
