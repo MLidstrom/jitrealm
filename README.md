@@ -66,7 +66,7 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `look at <detail>` / `l <detail>` — examine room detail (grass, walls, etc.)
 - `go <exit>` — move via an exit (triggers IOnLeave/IOnEnter hooks)
 - `n` / `s` / `e` / `w` / `u` / `d` — direction shortcuts (north/south/east/west/up/down)
-- `quit` — exit
+- `quit` / `q` — disconnect and save player data
 
 ### Items & Inventory
 - `get <item>` / `take <item>` — pick up an item from the room (items have aliases, e.g., "sword" or "blade")
@@ -93,12 +93,12 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `bow`, `wave`, `laugh`, `smile`, `nod`, `shrug`, `sigh`, `cheer`, `think`, `cry`, `dance`, `yawn` — emotes
 
 ### Utility
-- `help [command]` — show command help
-- `score` — show detailed player stats
+- `help` / `?` — show command help (wizard commands shown only for wizards)
+- `score` / `status` — show detailed player stats (HP bar, XP, level, wizard status)
 - `time` — show server time and playtime
 
 ### Wizard Commands
-These commands are visible in `help` only for wizard users:
+These commands are visible in `help` and executable only for wizard users:
 - `blueprints` — list loaded blueprints
 - `objects` — list loaded instances
 - `clone <blueprintId>` — create a new instance in current room
@@ -108,8 +108,6 @@ These commands are visible in `help` only for wizard users:
 - `reload <blueprintId>` — recompile and update all instances (preserves state)
 - `unload <blueprintId>` — unload blueprint and all its instances
 - `patch <objectId> [key] [value]` — view or modify object state at runtime
-
-### Persistence
 - `save` — save world state to `save/world.json`
 - `load` — restore world state from save file
 
@@ -150,7 +148,9 @@ Edit `appsettings.json` to customize driver settings:
   "Player": {
     "StartingHP": 100,
     "CarryCapacity": 100,
-    "RegenPerHeartbeat": 1
+    "RegenPerHeartbeat": 1,
+    "XpMultiplier": 1.5,
+    "BaseXpPerLevel": 100
   }
 }
 ```

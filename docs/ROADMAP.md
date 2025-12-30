@@ -179,13 +179,16 @@
   - `l` as shortcut for `look`
   - Direction shortcuts: `n`, `s`, `e`, `w`, `u`, `d`
   - `north`, `south`, `east`, `west`, `up`, `down` as direct commands (no `go` prefix needed)
+  - `q` as shortcut for `quit`
+  - `?` as shortcut for `help`
+  - `status` as alias for `score`
   - Updated help text to show shortcuts
 
 - **Wizard Commands in Help** ✅
   - All wizard commands registered via `CommandRegistry` with `IsWizardOnly = true`
-  - Commands: `blueprints`, `objects`, `clone`, `destruct`, `stat`, `reset`, `reload`, `unload`, `patch`
+  - Commands: `blueprints`, `objects`, `clone`, `destruct`, `stat`, `reset`, `reload`, `unload`, `patch`, `save`, `load`
   - Wizard commands appear in `help` output only for wizard users
-  - `Mud/Commands/Wizard/WizardCommands.cs` contains all wizard command classes
+  - Non-wizards see "Unknown command" for wizard-only commands
   - `patch` command allows viewing/modifying object state variables at runtime
 
 ## Phase 16 — Player Accounts ✅ COMPLETE
