@@ -147,3 +147,17 @@
 - Standard library additions ✅
   - `World/std/room.cs` — RoomBase, OutdoorRoomBase, IndoorRoomBase, DarkRoomBase ✅
 - Session wizard support: `ISession.IsWizard` property ✅
+
+## Phase 15 — Configuration ✅ COMPLETE
+
+- `appsettings.json` configuration file ✅
+- `DriverSettings` configuration class with sections: ✅
+  - `Server` — Port, MaxConnections, WelcomeMessage, MudName, Version
+  - `Paths` — WorldDirectory, SaveDirectory, SaveFileName, StartRoom, PlayerBlueprint
+  - `GameLoop` — LoopDelayMs, DefaultHeartbeatSeconds, AutoSaveEnabled, AutoSaveIntervalMinutes
+  - `Combat` — RoundIntervalSeconds, FleeChancePercent, UnarmedMinDamage, UnarmedMaxDamage
+  - `Security` — HookTimeoutMs, CallOutTimeoutMs, HeartbeatTimeoutMs, VerboseLogging
+  - `Player` — StartingHP, CarryCapacity, RegenPerHeartbeat, XpMultiplier, BaseXpPerLevel
+- Command-line argument overrides (`--port`) ✅
+- Cross-platform support (Windows, Linux, macOS) ✅
+- Platform-specific path normalization ✅

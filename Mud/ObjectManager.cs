@@ -446,7 +446,10 @@ public sealed class ObjectManager
 
     private async Task<BlueprintHandle> CompileBlueprintAsync(string blueprintId)
     {
-        var sourcePath = Path.Combine(_worldRoot, blueprintId);
+        // Normalize path separators for the current platform
+        var platformPath = blueprintId.Replace('/', Path.DirectorySeparatorChar)
+                                       .Replace('\\', Path.DirectorySeparatorChar);
+        var sourcePath = Path.Combine(_worldRoot, platformPath);
         if (!File.Exists(sourcePath))
             throw new FileNotFoundException($"Blueprint source not found: {sourcePath}");
 

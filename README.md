@@ -23,10 +23,26 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Combat System** (v0.12): ICombatant interface, kill/flee/consider commands, automatic combat rounds
 - **NPCs & AI** (v0.13): MonsterBase/NPCBase classes, ISpawner interface, aggressive monsters, friendly NPCs
 - **Mudlib Polish** (v0.14): Command registry, social commands (shout/whisper/emotes), help system, RoomBase class
+- **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
 
 ## Requirements
 
 - .NET SDK **8.0+**
+
+## Platforms
+
+JitRealm runs on **Windows**, **Linux**, and **macOS** — anywhere .NET 8 runs.
+
+```bash
+# Build for current platform
+dotnet build
+
+# Publish self-contained for specific platforms
+dotnet publish -c Release -r win-x64 --self-contained
+dotnet publish -c Release -r linux-x64 --self-contained
+dotnet publish -c Release -r osx-x64 --self-contained
+dotnet publish -c Release -r osx-arm64 --self-contained  # Apple Silicon
+```
 
 ## Run
 
@@ -90,6 +106,49 @@ To connect as a player, use telnet: `telnet localhost 4000`
 ### Persistence
 - `save` — save world state to `save/world.json`
 - `load` — restore world state from save file
+
+## Configuration
+
+Edit `appsettings.json` to customize driver settings:
+
+```json
+{
+  "Server": {
+    "Port": 4000,
+    "MaxConnections": 0,
+    "WelcomeMessage": "Welcome to JitRealm, {PlayerName}!",
+    "MudName": "JitRealm",
+    "Version": "0.15"
+  },
+  "Paths": {
+    "WorldDirectory": "World",
+    "SaveDirectory": "save",
+    "StartRoom": "Rooms/start",
+    "PlayerBlueprint": "std/player"
+  },
+  "GameLoop": {
+    "LoopDelayMs": 50,
+    "DefaultHeartbeatSeconds": 2,
+    "AutoSaveEnabled": false,
+    "AutoSaveIntervalMinutes": 15
+  },
+  "Combat": {
+    "RoundIntervalSeconds": 3,
+    "FleeChancePercent": 50
+  },
+  "Security": {
+    "HookTimeoutMs": 5000,
+    "HeartbeatTimeoutMs": 1000
+  },
+  "Player": {
+    "StartingHP": 100,
+    "CarryCapacity": 100,
+    "RegenPerHeartbeat": 1
+  }
+}
+```
+
+Command-line arguments override config file settings (e.g., `--port 23`).
 
 ## Roadmap & driver plan
 

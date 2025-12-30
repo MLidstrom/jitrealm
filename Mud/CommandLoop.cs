@@ -1,4 +1,5 @@
 using JitRealm.Mud.Commands;
+using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Network;
 using JitRealm.Mud.Persistence;
 using JitRealm.Mud.Security;
@@ -9,23 +10,23 @@ public sealed class CommandLoop
 {
     private readonly WorldState _state;
     private readonly WorldStatePersistence _persistence;
-    private readonly string _startRoomId;
+    private readonly DriverSettings _settings;
     private string? _playerId;
     private readonly ConsoleSession _session;
     private readonly CommandRegistry _commandRegistry;
 
-    public CommandLoop(WorldState state, WorldStatePersistence persistence, string startRoomId = "Rooms/start")
+    public CommandLoop(WorldState state, WorldStatePersistence persistence, DriverSettings settings)
     {
         _state = state;
         _persistence = persistence;
-        _startRoomId = startRoomId;
+        _settings = settings;
         _session = new ConsoleSession();
         _commandRegistry = CommandFactory.CreateRegistry();
     }
 
     public async Task RunAsync()
     {
-        Console.WriteLine("JitRealm v0.14");
+        Console.WriteLine($"{_settings.Server.MudName} v{_settings.Server.Version}");
         Console.WriteLine("Commands: look, go <exit>, get <item>, drop <item>, inventory, examine <item>,");
         Console.WriteLine("          equip <item>, unequip <slot>, equipment, score,");
         Console.WriteLine("          kill <target>, flee, consider <target>,");
@@ -274,13 +275,13 @@ public sealed class CommandLoop
     private async Task CreatePlayerAsync()
     {
         // Load start room first
-        var startRoom = await _state.Objects!.LoadAsync<IRoom>(_startRoomId, _state);
+        var startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
 
         // Process spawns for the start room
         await _state.ProcessSpawnsAsync(startRoom.Id, new SystemClock());
 
         // Clone a player from the player blueprint
-        var player = await _state.Objects.CloneAsync<IPlayer>("std/player", _state);
+        var player = await _state.Objects.CloneAsync<IPlayer>(_settings.Paths.PlayerBlueprint, _state);
         _playerId = player.Id;
 
         // Set up the session

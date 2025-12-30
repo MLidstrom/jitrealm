@@ -1,23 +1,35 @@
 using JitRealm.Mud;
+using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Network;
 using JitRealm.Mud.Persistence;
+using Microsoft.Extensions.Configuration;
 
-// Parse command-line arguments
+// Load configuration from appsettings.json
+var baseDir = AppContext.BaseDirectory;
+var configPath = Path.Combine(baseDir, "appsettings.json");
+
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(baseDir)
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .Build();
+
+var settings = new DriverSettings();
+configuration.Bind(settings);
+
+// Parse command-line arguments (override settings)
 var serverMode = args.Contains("--server") || args.Contains("-s");
-var port = 4000;
 for (int i = 0; i < args.Length - 1; i++)
 {
     if (args[i] is "--port" or "-p" && int.TryParse(args[i + 1], out var p))
     {
-        port = p;
+        settings.Server.Port = p;
         break;
     }
 }
 
-var baseDir = AppContext.BaseDirectory;
-var worldDir = Path.Combine(baseDir, "World");
-var saveDir = Path.Combine(baseDir, "save");
-var savePath = Path.Combine(saveDir, "world.json");
+var worldDir = Path.Combine(baseDir, settings.Paths.WorldDirectory);
+var saveDir = Path.Combine(baseDir, settings.Paths.SaveDirectory);
+var savePath = Path.Combine(saveDir, settings.Paths.SaveFileName);
 
 var state = new WorldState
 {
@@ -31,7 +43,7 @@ var persistence = new WorldStatePersistence(provider);
 if (serverMode)
 {
     // Multi-player server mode
-    var server = new GameServer(state, persistence, port);
+    var server = new GameServer(state, persistence, settings);
 
     // Handle Ctrl+C gracefully
     using var cts = new CancellationTokenSource();
@@ -48,6 +60,6 @@ else
 {
     // Single-player console mode
     // CommandLoop now handles player creation as a world object
-    var loop = new CommandLoop(state, persistence);
+    var loop = new CommandLoop(state, persistence, settings);
     await loop.RunAsync();
 }

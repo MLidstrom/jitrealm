@@ -1,3 +1,4 @@
+using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Persistence;
 using JitRealm.Mud.Security;
 
@@ -11,15 +12,15 @@ public sealed class GameServer
     private readonly WorldState _state;
     private readonly WorldStatePersistence _persistence;
     private readonly TelnetServer _telnet;
-    private readonly string _startRoomId;
+    private readonly DriverSettings _settings;
     private bool _running;
 
-    public GameServer(WorldState state, WorldStatePersistence persistence, int port = 4000, string startRoomId = "Rooms/start")
+    public GameServer(WorldState state, WorldStatePersistence persistence, DriverSettings settings)
     {
         _state = state;
         _persistence = persistence;
-        _startRoomId = startRoomId;
-        _telnet = new TelnetServer(port);
+        _settings = settings;
+        _telnet = new TelnetServer(settings.Server.Port);
 
         _telnet.OnClientConnected += OnClientConnected;
     }
@@ -31,7 +32,7 @@ public sealed class GameServer
         _telnet.Start();
         _running = true;
 
-        Console.WriteLine($"JitRealm v0.12 - Multi-user server");
+        Console.WriteLine($"{_settings.Server.MudName} v{_settings.Server.Version} - Multi-user server");
         Console.WriteLine($"Listening on port {_telnet.Port}...");
         Console.WriteLine("Press Ctrl+C to stop.");
 
@@ -61,7 +62,7 @@ public sealed class GameServer
                 _state.Sessions.PruneDisconnected();
 
                 // Small delay to prevent busy-loop
-                await Task.Delay(50, cancellationToken);
+                await Task.Delay(_settings.GameLoop.LoopDelayMs, cancellationToken);
             }
         }
         catch (OperationCanceledException)
@@ -91,13 +92,13 @@ public sealed class GameServer
         try
         {
             // Load start room
-            var startRoom = await _state.Objects!.LoadAsync<IRoom>(_startRoomId, _state);
+            var startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
 
             // Process spawns for the start room
             await _state.ProcessSpawnsAsync(startRoom.Id, new SystemClock());
 
             // Clone player from blueprint
-            var player = await _state.Objects.CloneAsync<IPlayer>("std/player", _state);
+            var player = await _state.Objects.CloneAsync<IPlayer>(_settings.Paths.PlayerBlueprint, _state);
 
             // Set up the session
             session.PlayerId = player.Id;
@@ -127,7 +128,8 @@ public sealed class GameServer
         }
 
         // Welcome message
-        await session.WriteLineAsync($"Welcome to JitRealm, {playerName}!");
+        var welcomeMsg = _settings.Server.WelcomeMessage.Replace("{PlayerName}", playerName);
+        await session.WriteLineAsync(welcomeMsg);
         await session.WriteLineAsync("Type 'help' for commands, 'quit' to disconnect.");
         await session.WriteLineAsync("");
 

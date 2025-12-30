@@ -625,7 +625,61 @@ World/std/
 
 ---
 
-## Phase 15 — Web Frontend
+## Phase 15 — Configuration ✅ COMPLETE
+
+**Goal**: Centralized configuration via appsettings.json and cross-platform support.
+
+### Implementation ✅
+
+- `appsettings.json` — JSON configuration file in project root ✅
+- `DriverSettings` — C# configuration class with strongly-typed sections ✅
+- Microsoft.Extensions.Configuration packages for binding ✅
+- Command-line argument overrides (`--port`) ✅
+
+### Configuration sections ✅
+
+| Section | Settings |
+|---------|----------|
+| `Server` | Port, MaxConnections, WelcomeMessage, MudName, Version |
+| `Paths` | WorldDirectory, SaveDirectory, SaveFileName, StartRoom, PlayerBlueprint |
+| `GameLoop` | LoopDelayMs, DefaultHeartbeatSeconds, AutoSaveEnabled, AutoSaveIntervalMinutes |
+| `Combat` | RoundIntervalSeconds, FleeChancePercent, UnarmedMinDamage, UnarmedMaxDamage |
+| `Security` | HookTimeoutMs, CallOutTimeoutMs, HeartbeatTimeoutMs, VerboseLogging |
+| `Player` | StartingHP, CarryCapacity, RegenPerHeartbeat, XpMultiplier, BaseXpPerLevel |
+
+### Cross-platform support ✅
+
+- Path normalization for Windows/Linux/macOS ✅
+- Forward slashes in csproj globs ✅
+- Platform-agnostic file operations ✅
+
+### Files created ✅
+
+| File | Purpose |
+|------|---------|
+| `appsettings.json` | Configuration file |
+| `Mud/Configuration/DriverSettings.cs` | Strongly-typed settings classes |
+
+### Files modified ✅
+
+| File | Change |
+|------|--------|
+| `JitRealm.csproj` | Added configuration packages, cross-platform globs |
+| `Program.cs` | Load and bind settings |
+| `Mud/Network/GameServer.cs` | Use settings for port, welcome message, etc. |
+| `Mud/CommandLoop.cs` | Use settings for version, start room |
+| `Mud/ObjectManager.cs` | Platform-specific path normalization |
+
+### Acceptance criteria ✅
+
+- [x] appsettings.json loaded at startup
+- [x] Settings bound to DriverSettings class
+- [x] Command-line args override config file
+- [x] Works on Windows, Linux, macOS
+
+---
+
+## Phase 16 — Web Frontend
 
 **Goal**: Modern web-based client with wizard tools for world building.
 
@@ -644,7 +698,7 @@ World/std/
                                  * = wizard-only features
 ```
 
-### Phase 15a — Backend WebSocket API
+### Phase 16a — Backend WebSocket API
 
 **Add IsWizard to player system:**
 - `Mud/IPlayer.cs` — Add `bool IsWizard { get; }`
@@ -693,7 +747,7 @@ Mud/Network/
 - File paths validated (no traversal outside World/)
 - WebSocket connections require authentication
 
-### Phase 15b — Game Event Broadcasting
+### Phase 16b — Game Event Broadcasting
 
 **Push events to WebSocket clients:**
 - Room changes → `Room_Look`
@@ -712,7 +766,7 @@ while (!ct.IsCancellationRequested)
 }
 ```
 
-### Phase 15c — SvelteKit Frontend
+### Phase 16c — SvelteKit Frontend
 
 **Tech stack:**
 - SvelteKit 2.x + Svelte 5
@@ -738,7 +792,7 @@ web/
 └── package.json
 ```
 
-### Phase 15d — Player UI (Everyone)
+### Phase 16d — Player UI (Everyone)
 
 **Components:**
 - Terminal — xterm.js for game output with ANSI colors
@@ -756,7 +810,7 @@ web/
 └─────────────────────────────────────────┘
 ```
 
-### Phase 15e — Wizard UI (Wizard Only)
+### Phase 16e — Wizard UI (Wizard Only)
 
 **Additional tabs/panels for wizards:**
 - World Editor tab — file explorer + Monaco editor
@@ -843,9 +897,10 @@ web/
 
 ### Polish & Accessibility
 - Phase 14: Mudlib Polish ✅
+- Phase 15: Configuration ✅
 
 ### Web & Future (next)
-- Phase 15: Web Frontend
+- Phase 16: Web Frontend
 
 ### Future Enhancements
 - Spell/magic system
