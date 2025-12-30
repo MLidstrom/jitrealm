@@ -1,4 +1,5 @@
 using JitRealm.Mud.Persistence;
+using JitRealm.Mud.Security;
 
 namespace JitRealm.Mud.Network;
 
@@ -13,7 +14,7 @@ public sealed class GameServer
     private readonly string _startRoomId;
     private bool _running;
 
-    public GameServer(WorldState state, WorldStatePersistence persistence, int port = 4000, string startRoomId = "Rooms/start.cs")
+    public GameServer(WorldState state, WorldStatePersistence persistence, int port = 4000, string startRoomId = "Rooms/start")
     {
         _state = state;
         _persistence = persistence;
@@ -30,7 +31,7 @@ public sealed class GameServer
         _telnet.Start();
         _running = true;
 
-        Console.WriteLine($"JitRealm v0.6 - Multi-user server");
+        Console.WriteLine($"JitRealm v0.10 - Multi-user server");
         Console.WriteLine($"Listening on port {_telnet.Port}...");
         Console.WriteLine("Press Ctrl+C to stop.");
 
@@ -81,25 +82,43 @@ public sealed class GameServer
     {
         Console.WriteLine($"[{session.SessionId}] Connected");
 
-        // Create player for this session
+        // Clone a player world object for this session
         var playerName = $"Player{_state.Sessions.Count + 1}";
-        var player = new Player(playerName);
 
-        // Load start room and set player location
         try
         {
+            // Load start room
             var startRoom = await _state.Objects!.LoadAsync<IRoom>(_startRoomId, _state);
-            player.LocationId = startRoom.Id;
+
+            // Clone player from blueprint
+            var player = await _state.Objects.CloneAsync<IPlayer>("std/player", _state);
+
+            // Set up the session
+            session.PlayerId = player.Id;
+            session.PlayerName = playerName;
+
+            // Set player name via context
+            var ctx = CreateContextFor(player.Id);
+            if (player is PlayerBase playerBase)
+            {
+                playerBase.SetPlayerName(playerName, ctx);
+            }
+
+            // Move player to start room
+            _state.Containers.Add(player.Id, startRoom.Id);
+
+            // Register session
+            _state.Sessions.Add(session);
+
+            // Call login hook
+            player.OnLogin(ctx);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[{session.SessionId}] Failed to load start room: {ex.Message}");
+            Console.WriteLine($"[{session.SessionId}] Failed to create player: {ex.Message}");
             await session.CloseAsync();
             return;
         }
-
-        session.Player = player;
-        _state.Sessions.Add(session);
 
         // Welcome message
         await session.WriteLineAsync($"Welcome to JitRealm, {playerName}!");
@@ -136,7 +155,16 @@ public sealed class GameServer
     {
         var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var cmd = parts[0].ToLowerInvariant();
-        var player = session.Player!;
+        var playerId = session.PlayerId;
+        var playerName = session.PlayerName ?? "Someone";
+
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("Error: No player associated with this session.");
+            return;
+        }
+
+        var playerLocation = _state.Containers.GetContainer(playerId);
 
         switch (cmd)
         {
@@ -160,7 +188,7 @@ public sealed class GameServer
                     break;
                 }
                 var sayMsg = string.Join(" ", parts.Skip(1));
-                BroadcastToRoom(player.LocationId!, $"{player.Name} says: {sayMsg}", session);
+                BroadcastToRoom(playerLocation!, $"{playerName} says: {sayMsg}", session);
                 await session.WriteLineAsync($"You say: {sayMsg}");
                 break;
 
@@ -168,14 +196,68 @@ public sealed class GameServer
                 await ShowWhoAsync(session);
                 break;
 
+            case "score":
+                await ShowScoreAsync(session);
+                break;
+
+            case "get":
+            case "take":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: get <item>");
+                    break;
+                }
+                await GetItemAsync(session, string.Join(" ", parts.Skip(1)));
+                break;
+
+            case "drop":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: drop <item>");
+                    break;
+                }
+                await DropItemAsync(session, string.Join(" ", parts.Skip(1)));
+                break;
+
+            case "inventory":
+            case "inv":
+            case "i":
+                await ShowInventoryAsync(session);
+                break;
+
+            case "examine":
+            case "exam":
+            case "x":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: examine <item>");
+                    break;
+                }
+                await ExamineItemAsync(session, string.Join(" ", parts.Skip(1)));
+                break;
+
             case "help":
-                await session.WriteLineAsync("Commands: look, go <exit>, say <msg>, who, quit");
+                await session.WriteLineAsync("Commands: look, go <exit>, get <item>, drop <item>, inventory,");
+                await session.WriteLineAsync("          examine <item>, say <msg>, who, score, quit");
                 break;
 
             case "quit":
             case "exit":
-                Console.WriteLine($"[{session.SessionId}] {player.Name} disconnected");
-                BroadcastToRoom(player.LocationId!, $"{player.Name} has left the realm.", session);
+                Console.WriteLine($"[{session.SessionId}] {playerName} disconnected");
+
+                // Call logout hook
+                var player = _state.Objects!.Get<IPlayer>(playerId);
+                if (player is not null)
+                {
+                    var ctx = CreateContextFor(playerId);
+                    player.OnLogout(ctx);
+                }
+
+                BroadcastToRoom(playerLocation!, $"{playerName} has left the realm.", session);
+
+                // Remove player from room
+                _state.Containers.Remove(playerId);
+
                 await session.CloseAsync();
                 _state.Sessions.Remove(session.SessionId);
                 break;
@@ -188,8 +270,21 @@ public sealed class GameServer
 
     private async Task ShowRoomAsync(ISession session)
     {
-        var player = session.Player!;
-        var room = _state.Objects!.Get<IRoom>(player.LocationId!);
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("You are nowhere.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You are nowhere.");
+            return;
+        }
+
+        var room = _state.Objects!.Get<IRoom>(roomId);
         if (room is null)
         {
             await session.WriteLineAsync("You are nowhere.");
@@ -202,20 +297,54 @@ public sealed class GameServer
         if (room.Exits.Count > 0)
             await session.WriteLineAsync("Exits: " + string.Join(", ", room.Exits.Keys));
 
-        // Show other players in room
-        var othersHere = _state.Sessions.GetSessionsInRoom(player.LocationId!)
-            .Where(s => s != session && s.Player is not null)
-            .Select(s => s.Player!.Name)
-            .ToList();
+        // Show other players and objects in room
+        var contents = _state.Containers.GetContents(roomId);
+        var players = new List<string>();
+        var objects = new List<string>();
 
-        if (othersHere.Count > 0)
-            await session.WriteLineAsync("Players here: " + string.Join(", ", othersHere));
+        foreach (var objId in contents)
+        {
+            if (objId == playerId) continue; // Skip self
+
+            var obj = _state.Objects.Get<IMudObject>(objId);
+            if (obj is IPlayer)
+            {
+                // It's another player - find their name
+                var otherSession = _state.Sessions.GetByPlayerId(objId);
+                players.Add(otherSession?.PlayerName ?? obj.Name);
+            }
+            else if (obj is not null)
+            {
+                objects.Add(obj.Name);
+            }
+        }
+
+        if (players.Count > 0)
+            await session.WriteLineAsync("Players here: " + string.Join(", ", players));
+
+        if (objects.Count > 0)
+            await session.WriteLineAsync("You see: " + string.Join(", ", objects));
     }
 
     private async Task GoAsync(ISession session, string exit)
     {
-        var player = session.Player!;
-        var currentRoom = _state.Objects!.Get<IRoom>(player.LocationId!);
+        var playerId = session.PlayerId;
+        var playerName = session.PlayerName ?? "Someone";
+
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("You are nowhere.");
+            return;
+        }
+
+        var currentRoomId = _state.Containers.GetContainer(playerId);
+        if (currentRoomId is null)
+        {
+            await session.WriteLineAsync("You are nowhere.");
+            return;
+        }
+
+        var currentRoom = _state.Objects!.Get<IRoom>(currentRoomId);
         if (currentRoom is null)
         {
             await session.WriteLineAsync("You are nowhere.");
@@ -229,14 +358,14 @@ public sealed class GameServer
         }
 
         // Notify others in current room
-        BroadcastToRoom(player.LocationId!, $"{player.Name} leaves {exit}.", session);
+        BroadcastToRoom(currentRoomId, $"{playerName} leaves {exit}.", session);
 
         // Move to destination
         var destRoom = await _state.Objects.LoadAsync<IRoom>(destId, _state);
-        player.LocationId = destRoom.Id;
+        _state.Containers.Move(playerId, destRoom.Id);
 
         // Notify others in new room
-        BroadcastToRoom(player.LocationId!, $"{player.Name} has arrived.", session);
+        BroadcastToRoom(destRoom.Id, $"{playerName} has arrived.", session);
 
         // Show new room
         await ShowRoomAsync(session);
@@ -248,17 +377,44 @@ public sealed class GameServer
         await session.WriteLineAsync($"Players online: {sessions.Count}");
         foreach (var s in sessions)
         {
-            if (s.Player is not null)
+            if (s.PlayerId is not null)
             {
-                var location = _state.Objects!.Get<IRoom>(s.Player.LocationId ?? "")?.Name ?? "unknown";
-                await session.WriteLineAsync($"  {s.Player.Name} - {location}");
+                var location = _state.Containers.GetContainer(s.PlayerId);
+                var roomName = location is not null
+                    ? _state.Objects!.Get<IRoom>(location)?.Name ?? "unknown"
+                    : "unknown";
+                await session.WriteLineAsync($"  {s.PlayerName ?? "Unknown"} - {roomName}");
             }
         }
     }
 
+    private async Task ShowScoreAsync(ISession session)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var player = _state.Objects!.Get<IPlayer>(playerId);
+        if (player is null)
+        {
+            await session.WriteLineAsync("Player not found.");
+            return;
+        }
+
+        await session.WriteLineAsync($"=== {player.PlayerName} ===");
+        await session.WriteLineAsync($"  HP: {player.HP}/{player.MaxHP}");
+        await session.WriteLineAsync($"  Level: {player.Level}");
+        await session.WriteLineAsync($"  Experience: {player.Experience}");
+        await session.WriteLineAsync($"  Session time: {player.SessionTime:hh\\:mm\\:ss}");
+    }
+
     private void BroadcastToRoom(string roomId, string message, ISession? exclude = null)
     {
-        foreach (var session in _state.Sessions.GetSessionsInRoom(roomId))
+        var sessions = _state.Sessions.GetSessionsInRoom(roomId, _state.Containers.GetContainer);
+        foreach (var session in sessions)
         {
             if (session == exclude) continue;
             _ = session.WriteLineAsync(message);
@@ -274,15 +430,8 @@ public sealed class GameServer
             var obj = _state.Objects!.Get<IMudObject>(objectId);
             if (obj is IHeartbeat heartbeat)
             {
-                try
-                {
-                    var ctx = CreateContextFor(objectId);
-                    heartbeat.Heartbeat(ctx);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[Heartbeat error in {objectId}]: {ex.Message}");
-                }
+                var ctx = CreateContextFor(objectId);
+                SafeInvoker.TryInvokeHeartbeat(() => heartbeat.Heartbeat(ctx), $"Heartbeat in {objectId}");
             }
         }
     }
@@ -296,41 +445,35 @@ public sealed class GameServer
             var obj = _state.Objects!.Get<IMudObject>(callout.TargetId);
             if (obj is null) continue;
 
-            try
+            var method = obj.GetType().GetMethod(callout.MethodName);
+            if (method is null)
             {
-                var method = obj.GetType().GetMethod(callout.MethodName);
-                if (method is null)
-                {
-                    Console.WriteLine($"[CallOut error in {callout.TargetId}]: Method '{callout.MethodName}' not found");
-                    continue;
-                }
-
-                var ctx = CreateContextFor(callout.TargetId);
-                var parameters = method.GetParameters();
-                var args = new object?[parameters.Length];
-
-                if (parameters.Length > 0 && parameters[0].ParameterType == typeof(IMudContext))
-                {
-                    args[0] = ctx;
-                    if (callout.Args is not null)
-                    {
-                        for (int i = 1; i < parameters.Length && i - 1 < callout.Args.Length; i++)
-                            args[i] = callout.Args[i - 1];
-                    }
-                }
-                else if (callout.Args is not null)
-                {
-                    for (int i = 0; i < parameters.Length && i < callout.Args.Length; i++)
-                        args[i] = callout.Args[i];
-                }
-
-                method.Invoke(obj, args);
+                Console.WriteLine($"[CallOut error in {callout.TargetId}]: Method '{callout.MethodName}' not found");
+                continue;
             }
-            catch (Exception ex)
+
+            var ctx = CreateContextFor(callout.TargetId);
+            var parameters = method.GetParameters();
+            var args = new object?[parameters.Length];
+
+            if (parameters.Length > 0 && parameters[0].ParameterType == typeof(IMudContext))
             {
-                var inner = ex.InnerException ?? ex;
-                Console.WriteLine($"[CallOut error in {callout.TargetId}.{callout.MethodName}]: {inner.Message}");
+                args[0] = ctx;
+                if (callout.Args is not null)
+                {
+                    for (int i = 1; i < parameters.Length && i - 1 < callout.Args.Length; i++)
+                        args[i] = callout.Args[i - 1];
+                }
             }
+            else if (callout.Args is not null)
+            {
+                for (int i = 0; i < parameters.Length && i < callout.Args.Length; i++)
+                    args[i] = callout.Args[i];
+            }
+
+            SafeInvoker.TryInvokeCallout(
+                () => method.Invoke(obj, args),
+                $"CallOut {callout.MethodName} in {callout.TargetId}");
         }
     }
 
@@ -345,7 +488,9 @@ public sealed class GameServer
             {
                 case MessageType.Tell:
                     // Direct message to a player
-                    var targetSession = _state.Sessions.GetByPlayerId(msg.ToId ?? "");
+                    var targetSession = msg.ToId is not null
+                        ? _state.Sessions.GetByPlayerId(msg.ToId)
+                        : null;
                     if (targetSession is not null)
                     {
                         var formatted = $"{GetObjectName(msg.FromId)} tells you: {msg.Content}";
@@ -362,7 +507,8 @@ public sealed class GameServer
                             ? $"{GetObjectName(msg.FromId)} says: {msg.Content}"
                             : $"{GetObjectName(msg.FromId)} {msg.Content}";
 
-                        foreach (var session in _state.Sessions.GetSessionsInRoom(msg.RoomId))
+                        var sessions = _state.Sessions.GetSessionsInRoom(msg.RoomId, _state.Containers.GetContainer);
+                        foreach (var session in sessions)
                         {
                             _ = session.WriteLineAsync(formatted);
                         }
@@ -374,19 +520,200 @@ public sealed class GameServer
 
     private MudContext CreateContextFor(string objectId)
     {
-        return new MudContext
+        var stateStore = _state.Objects!.GetStateStore(objectId) ?? new DictionaryStateStore();
+        var clock = new SystemClock();
+        return new MudContext(_state, clock)
         {
-            World = _state,
-            State = new DictionaryStateStore(),
-            Clock = new SystemClock(),
+            State = stateStore,
             CurrentObjectId = objectId,
-            RoomId = objectId
+            RoomId = _state.Containers.GetContainer(objectId) ?? objectId
         };
     }
 
     private string GetObjectName(string objectId)
     {
+        // First check if it's a player - use their name from session
+        var session = _state.Sessions.GetByPlayerId(objectId);
+        if (session?.PlayerName is not null)
+            return session.PlayerName;
+
         var obj = _state.Objects!.Get<IMudObject>(objectId);
         return obj?.Name ?? objectId;
+    }
+
+    private async Task GetItemAsync(ISession session, string itemName)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You're not in a room.");
+            return;
+        }
+
+        // Find item in room
+        var ctx = CreateContextFor(playerId);
+        var itemId = ctx.FindItem(itemName, roomId);
+        if (itemId is null)
+        {
+            await session.WriteLineAsync($"You don't see '{itemName}' here.");
+            return;
+        }
+
+        // Check if it's a carryable item
+        var item = _state.Objects!.Get<IItem>(itemId);
+        if (item is null)
+        {
+            await session.WriteLineAsync("That's not an item.");
+            return;
+        }
+
+        // Check weight limit
+        var player = _state.Objects.Get<IPlayer>(playerId);
+        if (player is not null && !player.CanCarry(item.Weight))
+        {
+            await session.WriteLineAsync($"You can't carry that much weight. (Carrying {player.CarriedWeight}/{player.CarryCapacity})");
+            return;
+        }
+
+        // Move item to player inventory
+        ctx.Move(itemId, playerId);
+        await session.WriteLineAsync($"You pick up {item.ShortDescription}.");
+        BroadcastToRoom(roomId, $"{session.PlayerName} picks up {item.ShortDescription}.", session);
+    }
+
+    private async Task DropItemAsync(ISession session, string itemName)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You're not in a room.");
+            return;
+        }
+
+        // Find item in inventory
+        var ctx = CreateContextFor(playerId);
+        var itemId = ctx.FindItem(itemName, playerId);
+        if (itemId is null)
+        {
+            await session.WriteLineAsync($"You're not carrying '{itemName}'.");
+            return;
+        }
+
+        var item = _state.Objects!.Get<IItem>(itemId);
+        if (item is null)
+        {
+            await session.WriteLineAsync("That's not an item.");
+            return;
+        }
+
+        // Move item to room
+        ctx.Move(itemId, roomId);
+        await session.WriteLineAsync($"You drop {item.ShortDescription}.");
+        BroadcastToRoom(roomId, $"{session.PlayerName} drops {item.ShortDescription}.", session);
+    }
+
+    private async Task ShowInventoryAsync(ISession session)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var contents = _state.Containers.GetContents(playerId);
+        if (contents.Count == 0)
+        {
+            await session.WriteLineAsync("You are not carrying anything.");
+            return;
+        }
+
+        await session.WriteLineAsync("You are carrying:");
+        int totalWeight = 0;
+        foreach (var itemId in contents)
+        {
+            var item = _state.Objects!.Get<IItem>(itemId);
+            if (item is not null)
+            {
+                await session.WriteLineAsync($"  {item.ShortDescription} ({item.Weight} lbs)");
+                totalWeight += item.Weight;
+            }
+            else
+            {
+                var obj = _state.Objects.Get<IMudObject>(itemId);
+                await session.WriteLineAsync($"  {obj?.Name ?? itemId}");
+            }
+        }
+
+        var player = _state.Objects!.Get<IPlayer>(playerId);
+        if (player is not null)
+        {
+            await session.WriteLineAsync($"Total weight: {totalWeight}/{player.CarryCapacity} lbs");
+        }
+    }
+
+    private async Task ExamineItemAsync(ISession session, string itemName)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You're not in a room.");
+            return;
+        }
+
+        // Find item in room or inventory
+        var ctx = CreateContextFor(playerId);
+        var itemId = ctx.FindItem(itemName, playerId);  // Check inventory first
+        if (itemId is null)
+        {
+            itemId = ctx.FindItem(itemName, roomId);  // Then check room
+        }
+
+        if (itemId is null)
+        {
+            await session.WriteLineAsync($"You don't see '{itemName}' here.");
+            return;
+        }
+
+        var item = _state.Objects!.Get<IItem>(itemId);
+        if (item is not null)
+        {
+            await session.WriteLineAsync(item.LongDescription);
+            await session.WriteLineAsync($"  Weight: {item.Weight} lbs");
+            await session.WriteLineAsync($"  Value: {item.Value} coins");
+        }
+        else
+        {
+            var obj = _state.Objects.Get<IMudObject>(itemId);
+            if (obj is not null)
+            {
+                await session.WriteLineAsync($"{obj.Name}");
+            }
+            else
+            {
+                await session.WriteLineAsync("You examine it closely but see nothing special.");
+            }
+        }
     }
 }

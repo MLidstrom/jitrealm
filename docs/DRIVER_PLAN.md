@@ -171,7 +171,395 @@ Only unload old ALC when:
 
 ---
 
-## Phase 7 — Security sandboxing (NEXT)
+## Phase 7 — Security sandboxing ✅ COMPLETE
 
-In-process runtime compilation = full trust.
-For public use, execute world code out-of-process and expose only a capability-limited API.
+### Implementation ✅
+
+Defense-in-depth security with multiple layers:
+
+1. **Restricted assembly references** ✅
+   - `SafeReferences.cs` provides curated list of safe assemblies
+   - Only essential .NET assemblies allowed (System.Runtime, System.Collections, System.Linq, etc.)
+   - Dangerous assemblies blocked (System.IO, System.Net, System.Diagnostics, etc.)
+
+2. **Namespace/type blocking** ✅
+   - `ForbiddenSymbolValidator.cs` uses Roslyn semantic analysis
+   - Rejects code using forbidden namespaces at compile time
+   - Clear error messages for blocked code
+
+3. **API surface isolation** ✅
+   - `ISandboxedWorldAccess` replaces direct `WorldState` access
+   - World code can only query objects, not modify ObjectManager
+   - SessionManager, schedulers not exposed to world code
+
+4. **Execution timeouts** ✅
+   - `SafeInvoker.cs` wraps all hook invocations
+   - 5-second timeout for hooks and heartbeats
+   - 10-second timeout for callouts
+
+### Blocked namespaces
+
+- System.IO, System.Net, System.Net.Http, System.Net.Sockets
+- System.Diagnostics, System.Reflection.Emit
+- System.Runtime.InteropServices, Microsoft.CodeAnalysis
+
+### Blocked types
+
+- System.Environment, System.AppDomain, System.Activator
+- System.Type, System.Reflection.Assembly, System.Reflection.MethodInfo
+- System.Threading.Thread, System.Threading.ThreadPool
+
+### What world code CAN do
+
+- `IMudContext.Tell()`, `Say()`, `Emote()` — messaging
+- `IMudContext.State` — per-instance state storage
+- `IMudContext.CallOut()`, `Every()`, `CancelCallOut()` — scheduling
+- `IMudContext.World.GetObject<T>()` — read-only object queries
+- Standard C# collections, LINQ, basic types
+
+### Known limitations
+
+- Cannot forcibly abort managed threads (timeouts throw exceptions)
+- In-process sandboxing only (true isolation would require out-of-process worker)
+
+---
+
+# lpMUD Evolution Phases
+
+The following phases evolve JitRealm toward full lpMUD feature parity.
+See [LPMUD_EVOLUTION_PLAN.md](LPMUD_EVOLUTION_PLAN.md) for detailed specifications.
+
+---
+
+## Phase 8 — Living Foundation ✅ COMPLETE
+
+**Goal**: Establish "living" objects with health, stats, and damage mechanics.
+
+### New interfaces ✅
+
+- `ILiving` — HP, MaxHP, IsAlive, TakeDamage(), Heal(), Die() ✅
+- `IHasStats` (optional) — Strength, Dexterity, Constitution, etc. ✅
+
+### New hooks ✅
+
+- `IOnDamage` — modify incoming damage ✅
+- `IOnDeath` — triggered when HP reaches 0 ✅
+- `IOnHeal` — triggered when healed ✅
+
+### Standard library ✅
+
+- `World/std/living.cs` — base class for all living beings ✅
+- HP stored in IStateStore for persistence ✅
+- Heartbeat triggers natural regeneration ✅
+
+### IMudContext additions ✅
+
+- `DealDamage(targetId, amount)` — deal damage to a living ✅
+- `HealTarget(targetId, amount)` — heal a living ✅
+
+### Acceptance criteria ✅
+
+- [x] ILiving interface with HP/MaxHP
+- [x] LivingBase class compiles and loads
+- [x] TakeDamage reduces HP, triggers OnDamage
+- [x] HP=0 triggers Die() and OnDeath
+- [x] Heartbeat regenerates HP
+- [x] HP persists across reload
+
+---
+
+## Phase 9 — Player as World Object ✅ COMPLETE
+
+**Goal**: Transform Player from driver-side class to cloneable world object.
+
+### The big change ✅
+
+```
+Before:  Session.Player = new Player("Alice")     // Driver class
+After:   Session.PlayerId = clonedObjectId        // World object
+```
+
+### New interface ✅
+
+- `IPlayer : ILiving` — PlayerName, LastLogin, SessionTime, Experience, Level
+
+### Standard library ✅
+
+- `World/std/player.cs` — PlayerBase class extending LivingBase
+- Stats, experience, level stored in IStateStore
+- Login/logout hooks, resurrection after death, level-up system
+
+### Session changes ✅
+
+- `ISession.PlayerId` and `PlayerName` replace `Player` property
+- Player cloned on login, location tracked via ContainerRegistry
+- Session save data stores PlayerId for reconnection
+
+### Files modified ✅
+
+- `Mud/IPlayer.cs` — new interface
+- `World/std/player.cs` — new PlayerBase blueprint
+- `Mud/Network/ISession.cs` — PlayerId/PlayerName instead of Player
+- `Mud/Network/ConsoleSession.cs` — updated for new ISession
+- `Mud/Network/TelnetSession.cs` — updated for new ISession
+- `Mud/Network/SessionManager.cs` — GetSessionsInRoom with location lookup
+- `Mud/Network/GameServer.cs` — PlayerId-based operations
+- `Mud/WorldState.cs` — removed Player property
+- `Mud/CommandLoop.cs` — PlayerId + ContainerRegistry for location
+- `Mud/MudContext.cs` — ContainerRegistry for Say/Emote room lookup
+- `Mud/ContainerRegistry.cs` — added Move method
+- `Mud/Persistence/SaveData.cs` — SessionSaveData replaces PlayerSaveData
+- `Mud/Persistence/WorldStatePersistence.cs` — ISession parameter support
+- `Mud/Player.cs` — deleted (no longer needed)
+
+### Acceptance criteria ✅
+
+- [x] Player cloned from World/std/player.cs
+- [x] Player has HP, Level, Experience
+- [x] Player persists between sessions
+- [x] Multiple players have separate instances
+- [x] Player location via ContainerRegistry
+
+---
+
+## Phase 10 — Items & Inventory ✅ COMPLETE
+
+**Goal**: Enable objects that can be picked up, dropped, and carried.
+
+### New interfaces ✅
+
+- `IItem` — Weight, Value, ShortDescription, LongDescription ✅
+- `ICarryable : IItem` — OnGet(), OnDrop(), OnGive() ✅
+- `IContainer : IItem` — MaxCapacity, IsOpen, Open(), Close() ✅
+- `IHasInventory` — CarryCapacity, CarriedWeight, CanCarry() ✅
+
+### IMudContext additions ✅
+
+- `Move(objectId, destinationId)` — move object between containers ✅
+- `GetContainerWeight(containerId)` — total weight in container ✅
+- `GetInventory()` — items in current object's inventory ✅
+- `FindItem(name, containerId)` — find item by name ✅
+
+### IStateStore additions ✅
+
+- `Has(key)` — check if state key exists ✅
+
+### New commands ✅
+
+- `get <item>` / `take <item>` — pick up from room ✅
+- `drop <item>` — drop to room ✅
+- `inventory` / `inv` / `i` — list carried items ✅
+- `examine <item>` / `exam` / `x` — show LongDescription ✅
+
+### Standard library ✅
+
+- `World/std/item.cs` — ItemBase and ContainerBase classes ✅
+- `World/Items/rusty_sword.cs` — example item ✅
+- `World/Items/health_potion.cs` — example item ✅
+
+### Files created/modified ✅
+
+- `Mud/IItem.cs` — new interfaces
+- `World/std/item.cs` — ItemBase, ContainerBase
+- `Mud/IPlayer.cs` — now extends IHasInventory
+- `World/std/player.cs` — implements CarryCapacity, CarriedWeight, CanCarry
+- `Mud/IMudContext.cs` — Move, GetContainerWeight, GetInventory, FindItem
+- `Mud/MudContext.cs` — implementations
+- `Mud/IStateStore.cs` — added Has method
+- `Mud/DictionaryStateStore.cs` — implemented Has
+- `Mud/CommandLoop.cs` — item commands
+- `Mud/Network/GameServer.cs` — multiplayer item commands
+
+### Acceptance criteria ✅
+
+- [x] Items can be cloned into rooms
+- [x] `get` moves item to player inventory
+- [x] `drop` moves item to current room
+- [x] `inventory` lists carried items with weights
+- [x] Weight limit enforced
+- [x] Items persist in inventories
+
+---
+
+## Phase 11 — Equipment System
+
+**Goal**: Allow items to be equipped in slots with stat bonuses.
+
+### New interfaces
+
+- `IEquippable : ICarryable` — Slot, OnEquip(), OnUnequip()
+- `IWeapon : IEquippable` — MinDamage, MaxDamage, WeaponType
+- `IArmor : IEquippable` — ArmorClass, ArmorType
+
+### Equipment slots
+
+```csharp
+enum EquipmentSlot { Head, Neck, Body, Back, Arms, Hands,
+                     Waist, Legs, Feet, MainHand, OffHand, Ring1, Ring2 }
+```
+
+### New registry
+
+- `EquipmentRegistry` — tracks livingId → (slot → itemId)
+
+### New commands
+
+- `equip <item>` — equip to appropriate slot
+- `unequip <slot>` — remove from slot
+- `equipment` / `eq` — show equipped items
+- `compare <item>` — compare to equipped
+
+### Acceptance criteria
+
+- [ ] IEquippable items can be equipped
+- [ ] One item per slot enforced
+- [ ] Equipped weapon affects damage
+- [ ] Equipped armor affects defense
+- [ ] Equipment persists
+
+---
+
+## Phase 12 — Combat System
+
+**Goal**: Enable players and NPCs to fight.
+
+### New interface
+
+- `ICombatant : ILiving` — Attack(), InCombat, CombatTarget, StopCombat()
+
+### New hooks
+
+- `IOnAttack` — modify outgoing damage
+- `IOnDefend` — modify incoming damage
+- `IOnKill` — triggered when killing something
+
+### Combat scheduler
+
+- `CombatScheduler` — tracks active combats
+- Combat rounds processed each game loop tick
+- Damage = weapon + stats + OnAttack - armor - OnDefend
+
+### Combat flow
+
+1. `kill <target>` starts combat
+2. Each tick: calculate damage, apply, send messages
+3. HP ≤ 0: end combat, award experience, trigger OnDeath/OnKill
+4. `flee` attempts escape
+
+### New commands
+
+- `kill <target>` / `attack <target>` — start combat
+- `flee` / `retreat` — attempt escape
+- `consider <target>` — estimate difficulty
+
+### Acceptance criteria
+
+- [ ] `kill goblin` starts combat
+- [ ] Combat rounds process automatically
+- [ ] Damage uses weapon + stats
+- [ ] Armor reduces damage
+- [ ] Death ends combat, awards XP
+- [ ] `flee` can escape
+
+---
+
+## Phase 13 — NPCs & AI
+
+**Goal**: Populate the world with monsters and NPCs.
+
+### Standard library
+
+- `World/std/monster.cs` — MonsterBase class
+  - ExperienceValue, IsAggressive
+  - AI via Heartbeat (patrol, hunt)
+  - Respawn after death via CallOut
+
+- `World/std/npc.cs` — non-combat NPC base
+  - Shopkeepers, quest givers, etc.
+
+### Spawn system
+
+- `ISpawner` interface — rooms can spawn NPCs
+- Spawns dict: blueprintId → count
+- Respawn() called periodically
+
+### Example NPCs
+
+- `World/npcs/goblin.cs` — aggressive monster
+- `World/npcs/shopkeeper.cs` — friendly NPC
+
+### Acceptance criteria
+
+- [ ] Monsters spawn in rooms
+- [ ] Aggressive monsters attack players
+- [ ] Monster AI via Heartbeat
+- [ ] Dead monsters respawn
+- [ ] Experience awarded on kill
+- [ ] Friendly NPCs can talk
+
+---
+
+## Phase 14 — Mudlib Polish
+
+**Goal**: Complete standard library and command system.
+
+### Standard library structure
+
+```
+World/std/
+├── living.cs      # Base for living things
+├── player.cs      # Player blueprint
+├── monster.cs     # Monster blueprint
+├── npc.cs         # Non-combat NPC
+├── room.cs        # Room base class
+├── item.cs        # Item base
+├── weapon.cs      # Weapon base
+├── armor.cs       # Armor base
+└── container.cs   # Container base
+```
+
+### Command dispatch
+
+- `ICommand` interface — Name, Aliases, Usage, Description, ExecuteAsync()
+- `CommandRegistry` — register and lookup commands
+
+### Social commands
+
+- `shout <message>` — speak to adjacent rooms
+- `whisper <player> <message>` — private message
+- Pre-defined emotes: `bow`, `wave`, `laugh`, etc.
+
+### Utility commands
+
+- `help [command]` — show help
+- `score` — show player stats
+- `time` — show game time
+
+### Acceptance criteria
+
+- [ ] Full World/std/ library
+- [ ] Command registry with help
+- [ ] Social commands work
+- [ ] Score shows all player stats
+
+---
+
+## Implementation Priority
+
+### Core lpMUD Feel (do first)
+- Phase 8: Living Foundation
+- Phase 9: Player as World Object
+- Phase 10: Items & Inventory
+- Phase 13: NPCs (basic)
+
+### Complete Experience (do next)
+- Phase 11: Equipment
+- Phase 12: Combat
+- Phase 14: Mudlib Polish
+
+### Future Enhancements
+- Spell/magic system
+- Quest system
+- Crafting
+- Guilds/classes
+- World builder tools

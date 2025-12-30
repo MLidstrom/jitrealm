@@ -46,22 +46,8 @@ if (serverMode)
 }
 else
 {
-    // Single-player console mode (backward compatible)
-    state.Player = new Player("you");
-
-    // Try to load saved state, otherwise start fresh
-    if (await persistence.ExistsAsync())
-    {
-        Console.WriteLine("Loading saved world state...");
-        await persistence.LoadAsync(state);
-    }
-    else
-    {
-        // Start fresh with the start room
-        var startRoom = await state.Objects.LoadAsync<IRoom>("Rooms/start.cs", state);
-        state.Player.LocationId = startRoom.Id;
-    }
-
+    // Single-player console mode
+    // CommandLoop now handles player creation as a world object
     var loop = new CommandLoop(state, persistence);
     await loop.RunAsync();
 }

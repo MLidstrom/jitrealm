@@ -3,12 +3,19 @@ using System.Text.Json;
 namespace JitRealm.Mud.Persistence;
 
 /// <summary>
-/// Serializable player state.
+/// Serializable session state for restoring player association.
 /// </summary>
-public sealed class PlayerSaveData
+public sealed class SessionSaveData
 {
-    public required string Name { get; init; }
-    public string? LocationId { get; init; }
+    /// <summary>
+    /// The instance ID of the player world object.
+    /// </summary>
+    public required string PlayerId { get; init; }
+
+    /// <summary>
+    /// The player's display name.
+    /// </summary>
+    public required string PlayerName { get; init; }
 }
 
 /// <summary>
@@ -42,11 +49,17 @@ public sealed class ContainerSaveData
 /// </summary>
 public sealed class WorldSaveData
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public int Version { get; init; } = CurrentVersion;
     public DateTimeOffset SavedAt { get; init; }
-    public PlayerSaveData? Player { get; init; }
+
+    /// <summary>
+    /// Session data for restoring player association.
+    /// For console mode, this is a single session.
+    /// </summary>
+    public SessionSaveData? Session { get; init; }
+
     public List<InstanceSaveData>? Instances { get; init; }
     public ContainerSaveData? Containers { get; init; }
 }

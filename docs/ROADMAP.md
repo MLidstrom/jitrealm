@@ -42,8 +42,46 @@
 - `say` command for room chat ✅
 - `who` command to list online players ✅
 
-## Phase 5 — Security model (important if exposed)
+## Phase 5 — Security sandboxing ✅ COMPLETE
 
-- Consider separate worker process for untrusted world code
-- Restrict API surface (interfaces only)
-- Prefer message-passing boundary between kernel and world objects
+- Assembly reference whitelisting via `SafeReferences.cs` ✅
+- Namespace/type blocking via `ForbiddenSymbolValidator.cs` ✅
+- API surface isolation via `ISandboxedWorldAccess` ✅
+- Execution timeouts via `SafeInvoker.cs` ✅
+- Blocked: System.IO, System.Net, System.Diagnostics, System.Reflection.Emit ✅
+- World code can only use safe APIs through IMudContext ✅
+
+## Phase 6 — Living Foundation ✅ COMPLETE
+
+- `ILiving` interface with HP, MaxHP, TakeDamage, Heal, Die ✅
+- `IHasStats` optional interface for Strength/Dex/etc. ✅
+- Living hooks: `IOnDamage`, `IOnDeath`, `IOnHeal` ✅
+- IMudContext methods: `DealDamage()`, `HealTarget()` ✅
+- Standard library: `World/std/living.cs` base class ✅
+- HP stored in IStateStore for persistence ✅
+- Heartbeat triggers natural regeneration ✅
+
+## Phase 7 — Player as World Object ✅ COMPLETE
+
+- `IPlayer` interface extending `ILiving` ✅
+- `World/std/player.cs` player blueprint ✅
+- Session tracks `PlayerId` and `PlayerName` instead of `Player` class ✅
+- Player location via ContainerRegistry ✅
+- Player state (HP, XP, Level) persists in IStateStore ✅
+- Login/Logout hooks: `OnLogin()`, `OnLogout()` ✅
+- New `score` command to show player stats ✅
+- Multiple players have separate instances ✅
+
+## Phase 8 — Items & Inventory ✅ COMPLETE
+
+- `IItem` interface — Weight, Value, ShortDescription, LongDescription ✅
+- `ICarryable` interface — OnGet, OnDrop, OnGive hooks ✅
+- `IContainer` interface — MaxCapacity, IsOpen, Open, Close ✅
+- `IHasInventory` interface — CarryCapacity, CarriedWeight, CanCarry ✅
+- `IPlayer` now extends `IHasInventory` ✅
+- IMudContext methods: Move, GetContainerWeight, GetInventory, FindItem ✅
+- Commands: get/take, drop, inventory/inv/i, examine/exam/x ✅
+- Standard library: `World/std/item.cs` (ItemBase, ContainerBase) ✅
+- Example items: rusty_sword.cs, health_potion.cs ✅
+- Weight limit enforced ✅
+- Items persist in inventories ✅

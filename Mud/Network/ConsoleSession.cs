@@ -6,7 +6,8 @@ namespace JitRealm.Mud.Network;
 public sealed class ConsoleSession : ISession
 {
     public string SessionId { get; } = "console";
-    public Player? Player { get; set; }
+    public string? PlayerId { get; set; }
+    public string? PlayerName { get; set; }
     public bool IsConnected => true; // Console is always "connected"
     public bool HasPendingInput => Console.KeyAvailable;
 

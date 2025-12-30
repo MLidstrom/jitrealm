@@ -48,6 +48,29 @@ public sealed class ContainerRegistry
     }
 
     /// <summary>
+    /// Move an object to a new container.
+    /// Same as Add but with clearer semantics for moving between containers.
+    /// </summary>
+    public void Move(string objectId, string newContainerId)
+    {
+        // Remove from old container if any
+        if (_location.TryGetValue(objectId, out var oldContainer))
+        {
+            if (_contents.TryGetValue(oldContainer, out var oldSet))
+                oldSet.Remove(objectId);
+        }
+
+        // Add to new container
+        if (!_contents.TryGetValue(newContainerId, out var set))
+        {
+            set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _contents[newContainerId] = set;
+        }
+        set.Add(objectId);
+        _location[objectId] = newContainerId;
+    }
+
+    /// <summary>
     /// Get the contents of a container.
     /// </summary>
     public IReadOnlyCollection<string> GetContents(string containerId)

@@ -45,27 +45,41 @@ public sealed class SessionManager
     }
 
     /// <summary>
-    /// Get session by player ID.
+    /// Get session by player object ID.
     /// </summary>
     public ISession? GetByPlayerId(string playerId)
     {
         lock (_lock)
         {
             return _sessions.Values.FirstOrDefault(s =>
-                s.Player is not null &&
-                string.Equals(s.Player.Name, playerId, StringComparison.OrdinalIgnoreCase));
+                s.PlayerId is not null &&
+                string.Equals(s.PlayerId, playerId, StringComparison.OrdinalIgnoreCase));
         }
     }
 
     /// <summary>
-    /// Get all sessions in a specific room.
+    /// Get session by player name.
     /// </summary>
-    public IReadOnlyList<ISession> GetSessionsInRoom(string roomId)
+    public ISession? GetByPlayerName(string playerName)
+    {
+        lock (_lock)
+        {
+            return _sessions.Values.FirstOrDefault(s =>
+                s.PlayerName is not null &&
+                string.Equals(s.PlayerName, playerName, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
+    /// Get all sessions whose player is in a specific room.
+    /// Requires a function to look up player location from ContainerRegistry.
+    /// </summary>
+    public IReadOnlyList<ISession> GetSessionsInRoom(string roomId, Func<string, string?> getPlayerLocation)
     {
         lock (_lock)
         {
             return _sessions.Values
-                .Where(s => s.Player?.LocationId == roomId)
+                .Where(s => s.PlayerId is not null && getPlayerLocation(s.PlayerId) == roomId)
                 .ToList();
         }
     }

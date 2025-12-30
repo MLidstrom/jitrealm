@@ -16,7 +16,8 @@ public sealed class TelnetSession : ISession, IDisposable
     private bool _disposed;
 
     public string SessionId { get; }
-    public Player? Player { get; set; }
+    public string? PlayerId { get; set; }
+    public string? PlayerName { get; set; }
     public bool IsConnected => !_disposed && _client.Connected;
     public bool HasPendingInput => _stream.DataAvailable;
 

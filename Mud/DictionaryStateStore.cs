@@ -25,6 +25,8 @@ public sealed class DictionaryStateStore : IStateStore
 
     public bool Remove(string key) => _data.TryRemove(key, out _);
 
+    public bool Has(string key) => _data.ContainsKey(key);
+
     public IEnumerable<string> Keys => _data.Keys;
 
     /// <summary>

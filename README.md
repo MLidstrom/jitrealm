@@ -15,6 +15,10 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Callouts** (v0.4): CallOut, Every, CancelCallOut for scheduled method calls
 - **Persistence** (v0.5): Save/load world state to JSON, auto-load on startup
 - **Multi-user** (v0.6): Telnet server, multiple concurrent players, sessions
+- **Security** (v0.7): Sandboxed world code with blocked dangerous APIs, execution timeouts
+- **Living objects** (v0.8): ILiving interface, HP/damage/heal system, World/std/living.cs base class
+- **Player as world object** (v0.9): IPlayer interface, cloneable player blueprints, level/XP system
+- **Items & Inventory** (v0.10): IItem/ICarryable interfaces, get/drop/inventory commands, weight limits
 
 ## Requirements
 
@@ -37,6 +41,13 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `look` — show current room
 - `go <exit>` — move via an exit (triggers IOnLeave/IOnEnter hooks)
 - `quit` — exit
+
+### Items & Inventory
+- `get <item>` / `take <item>` — pick up an item from the room
+- `drop <item>` — drop an item to the room
+- `inventory` / `inv` / `i` — list carried items with weights
+- `examine <item>` / `exam` / `x` — show item's detailed description
+- `score` — show player stats (HP, Level, XP)
 
 ### Object Management
 - `objects` — list loaded instances

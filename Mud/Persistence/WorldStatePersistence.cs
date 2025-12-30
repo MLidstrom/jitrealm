@@ -1,3 +1,5 @@
+using JitRealm.Mud.Network;
+
 namespace JitRealm.Mud.Persistence;
 
 /// <summary>
@@ -16,9 +18,9 @@ public sealed class WorldStatePersistence
     }
 
     /// <summary>
-    /// Save the current world state.
+    /// Save the current world state with session data.
     /// </summary>
-    public async Task SaveAsync(WorldState state)
+    public async Task SaveAsync(WorldState state, ISession? session = null)
     {
         if (state.Objects is null)
             throw new InvalidOperationException("ObjectManager not initialized");
@@ -28,11 +30,11 @@ public sealed class WorldStatePersistence
             Version = WorldSaveData.CurrentVersion,
             SavedAt = _clock.Now,
 
-            Player = state.Player is not null
-                ? new PlayerSaveData
+            Session = session?.PlayerId is not null && session.PlayerName is not null
+                ? new SessionSaveData
                 {
-                    Name = state.Player.Name,
-                    LocationId = state.Player.LocationId
+                    PlayerId = session.PlayerId,
+                    PlayerName = session.PlayerName
                 }
                 : null,
 
@@ -50,8 +52,9 @@ public sealed class WorldStatePersistence
     /// <summary>
     /// Load world state from storage.
     /// Returns true if state was loaded, false if no saved state exists.
+    /// If session is provided, restores the player association.
     /// </summary>
-    public async Task<bool> LoadAsync(WorldState state)
+    public async Task<bool> LoadAsync(WorldState state, ISession? session = null)
     {
         if (state.Objects is null)
             throw new InvalidOperationException("ObjectManager not initialized");
@@ -71,20 +74,18 @@ public sealed class WorldStatePersistence
         state.Objects.ClearAll(state);
         state.Containers.FromSerializable(null);
 
-        // Restore player
-        if (data.Player is not null)
-        {
-            state.Player = new Player(data.Player.Name)
-            {
-                LocationId = data.Player.LocationId
-            };
-        }
-
-        // Restore instances
+        // Restore instances (includes player world objects)
         await state.Objects.RestoreInstancesAsync(data.Instances, state);
 
         // Restore container registry
         state.Containers.FromSerializable(data.Containers?.Contents);
+
+        // Restore session data if session provided
+        if (session is not null && data.Session is not null)
+        {
+            session.PlayerId = data.Session.PlayerId;
+            session.PlayerName = data.Session.PlayerName;
+        }
 
         return true;
     }

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using JitRealm.Mud.Persistence;
+using JitRealm.Mud.Security;
 
 namespace JitRealm.Mud;
 
@@ -49,6 +50,16 @@ public sealed class ObjectManager
     {
         id = ObjectId.Normalize(id);
         return _instances.TryGetValue(id, out var handle) ? handle.Instance as T : null;
+    }
+
+    /// <summary>
+    /// Get the state store for an instance by ID.
+    /// Returns null if instance not found.
+    /// </summary>
+    public IStateStore? GetStateStore(string id)
+    {
+        id = ObjectId.Normalize(id);
+        return _instances.TryGetValue(id, out var handle) ? handle.State : null;
     }
 
     /// <summary>
@@ -124,11 +135,9 @@ public sealed class ObjectManager
             var newInstance = CreateObjectInstance(newBlueprint, instanceId);
 
             // Build context with preserved state
-            var ctx = new MudContext
+            var ctx = new MudContext(state, _clock)
             {
-                World = state,
                 State = oldHandle.State, // Preserve state!
-                Clock = _clock,
                 CurrentObjectId = instanceId,
                 RoomId = instanceId // For rooms, their own ID is the room ID
             };
@@ -356,11 +365,9 @@ public sealed class ObjectManager
                 var stateStore = new DictionaryStateStore();
                 stateStore.FromJsonDictionary(saved.State);
 
-                var ctx = new MudContext
+                var ctx = new MudContext(state, _clock)
                 {
-                    World = state,
                     State = stateStore,
-                    Clock = _clock,
                     CurrentObjectId = saved.InstanceId,
                     RoomId = saved.InstanceId
                 };
@@ -454,6 +461,16 @@ public sealed class ObjectManager
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
         );
 
+        // Security validation: check for forbidden namespaces and types
+        var validator = new ForbiddenSymbolValidator();
+        var validationResult = validator.Validate(compilation);
+        if (!validationResult.IsValid)
+        {
+            var securityErrors = string.Join(Environment.NewLine, validationResult.Errors);
+            throw new InvalidOperationException(
+                $"Security validation failed for {blueprintId}:{Environment.NewLine}{securityErrors}");
+        }
+
         await using var peStream = new MemoryStream();
         var emit = compilation.Emit(peStream);
         if (!emit.Success)
@@ -492,11 +509,9 @@ public sealed class ObjectManager
         var instance = CreateObjectInstance(blueprint, instanceId);
         var stateStore = new DictionaryStateStore();
 
-        var ctx = new MudContext
+        var ctx = new MudContext(state, _clock)
         {
-            World = state,
             State = stateStore,
-            Clock = _clock,
             CurrentObjectId = instanceId,
             RoomId = instanceId // For rooms, their own ID is the room ID
         };
@@ -550,20 +565,8 @@ public sealed class ObjectManager
 
     private static List<MetadataReference> GetReferences()
     {
-        var refs = new List<MetadataReference>();
-
-        var tpa = (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES");
-        if (!string.IsNullOrWhiteSpace(tpa))
-        {
-            foreach (var path in tpa.Split(Path.PathSeparator))
-                refs.Add(MetadataReference.CreateFromFile(path));
-        }
-
-        var hostAsm = typeof(IMudObject).Assembly;
-        if (!string.IsNullOrWhiteSpace(hostAsm.Location))
-            refs.Add(MetadataReference.CreateFromFile(hostAsm.Location));
-
-        return refs;
+        // Use safe references whitelist for security sandboxing
+        return SafeReferences.GetSafeReferences();
     }
 
     private static void TriggerGC()

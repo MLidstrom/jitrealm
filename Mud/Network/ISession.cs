@@ -11,9 +11,15 @@ public interface ISession
     string SessionId { get; }
 
     /// <summary>
-    /// The player associated with this session.
+    /// The ID of the player world object associated with this session.
+    /// This is the instance ID of the cloned player object (e.g., "std/player#000001").
     /// </summary>
-    Player? Player { get; set; }
+    string? PlayerId { get; set; }
+
+    /// <summary>
+    /// The player's display name (cached for efficiency).
+    /// </summary>
+    string? PlayerName { get; set; }
 
     /// <summary>
     /// Whether the session is still connected.
