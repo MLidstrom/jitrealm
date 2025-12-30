@@ -9,7 +9,23 @@ public sealed class Meadow : MudObjectBase, IRoom, IResettable, ISpawner
     public override string Name => "A Quiet Meadow";
 
     public string Description => "Soft grass sways in a gentle breeze. The sky is a perfect ASCII-blue. " +
-                                  "A goblin lurks nearby, eyeing you warily.";
+                                  "Wildflowers dot the meadow in patches of color. A goblin lurks nearby, eyeing you warily.";
+
+    public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
+    {
+        ["grass"] = "The soft green grass reaches up to your knees, swaying gently in the breeze. " +
+                    "It feels cool and damp beneath your feet.",
+        ["sky"] = "The sky stretches endlessly above you, a perfect shade of ASCII-blue. " +
+                  "Puffy white clouds drift lazily across it.",
+        ["clouds"] = "Fluffy white clouds drift slowly across the blue expanse, " +
+                     "occasionally casting shadows over the meadow below.",
+        ["flowers"] = "Colorful wildflowers are scattered throughout the meadow - " +
+                      "bright yellows, deep purples, and soft pinks create a natural tapestry.",
+        ["wildflowers"] = "Colorful wildflowers are scattered throughout the meadow - " +
+                          "bright yellows, deep purples, and soft pinks create a natural tapestry.",
+        ["breeze"] = "A gentle breeze carries the sweet scent of grass and flowers. " +
+                     "It feels refreshing against your skin."
+    };
 
     public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {

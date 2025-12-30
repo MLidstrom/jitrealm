@@ -11,6 +11,13 @@ public interface IMudObject
     string Name { get; }
 
     /// <summary>
+    /// Detailed descriptions for parts of this object.
+    /// Maps keywords to descriptions for "look at X" commands.
+    /// Example: { "grass": "Soft green grass...", "sky": "A clear blue sky..." }
+    /// </summary>
+    IReadOnlyDictionary<string, string> Details { get; }
+
+    /// <summary>
     /// Called after the object has been loaded and instantiated.
     /// Use this for initialization.
     /// </summary>

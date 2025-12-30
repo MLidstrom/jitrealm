@@ -177,7 +177,18 @@ public sealed class GameServer
         switch (cmd)
         {
             case "look":
-                await ShowRoomAsync(session);
+                if (parts.Length == 1)
+                {
+                    await ShowRoomAsync(session);
+                }
+                else
+                {
+                    // "look at X" or "look X"
+                    var target = parts[1].ToLowerInvariant() == "at" && parts.Length > 2
+                        ? string.Join(" ", parts.Skip(2))
+                        : string.Join(" ", parts.Skip(1));
+                    await LookAtDetailAsync(session, target);
+                }
                 break;
 
             case "go":
@@ -245,9 +256,9 @@ public sealed class GameServer
                 break;
 
             case "help":
-                await session.WriteLineAsync("Commands: look, go <exit>, get <item>, drop <item>, inventory,");
-                await session.WriteLineAsync("          examine <item>, equip <item>, unequip <slot>, equipment,");
-                await session.WriteLineAsync("          kill <target>, flee, consider <target>,");
+                await session.WriteLineAsync("Commands: look [at <detail>], go <exit>, get <item>, drop <item>,");
+                await session.WriteLineAsync("          inventory, examine <item>, equip <item>, unequip <slot>,");
+                await session.WriteLineAsync("          equipment, kill <target>, flee, consider <target>,");
                 await session.WriteLineAsync("          say <msg>, who, score, quit");
                 break;
 
@@ -729,6 +740,123 @@ public sealed class GameServer
         {
             await session.WriteLineAsync($"Total weight: {totalWeight}/{player.CarryCapacity} lbs");
         }
+    }
+
+    private async Task LookAtDetailAsync(ISession session, string target)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You're not in a room.");
+            return;
+        }
+
+        var normalizedTarget = target.ToLowerInvariant();
+
+        // 1. Check room details first
+        var room = _state.Objects!.Get<IRoom>(roomId);
+        if (room is not null)
+        {
+            foreach (var (keyword, description) in room.Details)
+            {
+                if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
+                    normalizedTarget.Contains(keyword.ToLowerInvariant()))
+                {
+                    await session.WriteLineAsync(description);
+                    return;
+                }
+            }
+        }
+
+        // 2. Check items in inventory
+        var ctx = CreateContextFor(playerId);
+        var itemId = ctx.FindItem(target, playerId);
+        if (itemId is not null)
+        {
+            var item = _state.Objects.Get<IItem>(itemId);
+            if (item is not null)
+            {
+                // Check item details first
+                foreach (var (keyword, description) in item.Details)
+                {
+                    if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(keyword.ToLowerInvariant()))
+                    {
+                        await session.WriteLineAsync(description);
+                        return;
+                    }
+                }
+                // Fall back to item long description
+                await session.WriteLineAsync(item.LongDescription);
+                return;
+            }
+        }
+
+        // 3. Check items/objects in room
+        itemId = ctx.FindItem(target, roomId);
+        if (itemId is not null)
+        {
+            var item = _state.Objects.Get<IItem>(itemId);
+            if (item is not null)
+            {
+                // Check item details first
+                foreach (var (keyword, description) in item.Details)
+                {
+                    if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(keyword.ToLowerInvariant()))
+                    {
+                        await session.WriteLineAsync(description);
+                        return;
+                    }
+                }
+                // Fall back to item long description
+                await session.WriteLineAsync(item.LongDescription);
+                return;
+            }
+        }
+
+        // 4. Check other objects in room (NPCs, etc.)
+        var contents = _state.Containers.GetContents(roomId);
+        foreach (var objId in contents)
+        {
+            if (objId == playerId) continue;
+
+            var obj = _state.Objects.Get<IMudObject>(objId);
+            if (obj is null) continue;
+
+            // Check if name matches
+            if (obj.Name.ToLowerInvariant().Contains(normalizedTarget))
+            {
+                // Check object details
+                foreach (var (keyword, description) in obj.Details)
+                {
+                    if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(keyword.ToLowerInvariant()))
+                    {
+                        await session.WriteLineAsync(description);
+                        return;
+                    }
+                }
+                // For livings, show a basic description
+                if (obj is ILiving living)
+                {
+                    await session.WriteLineAsync($"You look at {obj.Name}.");
+                    await session.WriteLineAsync($"  HP: {living.HP}/{living.MaxHP}");
+                    return;
+                }
+                await session.WriteLineAsync($"You see {obj.Name}.");
+                return;
+            }
+        }
+
+        await session.WriteLineAsync($"You don't see '{target}' here.");
     }
 
     private async Task ExamineItemAsync(ISession session, string itemName)

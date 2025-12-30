@@ -6,9 +6,19 @@ namespace JitRealm.Mud;
 /// </summary>
 public abstract class MudObjectBase : IMudObject
 {
+    private static readonly IReadOnlyDictionary<string, string> EmptyDetails =
+        new Dictionary<string, string>();
+
     public string Id { get; internal set; } = string.Empty;
 
     public abstract string Name { get; }
+
+    /// <summary>
+    /// Detailed descriptions for parts of this object.
+    /// Override in subclasses to provide "look at X" descriptions.
+    /// Default returns an empty dictionary.
+    /// </summary>
+    public virtual IReadOnlyDictionary<string, string> Details => EmptyDetails;
 
     public virtual void Create(WorldState state)
     {
