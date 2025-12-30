@@ -643,8 +643,9 @@ public sealed class GameServer
                 await ShowEquipmentAsync(session);
                 break;
 
-            // Wizard commands
+            // Wizard commands - all require IsWizard
             case "reload":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
                 if (parts.Length < 2)
                 {
                     await session.WriteLineAsync("Usage: reload <blueprintId>");
@@ -655,6 +656,7 @@ public sealed class GameServer
                 break;
 
             case "unload":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
                 if (parts.Length < 2)
                 {
                     await session.WriteLineAsync("Usage: unload <blueprintId>");
@@ -665,18 +667,21 @@ public sealed class GameServer
                 break;
 
             case "blueprints":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
                 await session.WriteLineAsync("=== Blueprints ===");
                 foreach (var id in _state.Objects!.ListBlueprintIds())
                     await session.WriteLineAsync($"  {id}");
                 break;
 
             case "objects":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
                 await session.WriteLineAsync("=== Instances ===");
                 foreach (var id in _state.Objects!.ListInstanceIds())
                     await session.WriteLineAsync($"  {id}");
                 break;
 
             case "clone":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
                 if (parts.Length < 2)
                 {
                     await session.WriteLineAsync("Usage: clone <blueprintId>");
@@ -691,6 +696,7 @@ public sealed class GameServer
                 break;
 
             case "destruct":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
                 if (parts.Length < 2)
                 {
                     await session.WriteLineAsync("Usage: destruct <objectId>");
@@ -699,6 +705,51 @@ public sealed class GameServer
                 await _state.Objects!.DestructAsync(parts[1], _state);
                 _state.Containers.Remove(parts[1]);
                 await session.WriteLineAsync($"Destructed {parts[1]}");
+                break;
+
+            case "stat":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: stat <objectId>");
+                    break;
+                }
+                await ShowStatAsync(session, parts[1]);
+                break;
+
+            case "reset":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: reset <objectId>");
+                    break;
+                }
+                await ResetObjectAsync(session, parts[1]);
+                break;
+
+            case "patch":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                await HandlePatchAsync(session, parts);
+                break;
+
+            case "save":
+                if (!session.IsWizard)
+                {
+                    await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands.");
+                    break;
+                }
+                await _persistence.SaveAsync(_state);
+                await session.WriteLineAsync("World state saved.");
+                break;
+
+            case "load":
+                if (!session.IsWizard)
+                {
+                    await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands.");
+                    break;
+                }
+                await _persistence.LoadAsync(_state);
+                await session.WriteLineAsync("World state loaded.");
                 break;
 
             case "quit":
@@ -1859,5 +1910,132 @@ public sealed class GameServer
             // Don't destruct - just remove from containers
             // Items will be re-created when player logs in
         }
+    }
+
+    private async Task ShowStatAsync(ISession session, string objectId)
+    {
+        // Try to find as instance first
+        var instance = _state.Objects!.Get<IMudObject>(objectId);
+        if (instance is not null)
+        {
+            await session.WriteLineAsync($"=== Instance: {objectId} ===");
+            await session.WriteLineAsync($"  Name: {instance.Name}");
+            await session.WriteLineAsync($"  Type: {instance.GetType().Name}");
+
+            var stateStore = _state.Objects.GetStateStore(objectId);
+            if (stateStore is not null && stateStore.Keys.Any())
+            {
+                await session.WriteLineAsync("  State:");
+                foreach (var key in stateStore.Keys)
+                {
+                    var value = stateStore.Get<object>(key);
+                    await session.WriteLineAsync($"    {key}: {value}");
+                }
+            }
+
+            var container = _state.Containers.GetContainer(objectId);
+            if (container is not null)
+            {
+                await session.WriteLineAsync($"  Container: {container}");
+            }
+            return;
+        }
+
+        // Try as blueprint
+        if (_state.Objects.ListBlueprintIds().Contains(objectId))
+        {
+            await session.WriteLineAsync($"=== Blueprint: {objectId} ===");
+            var instances = _state.Objects.ListInstanceIds()
+                .Where(id => id.StartsWith(objectId + "#"))
+                .ToList();
+            await session.WriteLineAsync($"  Instances: {instances.Count}");
+            foreach (var id in instances.Take(10))
+            {
+                await session.WriteLineAsync($"    {id}");
+            }
+            if (instances.Count > 10)
+            {
+                await session.WriteLineAsync($"    ... and {instances.Count - 10} more");
+            }
+            return;
+        }
+
+        await session.WriteLineAsync($"Object '{objectId}' not found.");
+    }
+
+    private async Task ResetObjectAsync(ISession session, string objectId)
+    {
+        var obj = _state.Objects!.Get<IMudObject>(objectId);
+        if (obj is not IResettable resettable)
+        {
+            await session.WriteLineAsync($"Object '{objectId}' not found or not resettable.");
+            return;
+        }
+
+        var ctx = CreateContextFor(objectId);
+        resettable.Reset(ctx);
+        await session.WriteLineAsync($"Reset {objectId}.");
+    }
+
+    private async Task HandlePatchAsync(ISession session, string[] parts)
+    {
+        if (parts.Length < 2)
+        {
+            await session.WriteLineAsync("Usage: patch <objectId> [key] [value]");
+            return;
+        }
+
+        var objectId = parts[1];
+        var stateStore = _state.Objects!.GetStateStore(objectId);
+        if (stateStore is null)
+        {
+            await session.WriteLineAsync($"Object '{objectId}' not found or has no state.");
+            return;
+        }
+
+        // Just show state if no key provided
+        if (parts.Length == 2)
+        {
+            await session.WriteLineAsync($"=== State for {objectId} ===");
+            foreach (var key in stateStore.Keys)
+            {
+                var value = stateStore.Get<object>(key);
+                await session.WriteLineAsync($"  {key}: {value}");
+            }
+            return;
+        }
+
+        var stateKey = parts[2];
+
+        // Show specific key if no value provided
+        if (parts.Length == 3)
+        {
+            var value = stateStore.Get<object>(stateKey);
+            await session.WriteLineAsync($"{stateKey}: {value ?? "(null)"}");
+            return;
+        }
+
+        // Set value
+        var newValue = string.Join(" ", parts.Skip(3));
+
+        // Try to parse as number
+        if (int.TryParse(newValue, out var intVal))
+        {
+            stateStore.Set(stateKey, intVal);
+        }
+        else if (double.TryParse(newValue, out var dblVal))
+        {
+            stateStore.Set(stateKey, dblVal);
+        }
+        else if (bool.TryParse(newValue, out var boolVal))
+        {
+            stateStore.Set(stateKey, boolVal);
+        }
+        else
+        {
+            stateStore.Set(stateKey, newValue);
+        }
+
+        await session.WriteLineAsync($"Set {stateKey} = {newValue}");
     }
 }
