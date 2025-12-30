@@ -590,7 +590,7 @@ World/std/
 ### Utility commands ✅
 
 - `help [command]` / `?` — show help with categories
-- `score` / `stats` / `status` — show detailed player stats (HP bar, XP to next level, equipment stats)
+- `score` / `sc` — show detailed player stats (HP bar, XP to next level, equipment stats)
 - `time` / `date` — show server time and playtime
 
 ### Files created ✅
