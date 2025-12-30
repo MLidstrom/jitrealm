@@ -183,6 +183,33 @@
 
 - **Wizard Commands in Help** ✅
   - All wizard commands registered via `CommandRegistry` with `IsWizardOnly = true`
-  - Commands: `blueprints`, `objects`, `clone`, `destruct`, `stat`, `reset`, `reload`, `unload`
+  - Commands: `blueprints`, `objects`, `clone`, `destruct`, `stat`, `reset`, `reload`, `unload`, `patch`
   - Wizard commands appear in `help` output only for wizard users
   - `Mud/Commands/Wizard/WizardCommands.cs` contains all wizard command classes
+  - `patch` command allows viewing/modifying object state variables at runtime
+
+## Phase 16 — Player Accounts ✅ COMPLETE
+
+- **Login/Registration Flow** ✅
+  - On connect: prompt for (L)ogin or (C)reate new player
+  - Create: name validation (3-20 chars, alphanumeric), password confirmation
+  - Login: credential validation, duplicate login prevention
+
+- **Player File Storage** ✅
+  - Files stored at `players/{first_letter}/{name}.json`
+  - SHA256 password hashing with random 16-byte salt
+  - JSON format with version field for migration support
+
+- **Persistent Player Data** ✅
+  - State variables (HP, XP, Level, playtime) saved from IStateStore
+  - Location saved and restored (falls back to start room if invalid)
+  - Inventory saved by item blueprint ID, re-cloned on login
+  - Equipment saved by slot, restored after inventory
+
+- **Configuration** ✅
+  - `Paths.PlayersDirectory` in appsettings.json (default: "players")
+  - Player data auto-saved on quit/logout
+
+- **New Files** ✅
+  - `Mud/Players/PlayerAccountData.cs` — serialization format
+  - `Mud/Players/PlayerAccountService.cs` — account management service

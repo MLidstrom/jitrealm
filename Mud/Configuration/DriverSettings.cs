@@ -98,6 +98,11 @@ public sealed class PathSettings
     /// Blueprint ID for new player objects.
     /// </summary>
     public string PlayerBlueprint { get; set; } = "std/player";
+
+    /// <summary>
+    /// Directory for player account files (relative to base directory).
+    /// </summary>
+    public string PlayersDirectory { get; set; } = "players";
 }
 
 /// <summary>

@@ -69,5 +69,6 @@ public static class CommandFactory
         registry.Register(new DestructCommand());
         registry.Register(new StatCommand());
         registry.Register(new ResetCommand());
+        registry.Register(new PatchCommand());
     }
 }

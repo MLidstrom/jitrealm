@@ -24,6 +24,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **NPCs & AI** (v0.13): MonsterBase/NPCBase classes, ISpawner interface, aggressive monsters, friendly NPCs
 - **Mudlib Polish** (v0.14): Command registry, social commands (shout/whisper/emotes), help system, RoomBase class
 - **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
+- **Player Accounts** (v0.16): Login/registration with SHA256 passwords, persistent player data (state, inventory, equipment, location)
 - **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
 - **Object Details**: All objects support "look at X" for granular descriptions (e.g., "look at grass")
 - **Command Shortcuts**: `l` for look, `n/s/e/w/u/d` for directions
@@ -106,6 +107,7 @@ These commands are visible in `help` only for wizard users:
 - `reset <objectId>` — trigger IResettable.Reset on an object
 - `reload <blueprintId>` — recompile and update all instances (preserves state)
 - `unload <blueprintId>` — unload blueprint and all its instances
+- `patch <objectId> [key] [value]` — view or modify object state at runtime
 
 ### Persistence
 - `save` — save world state to `save/world.json`
@@ -122,11 +124,12 @@ Edit `appsettings.json` to customize driver settings:
     "MaxConnections": 0,
     "WelcomeMessage": "Welcome to JitRealm, {PlayerName}!",
     "MudName": "JitRealm",
-    "Version": "0.15"
+    "Version": "0.16"
   },
   "Paths": {
     "WorldDirectory": "World",
     "SaveDirectory": "save",
+    "PlayersDirectory": "players",
     "StartRoom": "Rooms/start",
     "PlayerBlueprint": "std/player"
   },

@@ -730,7 +730,100 @@ World/std/
 
 ---
 
-## Phase 16 — Web Frontend
+## Phase 16 — Player Accounts ✅ COMPLETE
+
+**Goal**: Persistent player accounts with login/registration system.
+
+### Login Flow ✅
+
+On connect, players choose:
+1. **(L)ogin** — authenticate with existing account
+2. **(C)reate** — create new player account
+
+### Account Creation ✅
+
+- Name validation: 3-20 characters, alphanumeric, starts with letter
+- Password: minimum 4 characters
+- Password confirmation required
+- SHA256 hash with random 16-byte salt
+
+### Player File Structure ✅
+
+```
+players/
+├── m/
+│   └── merlin.json
+├── b/
+│   └── bob.json
+└── ...
+```
+
+### Player JSON Format ✅
+
+```json
+{
+  "version": 1,
+  "name": "Merlin",
+  "passwordHash": "base64_sha256_hash",
+  "passwordSalt": "base64_random_salt",
+  "createdAt": "2025-12-30T15:00:00Z",
+  "lastLogin": "2025-12-30T15:30:00Z",
+  "isWizard": false,
+  "state": {
+    "level": 5,
+    "experience": 1200,
+    "hp": 100,
+    "max_hp": 100
+  },
+  "location": "Rooms/meadow.cs",
+  "inventory": ["Items/sword.cs#000001"],
+  "equipment": {
+    "MainHand": "Items/sword.cs#000001"
+  }
+}
+```
+
+### Persistence Features ✅
+
+- **State**: All IStateStore variables (HP, XP, Level, playtime)
+- **Location**: Saved room ID, falls back to start room if invalid
+- **Inventory**: Items saved by blueprint ID, re-cloned on login
+- **Equipment**: Slots and items restored after inventory
+
+### Security ✅
+
+- Duplicate login prevention (can't login if already online)
+- Case-insensitive player names
+- Password not stored (only salted hash)
+
+### Files created ✅
+
+| File | Purpose |
+|------|---------|
+| `Mud/Players/PlayerAccountData.cs` | Serialization format for player files |
+| `Mud/Players/PlayerAccountService.cs` | Account management, password hashing |
+
+### Files modified ✅
+
+| File | Change |
+|------|--------|
+| `Mud/Configuration/DriverSettings.cs` | Added `PlayersDirectory` to PathSettings |
+| `appsettings.json` | Added `PlayersDirectory: "players"` |
+| `Mud/Network/GameServer.cs` | Login/create flow, save on logout |
+
+### Acceptance criteria ✅
+
+- [x] New players can create accounts
+- [x] Existing players can login
+- [x] Invalid credentials rejected
+- [x] Duplicate logins prevented
+- [x] Player state persists across sessions
+- [x] Inventory and equipment restored
+- [x] Location restored (with fallback)
+
+---
+
+## Phase 17 — Web Frontend
 
 **Goal**: Modern web-based client with wizard tools for world building.
 

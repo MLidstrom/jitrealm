@@ -1,5 +1,7 @@
+using System.Text.Json;
 using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Persistence;
+using JitRealm.Mud.Players;
 using JitRealm.Mud.Security;
 
 namespace JitRealm.Mud.Network;
@@ -13,13 +15,20 @@ public sealed class GameServer
     private readonly WorldStatePersistence _persistence;
     private readonly TelnetServer _telnet;
     private readonly DriverSettings _settings;
+    private readonly PlayerAccountService _accounts;
     private bool _running;
+
+    /// <summary>
+    /// Track logged-in player names to prevent duplicate logins.
+    /// </summary>
+    private readonly HashSet<string> _loggedInPlayers = new(StringComparer.OrdinalIgnoreCase);
 
     public GameServer(WorldState state, WorldStatePersistence persistence, DriverSettings settings)
     {
         _state = state;
         _persistence = persistence;
         _settings = settings;
+        _accounts = new PlayerAccountService(settings);
         _telnet = new TelnetServer(settings.Server.Port);
 
         _telnet.OnClientConnected += OnClientConnected;
@@ -86,15 +95,203 @@ public sealed class GameServer
     {
         Console.WriteLine($"[{session.SessionId}] Connected");
 
-        // Clone a player world object for this session
-        var playerName = $"Player{_state.Sessions.Count + 1}";
+        try
+        {
+            // Show welcome banner
+            await session.WriteLineAsync("");
+            await session.WriteLineAsync($"=== {_settings.Server.MudName} v{_settings.Server.Version} ===");
+            await session.WriteLineAsync("");
+            await session.WriteLineAsync("(L)ogin or (C)reate new player?");
+            await session.WriteAsync("> ");
+
+            // Wait for choice
+            var choice = await session.ReadLineAsync();
+            if (choice is null)
+            {
+                await session.CloseAsync();
+                return;
+            }
+
+            choice = choice.Trim().ToLowerInvariant();
+
+            if (choice.StartsWith("c"))
+            {
+                await HandleCreatePlayerAsync(session);
+            }
+            else
+            {
+                await HandleLoginAsync(session);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{session.SessionId}] Login error: {ex.Message}");
+            await session.CloseAsync();
+        }
+    }
+
+    private async Task HandleLoginAsync(TelnetSession session)
+    {
+        // Get player name
+        await session.WriteLineAsync("");
+        await session.WriteAsync("Enter player name: ");
+        var name = await session.ReadLineAsync();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            await session.WriteLineAsync("Goodbye!");
+            await session.CloseAsync();
+            return;
+        }
+        name = name.Trim();
+
+        // Check if player exists
+        if (!await _accounts.PlayerExistsAsync(name))
+        {
+            await session.WriteLineAsync("Player not found. Disconnecting.");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Check if already logged in
+        if (_loggedInPlayers.Contains(name))
+        {
+            await session.WriteLineAsync("That player is already logged in. Disconnecting.");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Get password
+        await session.WriteAsync("Enter password: ");
+        var password = await session.ReadLineAsync();
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            await session.WriteLineAsync("Goodbye!");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Validate credentials
+        if (!await _accounts.ValidateCredentialsAsync(name, password))
+        {
+            await session.WriteLineAsync("Invalid password. Disconnecting.");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Load player data
+        var accountData = await _accounts.LoadPlayerDataAsync(name);
+        if (accountData is null)
+        {
+            await session.WriteLineAsync("Error loading player data. Disconnecting.");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Mark as logged in
+        _loggedInPlayers.Add(name);
+
+        // Update last login time
+        await _accounts.UpdateLastLoginAsync(name);
+
+        // Create player in world
+        await SetupPlayerInWorldAsync(session, accountData);
+    }
+
+    private async Task HandleCreatePlayerAsync(TelnetSession session)
+    {
+        // Get player name
+        await session.WriteLineAsync("");
+        await session.WriteAsync("Enter player name: ");
+        var name = await session.ReadLineAsync();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            await session.WriteLineAsync("Goodbye!");
+            await session.CloseAsync();
+            return;
+        }
+        name = name.Trim();
+
+        // Validate name
+        var nameError = PlayerAccountService.ValidatePlayerName(name);
+        if (nameError is not null)
+        {
+            await session.WriteLineAsync(nameError);
+            await session.CloseAsync();
+            return;
+        }
+
+        // Check if player already exists
+        if (await _accounts.PlayerExistsAsync(name))
+        {
+            await session.WriteLineAsync("That name is already taken. Disconnecting.");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Get password
+        await session.WriteAsync("Enter password: ");
+        var password = await session.ReadLineAsync();
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            await session.WriteLineAsync("Goodbye!");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Validate password
+        var passwordError = PlayerAccountService.ValidatePassword(password);
+        if (passwordError is not null)
+        {
+            await session.WriteLineAsync(passwordError);
+            await session.CloseAsync();
+            return;
+        }
+
+        // Confirm password
+        await session.WriteAsync("Confirm password: ");
+        var confirm = await session.ReadLineAsync();
+        if (confirm != password)
+        {
+            await session.WriteLineAsync("Passwords don't match. Disconnecting.");
+            await session.CloseAsync();
+            return;
+        }
+
+        // Create account
+        var accountData = await _accounts.CreateAccountAsync(name, password);
+
+        // Mark as logged in
+        _loggedInPlayers.Add(name);
+
+        await session.WriteLineAsync("");
+        await session.WriteLineAsync($"Welcome to the realm, {name}!");
+
+        // Create player in world (new player, no saved state)
+        await SetupPlayerInWorldAsync(session, accountData);
+    }
+
+    private async Task SetupPlayerInWorldAsync(TelnetSession session, PlayerAccountData accountData)
+    {
+        var playerName = accountData.Name;
 
         try
         {
-            // Load start room
-            var startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
+            // Determine starting location
+            var startRoomId = accountData.Location ?? _settings.Paths.StartRoom;
 
-            // Process spawns for the start room
+            // Try to load the saved location, fall back to start room
+            IRoom startRoom;
+            try
+            {
+                startRoom = await _state.Objects!.LoadAsync<IRoom>(startRoomId, _state);
+            }
+            catch
+            {
+                // Fall back to start room if saved location doesn't exist
+                startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
+            }
+
+            // Process spawns for the room
             await _state.ProcessSpawnsAsync(startRoom.Id, new SystemClock());
 
             // Clone player from blueprint
@@ -103,6 +300,10 @@ public sealed class GameServer
             // Set up the session
             session.PlayerId = player.Id;
             session.PlayerName = playerName;
+            session.IsWizard = accountData.IsWizard;
+
+            // Restore player state from saved data
+            RestorePlayerState(player.Id, accountData);
 
             // Set player name via context
             var ctx = CreateContextFor(player.Id);
@@ -111,8 +312,14 @@ public sealed class GameServer
                 playerBase.SetPlayerName(playerName, ctx);
             }
 
-            // Move player to start room
+            // Move player to room
             _state.Containers.Add(startRoom.Id, player.Id);
+
+            // Restore inventory items
+            await RestoreInventoryAsync(player.Id, accountData);
+
+            // Restore equipment
+            RestoreEquipment(player.Id, accountData);
 
             // Register session
             _state.Sessions.Add(session);
@@ -123,6 +330,7 @@ public sealed class GameServer
         catch (Exception ex)
         {
             Console.WriteLine($"[{session.SessionId}] Failed to create player: {ex.Message}");
+            _loggedInPlayers.Remove(playerName);
             await session.CloseAsync();
             return;
         }
@@ -135,6 +343,86 @@ public sealed class GameServer
 
         // Show initial room
         await ShowRoomAsync(session);
+    }
+
+    private void RestorePlayerState(string playerId, PlayerAccountData accountData)
+    {
+        var stateStore = _state.Objects!.GetStateStore(playerId);
+        if (stateStore is null) return;
+
+        foreach (var (key, value) in accountData.State)
+        {
+            // Convert JsonElement to appropriate type
+            object? converted = value.ValueKind switch
+            {
+                JsonValueKind.Number when value.TryGetInt32(out var i) => i,
+                JsonValueKind.Number when value.TryGetInt64(out var l) => l,
+                JsonValueKind.Number => value.GetDouble(),
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null
+            };
+
+            if (converted is not null)
+            {
+                stateStore.Set(key, converted);
+            }
+        }
+    }
+
+    private async Task RestoreInventoryAsync(string playerId, PlayerAccountData accountData)
+    {
+        foreach (var itemId in accountData.Inventory)
+        {
+            try
+            {
+                // Get the blueprint ID from the item ID (strip clone number)
+                var blueprintId = ObjectId.Parse(itemId).BlueprintPath;
+
+                // Clone a new instance of the item
+                var item = await _state.Objects!.CloneAsync<IItem>(blueprintId, _state);
+                if (item is not null)
+                {
+                    // Move item to player inventory
+                    _state.Containers.Add(playerId, item.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RestoreInventory] Failed to restore item {itemId}: {ex.Message}");
+            }
+        }
+    }
+
+    private void RestoreEquipment(string playerId, PlayerAccountData accountData)
+    {
+        // Get player's inventory after restoration
+        var inventory = _state.Containers.GetContents(playerId);
+
+        foreach (var (slotName, savedItemId) in accountData.Equipment)
+        {
+            if (!Enum.TryParse<EquipmentSlot>(slotName, out var slot))
+                continue;
+
+            // Find matching item in inventory by blueprint
+            var savedBlueprint = ObjectId.Parse(savedItemId).BlueprintPath;
+            var matchingItemId = inventory.FirstOrDefault(id =>
+                ObjectId.Parse(id).BlueprintPath == savedBlueprint);
+
+            if (matchingItemId is not null)
+            {
+                var item = _state.Objects!.Get<IEquippable>(matchingItemId);
+                if (item is not null && item.Slot == slot)
+                {
+                    _state.Equipment.Equip(playerId, slot, matchingItemId);
+
+                    // Call OnEquip hook
+                    var itemCtx = CreateContextFor(matchingItemId);
+                    item.OnEquip(playerId, itemCtx);
+                }
+            }
+        }
     }
 
     private async Task ProcessAllSessionsAsync()
@@ -403,6 +691,9 @@ public sealed class GameServer
             case "exit":
                 Console.WriteLine($"[{session.SessionId}] {playerName} disconnected");
 
+                // Save player data before disconnecting
+                await SavePlayerDataAsync(session, playerId);
+
                 // Call logout hook
                 var player = _state.Objects!.Get<IPlayer>(playerId);
                 if (player is not null)
@@ -413,8 +704,12 @@ public sealed class GameServer
 
                 BroadcastToRoom(playerLocation!, $"{playerName} has left the realm.", session);
 
-                // Remove player from room
+                // Remove player from room and clean up inventory items
+                CleanupPlayerItems(playerId);
                 _state.Containers.Remove(playerId);
+
+                // Remove from logged-in players
+                _loggedInPlayers.Remove(playerName);
 
                 await session.CloseAsync();
                 _state.Sessions.Remove(session.SessionId);
@@ -1455,5 +1750,85 @@ public sealed class GameServer
         }
 
         return null;
+    }
+
+    private async Task SavePlayerDataAsync(ISession session, string playerId)
+    {
+        var playerName = session.PlayerName;
+        if (playerName is null) return;
+
+        try
+        {
+            // Load existing account data
+            var accountData = await _accounts.LoadPlayerDataAsync(playerName);
+            if (accountData is null) return;
+
+            // Update location
+            accountData.Location = _state.Containers.GetContainer(playerId);
+
+            // Update state from IStateStore
+            var stateStore = _state.Objects!.GetStateStore(playerId);
+            if (stateStore is not null)
+            {
+                accountData.State.Clear();
+                foreach (var key in stateStore.Keys)
+                {
+                    var value = stateStore.Get<object>(key);
+                    if (value is not null)
+                    {
+                        // Convert to JsonElement for storage
+                        var json = JsonSerializer.Serialize(value);
+                        accountData.State[key] = JsonSerializer.Deserialize<JsonElement>(json);
+                    }
+                }
+            }
+
+            // Update inventory
+            accountData.Inventory.Clear();
+            var inventory = _state.Containers.GetContents(playerId);
+            foreach (var itemId in inventory)
+            {
+                // Skip equipped items - they'll be saved in equipment
+                var isEquipped = _state.Equipment.GetAllEquipped(playerId).Values.Contains(itemId);
+                accountData.Inventory.Add(itemId);
+            }
+
+            // Update equipment
+            accountData.Equipment.Clear();
+            var equipped = _state.Equipment.GetAllEquipped(playerId);
+            foreach (var (slot, itemId) in equipped)
+            {
+                accountData.Equipment[slot.ToString()] = itemId;
+            }
+
+            // Save to file
+            await _accounts.SavePlayerDataAsync(playerName, accountData);
+            Console.WriteLine($"[{session.SessionId}] Saved player data for {playerName}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{session.SessionId}] Error saving player data: {ex.Message}");
+        }
+    }
+
+    private void CleanupPlayerItems(string playerId)
+    {
+        // Get all items in player's inventory
+        var inventory = _state.Containers.GetContents(playerId).ToList();
+
+        // Remove equipment first
+        var equipped = _state.Equipment.GetAllEquipped(playerId);
+        foreach (var slot in equipped.Keys.ToList())
+        {
+            _state.Equipment.Unequip(playerId, slot);
+        }
+
+        // Destruct all inventory items (they're saved to player file)
+        foreach (var itemId in inventory)
+        {
+            _state.Containers.Remove(itemId);
+            // Don't destruct - just remove from containers
+            // Items will be re-created when player logs in
+        }
     }
 }

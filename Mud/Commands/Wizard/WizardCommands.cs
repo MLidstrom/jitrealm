@@ -222,3 +222,100 @@ public class ResetCommand : WizardCommandBase
         return Task.CompletedTask;
     }
 }
+
+/// <summary>
+/// Modify state variables on a loaded object at runtime.
+/// </summary>
+public class PatchCommand : WizardCommandBase
+{
+    public override string Name => "patch";
+    public override string Usage => "patch <objectId> [key] [value]";
+    public override string Description => "View or modify object state variables";
+
+    public override Task ExecuteAsync(CommandContext context, string[] args)
+    {
+        if (args.Length == 0)
+        {
+            context.Output("Usage: patch <objectId> [key] [value]");
+            context.Output("  patch <objectId>           - show all state variables");
+            context.Output("  patch <objectId> <key>     - show specific variable");
+            context.Output("  patch <objectId> <key> <value> - set variable");
+            context.Output("Value types: int (123), bool (true/false), string (anything else)");
+            return Task.CompletedTask;
+        }
+
+        var objectId = args[0];
+        var stateStore = context.State.Objects!.GetStateStore(objectId);
+
+        if (stateStore is null)
+        {
+            context.Output($"Object not found: {objectId}");
+            return Task.CompletedTask;
+        }
+
+        // Show all state if no key specified
+        if (args.Length == 1)
+        {
+            var keys = stateStore.Keys;
+            if (!keys.Any())
+            {
+                context.Output($"Object {objectId} has no state variables.");
+                return Task.CompletedTask;
+            }
+
+            var lines = new List<string> { $"=== State for {objectId} ===" };
+            foreach (var key in keys.OrderBy(k => k))
+            {
+                var value = stateStore.Get<object>(key);
+                var typeName = value?.GetType().Name ?? "null";
+                lines.Add($"  {key} ({typeName}): {value}");
+            }
+            context.Output(string.Join("\n", lines));
+            return Task.CompletedTask;
+        }
+
+        var stateKey = args[1];
+
+        // Show specific key if no value specified
+        if (args.Length == 2)
+        {
+            if (!stateStore.Has(stateKey))
+            {
+                context.Output($"Key '{stateKey}' not found on {objectId}");
+                return Task.CompletedTask;
+            }
+
+            var value = stateStore.Get<object>(stateKey);
+            var typeName = value?.GetType().Name ?? "null";
+            context.Output($"{stateKey} ({typeName}): {value}");
+            return Task.CompletedTask;
+        }
+
+        // Set value - join remaining args for values with spaces
+        var valueStr = string.Join(" ", args.Skip(2));
+
+        // Type inference
+        object parsedValue;
+        if (int.TryParse(valueStr, out var intVal))
+        {
+            parsedValue = intVal;
+        }
+        else if (double.TryParse(valueStr, out var doubleVal) && valueStr.Contains('.'))
+        {
+            parsedValue = doubleVal;
+        }
+        else if (bool.TryParse(valueStr, out var boolVal))
+        {
+            parsedValue = boolVal;
+        }
+        else
+        {
+            parsedValue = valueStr;
+        }
+
+        stateStore.Set(stateKey, parsedValue);
+        context.Output($"Set {objectId}.{stateKey} = {parsedValue} ({parsedValue.GetType().Name})");
+
+        return Task.CompletedTask;
+    }
+}
