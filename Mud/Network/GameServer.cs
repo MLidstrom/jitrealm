@@ -31,7 +31,7 @@ public sealed class GameServer
         _telnet.Start();
         _running = true;
 
-        Console.WriteLine($"JitRealm v0.11 - Multi-user server");
+        Console.WriteLine($"JitRealm v0.12 - Multi-user server");
         Console.WriteLine($"Listening on port {_telnet.Port}...");
         Console.WriteLine("Press Ctrl+C to stop.");
 
@@ -47,6 +47,9 @@ public sealed class GameServer
 
                 // Process callouts (world-wide)
                 ProcessCallOuts();
+
+                // Process combat rounds (world-wide)
+                ProcessCombat();
 
                 // Process input from all sessions
                 await ProcessAllSessionsAsync();
@@ -239,7 +242,33 @@ public sealed class GameServer
             case "help":
                 await session.WriteLineAsync("Commands: look, go <exit>, get <item>, drop <item>, inventory,");
                 await session.WriteLineAsync("          examine <item>, equip <item>, unequip <slot>, equipment,");
+                await session.WriteLineAsync("          kill <target>, flee, consider <target>,");
                 await session.WriteLineAsync("          say <msg>, who, score, quit");
+                break;
+
+            case "kill":
+            case "attack":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: kill <target>");
+                    break;
+                }
+                await StartCombatAsync(session, string.Join(" ", parts.Skip(1)));
+                break;
+
+            case "flee":
+            case "retreat":
+                await AttemptFleeAsync(session);
+                break;
+
+            case "consider":
+            case "con":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: consider <target>");
+                    break;
+                }
+                await ConsiderTargetAsync(session, string.Join(" ", parts.Skip(1)));
                 break;
 
             case "equip":
@@ -921,5 +950,261 @@ public sealed class GameServer
             if (totalAC > 0) await session.WriteLineAsync($"Total Armor Class: {totalAC}");
             if (maxDmg > 0) await session.WriteLineAsync($"Weapon Damage: {minDmg}-{maxDmg}");
         }
+    }
+
+    private void ProcessCombat()
+    {
+        var clock = new SystemClock();
+
+        void SendMessage(string targetId, string message)
+        {
+            var targetSession = _state.Sessions.GetByPlayerId(targetId);
+            if (targetSession is not null)
+            {
+                _ = targetSession.WriteLineAsync(message);
+            }
+        }
+
+        var deaths = _state.Combat.ProcessCombatRounds(_state, clock, SendMessage);
+
+        // Handle deaths - award experience, trigger hooks
+        foreach (var (killerId, victimId) in deaths)
+        {
+            // Get victim for experience value
+            var victim = _state.Objects!.Get<ILiving>(victimId);
+            var victimName = victim?.Name ?? victimId;
+
+            // Notify the room about the death
+            var victimRoom = _state.Containers.GetContainer(victimId);
+            if (victimRoom is not null)
+            {
+                BroadcastToRoom(victimRoom, $"{victimName} has been slain!");
+            }
+
+            // Award experience if killer is a player
+            var killerSession = _state.Sessions.GetByPlayerId(killerId);
+            if (killerSession is not null)
+            {
+                var player = _state.Objects.Get<IPlayer>(killerId);
+                if (player is not null)
+                {
+                    // Base XP is victim's MaxHP
+                    int xpValue = victim?.MaxHP ?? 10;
+                    var ctx = CreateContextFor(killerId);
+                    player.AwardExperience(xpValue, ctx);
+                    _ = killerSession.WriteLineAsync($"You gain {xpValue} experience points!");
+                }
+
+                // Call OnKill hook
+                var killerObj = _state.Objects.Get<IMudObject>(killerId);
+                if (killerObj is IOnKill onKill)
+                {
+                    var ctx = CreateContextFor(killerId);
+                    SafeInvoker.TryInvokeHook(() => onKill.OnKill(victimId, ctx), $"OnKill in {killerId}");
+                }
+            }
+        }
+    }
+
+    private async Task StartCombatAsync(ISession session, string targetName)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        // Check if already in combat
+        if (_state.Combat.IsInCombat(playerId))
+        {
+            var currentTarget = _state.Combat.GetCombatTarget(playerId);
+            var currentTargetObj = _state.Objects!.Get<IMudObject>(currentTarget!);
+            await session.WriteLineAsync($"You are already fighting {currentTargetObj?.Name ?? currentTarget}!");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You're not in a room.");
+            return;
+        }
+
+        // Find target in room
+        var targetId = FindTargetInRoom(targetName, roomId, playerId);
+        if (targetId is null)
+        {
+            await session.WriteLineAsync($"You don't see '{targetName}' here.");
+            return;
+        }
+
+        // Can't attack yourself
+        if (targetId == playerId)
+        {
+            await session.WriteLineAsync("You can't attack yourself!");
+            return;
+        }
+
+        // Check if target is a living thing
+        var target = _state.Objects!.Get<ILiving>(targetId);
+        if (target is null)
+        {
+            await session.WriteLineAsync("You can't attack that.");
+            return;
+        }
+
+        if (!target.IsAlive)
+        {
+            await session.WriteLineAsync($"{target.Name} is already dead.");
+            return;
+        }
+
+        // Start combat
+        var clock = new SystemClock();
+        _state.Combat.StartCombat(playerId, targetId, clock.Now);
+
+        await session.WriteLineAsync($"You attack {target.Name}!");
+        BroadcastToRoom(roomId, $"{session.PlayerName} attacks {target.Name}!", session);
+
+        // If target is not already in combat, they fight back
+        if (!_state.Combat.IsInCombat(targetId))
+        {
+            _state.Combat.StartCombat(targetId, playerId, clock.Now);
+        }
+    }
+
+    private async Task AttemptFleeAsync(ISession session)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        if (!_state.Combat.IsInCombat(playerId))
+        {
+            await session.WriteLineAsync("You're not in combat.");
+            return;
+        }
+
+        var clock = new SystemClock();
+        var exitDir = _state.Combat.AttemptFlee(playerId, _state, clock);
+
+        if (exitDir is null)
+        {
+            await session.WriteLineAsync("You fail to escape!");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        BroadcastToRoom(roomId!, $"{session.PlayerName} flees {exitDir}!", session);
+
+        await session.WriteLineAsync($"You flee to the {exitDir}!");
+
+        // Actually move the player
+        await GoAsync(session, exitDir);
+    }
+
+    private async Task ConsiderTargetAsync(ISession session, string targetName)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You're not in a room.");
+            return;
+        }
+
+        // Find target in room
+        var targetId = FindTargetInRoom(targetName, roomId, playerId);
+        if (targetId is null)
+        {
+            await session.WriteLineAsync($"You don't see '{targetName}' here.");
+            return;
+        }
+
+        var target = _state.Objects!.Get<ILiving>(targetId);
+        if (target is null)
+        {
+            await session.WriteLineAsync("You can't fight that.");
+            return;
+        }
+
+        var player = _state.Objects.Get<ILiving>(playerId);
+        if (player is null)
+        {
+            await session.WriteLineAsync("Error getting player stats.");
+            return;
+        }
+
+        // Compare levels/HP
+        var playerPower = player.MaxHP;
+        var targetPower = target.MaxHP;
+
+        string difficulty;
+        if (targetPower < playerPower * 0.5)
+            difficulty = "an easy target";
+        else if (targetPower < playerPower * 0.8)
+            difficulty = "a fair fight";
+        else if (targetPower < playerPower * 1.2)
+            difficulty = "a challenging opponent";
+        else if (targetPower < playerPower * 2.0)
+            difficulty = "a dangerous foe";
+        else
+            difficulty = "certain death";
+
+        await session.WriteLineAsync($"{target.Name} looks like {difficulty}.");
+        await session.WriteLineAsync($"  HP: {target.HP}/{target.MaxHP}");
+
+        if (target is IHasEquipment equipped)
+        {
+            await session.WriteLineAsync($"  Armor Class: {equipped.TotalArmorClass}");
+            var (min, max) = equipped.WeaponDamage;
+            if (max > 0)
+            {
+                await session.WriteLineAsync($"  Weapon Damage: {min}-{max}");
+            }
+        }
+    }
+
+    private string? FindTargetInRoom(string name, string roomId, string? excludeId = null)
+    {
+        if (_state.Objects is null)
+            return null;
+
+        var normalizedName = name.ToLowerInvariant();
+        var contents = _state.Containers.GetContents(roomId);
+
+        foreach (var objId in contents)
+        {
+            if (objId == excludeId)
+                continue;  // Skip self
+
+            var obj = _state.Objects.Get<IMudObject>(objId);
+            if (obj is null)
+                continue;
+
+            // Check if object name contains the search term (case-insensitive)
+            if (obj.Name.ToLowerInvariant().Contains(normalizedName))
+                return objId;
+
+            // Also check player name for other players
+            if (obj is IPlayer)
+            {
+                var otherSession = _state.Sessions.GetByPlayerId(objId);
+                if (otherSession?.PlayerName?.ToLowerInvariant().Contains(normalizedName) == true)
+                    return objId;
+            }
+        }
+
+        return null;
     }
 }

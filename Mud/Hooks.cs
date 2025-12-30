@@ -82,3 +82,50 @@ public interface IOnHeal
     /// <param name="ctx">The mud context</param>
     void OnHeal(int amount, IMudContext ctx);
 }
+
+// Combat hooks (Phase 12)
+
+/// <summary>
+/// Hook called when a combatant is about to attack.
+/// Allows modification of the outgoing damage.
+/// </summary>
+public interface IOnAttack
+{
+    /// <summary>
+    /// Called when about to attack a target.
+    /// </summary>
+    /// <param name="targetId">ID of the target being attacked</param>
+    /// <param name="baseDamage">Base damage before modifications</param>
+    /// <param name="ctx">The mud context</param>
+    /// <returns>The modified damage to deal</returns>
+    int OnAttack(string targetId, int baseDamage, IMudContext ctx);
+}
+
+/// <summary>
+/// Hook called when a combatant is about to be hit in combat.
+/// Allows modification of the incoming damage (armor mitigation, etc).
+/// </summary>
+public interface IOnDefend
+{
+    /// <summary>
+    /// Called when about to receive damage in combat.
+    /// </summary>
+    /// <param name="attackerId">ID of the attacker</param>
+    /// <param name="incomingDamage">Incoming damage amount</param>
+    /// <param name="ctx">The mud context</param>
+    /// <returns>The modified damage to actually take</returns>
+    int OnDefend(string attackerId, int incomingDamage, IMudContext ctx);
+}
+
+/// <summary>
+/// Hook called when a combatant kills something.
+/// </summary>
+public interface IOnKill
+{
+    /// <summary>
+    /// Called when this object kills something.
+    /// </summary>
+    /// <param name="victimId">ID of the killed object</param>
+    /// <param name="ctx">The mud context</param>
+    void OnKill(string victimId, IMudContext ctx);
+}

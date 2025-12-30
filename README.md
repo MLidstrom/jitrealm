@@ -20,6 +20,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Player as world object** (v0.9): IPlayer interface, cloneable player blueprints, level/XP system
 - **Items & Inventory** (v0.10): IItem/ICarryable interfaces, get/drop/inventory commands, weight limits
 - **Equipment System** (v0.11): IEquippable/IWeapon/IArmor interfaces, equip/unequip commands, stat bonuses
+- **Combat System** (v0.12): ICombatant interface, kill/flee/consider commands, automatic combat rounds
 
 ## Requirements
 
@@ -54,6 +55,11 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `equip <item>` / `wield` / `wear` — equip an item from inventory
 - `unequip <slot>` / `remove` — unequip item from a slot
 - `equipment` / `eq` — show equipped items with stats
+
+### Combat
+- `kill <target>` / `attack` — start combat with a target
+- `flee` / `retreat` — attempt to escape combat (50% chance)
+- `consider <target>` / `con` — estimate target difficulty
 
 ### Object Management
 - `objects` — list loaded instances

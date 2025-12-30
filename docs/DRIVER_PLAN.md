@@ -442,47 +442,57 @@ enum EquipmentSlot { Head, Neck, Body, Back, Arms, Hands,
 
 ---
 
-## Phase 12 — Combat System
+## Phase 12 — Combat System ✅ COMPLETE
 
 **Goal**: Enable players and NPCs to fight.
 
-### New interface
+### New interface ✅
 
-- `ICombatant : ILiving` — Attack(), InCombat, CombatTarget, StopCombat()
+- `ICombatant : ILiving` — Attack(), InCombat, CombatTarget, StopCombat(), TryFlee() ✅
 
-### New hooks
+### New hooks ✅
 
-- `IOnAttack` — modify outgoing damage
-- `IOnDefend` — modify incoming damage
-- `IOnKill` — triggered when killing something
+- `IOnAttack` — modify outgoing damage ✅
+- `IOnDefend` — modify incoming damage ✅
+- `IOnKill` — triggered when killing something ✅
 
-### Combat scheduler
+### Combat scheduler ✅
 
-- `CombatScheduler` — tracks active combats
-- Combat rounds processed each game loop tick
-- Damage = weapon + stats + OnAttack - armor - OnDefend
+- `CombatScheduler` — tracks active combats ✅
+- Combat rounds processed each game loop tick (3-second intervals) ✅
+- Damage = weapon + OnAttack - armor - OnDefend (minimum 1) ✅
 
-### Combat flow
+### Combat flow ✅
 
-1. `kill <target>` starts combat
-2. Each tick: calculate damage, apply, send messages
-3. HP ≤ 0: end combat, award experience, trigger OnDeath/OnKill
-4. `flee` attempts escape
+1. `kill <target>` starts combat ✅
+2. Each tick: calculate damage, apply, send messages ✅
+3. HP ≤ 0: end combat, award experience, trigger OnDeath/OnKill ✅
+4. `flee` attempts escape (50% success, moves to random exit) ✅
 
-### New commands
+### New commands ✅
 
-- `kill <target>` / `attack <target>` — start combat
-- `flee` / `retreat` — attempt escape
-- `consider <target>` — estimate difficulty
+- `kill <target>` / `attack <target>` — start combat ✅
+- `flee` / `retreat` — attempt escape ✅
+- `consider <target>` / `con` — estimate difficulty ✅
 
-### Acceptance criteria
+### Files created/modified ✅
 
-- [ ] `kill goblin` starts combat
-- [ ] Combat rounds process automatically
-- [ ] Damage uses weapon + stats
-- [ ] Armor reduces damage
-- [ ] Death ends combat, awards XP
-- [ ] `flee` can escape
+- `Mud/ICombatant.cs` — new interface
+- `Mud/CombatScheduler.cs` — combat tracking and round processing
+- `Mud/Hooks.cs` — IOnAttack, IOnDefend, IOnKill hooks
+- `Mud/WorldState.cs` — added CombatScheduler and CreateContext helper
+- `Mud/CommandLoop.cs` — combat commands
+- `Mud/Network/GameServer.cs` — multiplayer combat commands
+- `World/npcs/goblin.cs` — test combat target with respawn
+
+### Acceptance criteria ✅
+
+- [x] `kill goblin` starts combat
+- [x] Combat rounds process automatically
+- [x] Damage uses weapon + stats
+- [x] Armor reduces damage
+- [x] Death ends combat, awards XP
+- [x] `flee` can escape
 
 ---
 

@@ -22,9 +22,10 @@ public sealed class CommandLoop
 
     public async Task RunAsync()
     {
-        Console.WriteLine("JitRealm v0.11");
+        Console.WriteLine("JitRealm v0.12");
         Console.WriteLine("Commands: look, go <exit>, get <item>, drop <item>, inventory, examine <item>,");
         Console.WriteLine("          equip <item>, unequip <slot>, equipment, score,");
+        Console.WriteLine("          kill <target>, flee, consider <target>,");
         Console.WriteLine("          objects, blueprints, clone <bp>, destruct <id>, stat <id>,");
         Console.WriteLine("          reload <bp>, unload <bp>, reset <id>, save, load, quit");
 
@@ -38,6 +39,9 @@ public sealed class CommandLoop
 
             // Process any due callouts
             ProcessCallOuts();
+
+            // Process any combat rounds
+            ProcessCombat();
 
             // Display any pending messages
             DisplayMessages();
@@ -215,6 +219,31 @@ public sealed class CommandLoop
                     case "equipment":
                     case "eq":
                         ShowEquipment();
+                        break;
+
+                    case "kill":
+                    case "attack":
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("Usage: kill <target>");
+                            break;
+                        }
+                        StartCombat(string.Join(" ", parts.Skip(1)));
+                        break;
+
+                    case "flee":
+                    case "retreat":
+                        AttemptFlee();
+                        break;
+
+                    case "consider":
+                    case "con":
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("Usage: consider <target>");
+                            break;
+                        }
+                        ConsiderTarget(string.Join(" ", parts.Skip(1)));
                         break;
 
                     case "quit":
@@ -962,5 +991,238 @@ public sealed class CommandLoop
             if (totalAC > 0) Console.WriteLine($"Total Armor Class: {totalAC}");
             if (maxDmg > 0) Console.WriteLine($"Weapon Damage: {minDmg}-{maxDmg}");
         }
+    }
+
+    private void ProcessCombat()
+    {
+        var clock = new SystemClock();
+
+        void SendMessage(string targetId, string message)
+        {
+            if (targetId == _playerId)
+            {
+                Console.WriteLine(message);
+            }
+        }
+
+        var deaths = _state.Combat.ProcessCombatRounds(_state, clock, SendMessage);
+
+        // Handle deaths - award experience, trigger hooks
+        foreach (var (killerId, victimId) in deaths)
+        {
+            // Get victim for experience value (if they're a special type with XP)
+            var victim = _state.Objects!.Get<ILiving>(victimId);
+
+            // Award experience if killer is a player
+            if (killerId == _playerId)
+            {
+                var player = _state.Objects.Get<IPlayer>(killerId);
+                if (player is not null)
+                {
+                    // Base XP is victim's MaxHP
+                    int xpValue = victim?.MaxHP ?? 10;
+                    var ctx = CreateContextFor(killerId);
+                    player.AwardExperience(xpValue, ctx);
+                    Console.WriteLine($"You gain {xpValue} experience points!");
+                }
+
+                // Call OnKill hook
+                var killerObj = _state.Objects.Get<IMudObject>(killerId);
+                if (killerObj is IOnKill onKill)
+                {
+                    var ctx = CreateContextFor(killerId);
+                    SafeInvoker.TryInvokeHook(() => onKill.OnKill(victimId, ctx), $"OnKill in {killerId}");
+                }
+            }
+
+            Console.WriteLine($"{victim?.Name ?? victimId} has been slain!");
+        }
+    }
+
+    private void StartCombat(string targetName)
+    {
+        if (_playerId is null)
+        {
+            Console.WriteLine("No player.");
+            return;
+        }
+
+        // Check if already in combat
+        if (_state.Combat.IsInCombat(_playerId))
+        {
+            var currentTarget = _state.Combat.GetCombatTarget(_playerId);
+            var currentTargetObj = _state.Objects!.Get<IMudObject>(currentTarget!);
+            Console.WriteLine($"You are already fighting {currentTargetObj?.Name ?? currentTarget}!");
+            return;
+        }
+
+        var roomId = GetPlayerLocation();
+        if (roomId is null)
+        {
+            Console.WriteLine("You're not in a room.");
+            return;
+        }
+
+        // Find target in room
+        var targetId = FindTargetInRoom(targetName, roomId);
+        if (targetId is null)
+        {
+            Console.WriteLine($"You don't see '{targetName}' here.");
+            return;
+        }
+
+        // Can't attack yourself
+        if (targetId == _playerId)
+        {
+            Console.WriteLine("You can't attack yourself!");
+            return;
+        }
+
+        // Check if target is a living thing
+        var target = _state.Objects!.Get<ILiving>(targetId);
+        if (target is null)
+        {
+            Console.WriteLine("You can't attack that.");
+            return;
+        }
+
+        if (!target.IsAlive)
+        {
+            Console.WriteLine($"{target.Name} is already dead.");
+            return;
+        }
+
+        // Start combat
+        var clock = new SystemClock();
+        _state.Combat.StartCombat(_playerId, targetId, clock.Now);
+
+        Console.WriteLine($"You attack {target.Name}!");
+
+        // If target is not already in combat, they fight back
+        if (!_state.Combat.IsInCombat(targetId))
+        {
+            _state.Combat.StartCombat(targetId, _playerId, clock.Now);
+        }
+    }
+
+    private void AttemptFlee()
+    {
+        if (_playerId is null)
+        {
+            Console.WriteLine("No player.");
+            return;
+        }
+
+        if (!_state.Combat.IsInCombat(_playerId))
+        {
+            Console.WriteLine("You're not in combat.");
+            return;
+        }
+
+        var clock = new SystemClock();
+        var exitDir = _state.Combat.AttemptFlee(_playerId, _state, clock);
+
+        if (exitDir is null)
+        {
+            Console.WriteLine("You fail to escape!");
+            return;
+        }
+
+        Console.WriteLine($"You flee to the {exitDir}!");
+
+        // Actually move the player
+        Task.Run(async () => await GoAsync(exitDir)).Wait();
+    }
+
+    private void ConsiderTarget(string targetName)
+    {
+        if (_playerId is null)
+        {
+            Console.WriteLine("No player.");
+            return;
+        }
+
+        var roomId = GetPlayerLocation();
+        if (roomId is null)
+        {
+            Console.WriteLine("You're not in a room.");
+            return;
+        }
+
+        // Find target in room
+        var targetId = FindTargetInRoom(targetName, roomId);
+        if (targetId is null)
+        {
+            Console.WriteLine($"You don't see '{targetName}' here.");
+            return;
+        }
+
+        var target = _state.Objects!.Get<ILiving>(targetId);
+        if (target is null)
+        {
+            Console.WriteLine("You can't fight that.");
+            return;
+        }
+
+        var player = _state.Objects.Get<ILiving>(_playerId);
+        if (player is null)
+        {
+            Console.WriteLine("Error getting player stats.");
+            return;
+        }
+
+        // Compare levels/HP
+        var playerPower = player.MaxHP;
+        var targetPower = target.MaxHP;
+
+        string difficulty;
+        if (targetPower < playerPower * 0.5)
+            difficulty = "an easy target";
+        else if (targetPower < playerPower * 0.8)
+            difficulty = "a fair fight";
+        else if (targetPower < playerPower * 1.2)
+            difficulty = "a challenging opponent";
+        else if (targetPower < playerPower * 2.0)
+            difficulty = "a dangerous foe";
+        else
+            difficulty = "certain death";
+
+        Console.WriteLine($"{target.Name} looks like {difficulty}.");
+        Console.WriteLine($"  HP: {target.HP}/{target.MaxHP}");
+
+        if (target is IHasEquipment equipped)
+        {
+            Console.WriteLine($"  Armor Class: {equipped.TotalArmorClass}");
+            var (min, max) = equipped.WeaponDamage;
+            if (max > 0)
+            {
+                Console.WriteLine($"  Weapon Damage: {min}-{max}");
+            }
+        }
+    }
+
+    private string? FindTargetInRoom(string name, string roomId)
+    {
+        if (_state.Objects is null)
+            return null;
+
+        var normalizedName = name.ToLowerInvariant();
+        var contents = _state.Containers.GetContents(roomId);
+
+        foreach (var objId in contents)
+        {
+            if (objId == _playerId)
+                continue;  // Skip self
+
+            var obj = _state.Objects.Get<IMudObject>(objId);
+            if (obj is null)
+                continue;
+
+            // Check if object name contains the search term (case-insensitive)
+            if (obj.Name.ToLowerInvariant().Contains(normalizedName))
+                return objId;
+        }
+
+        return null;
     }
 }

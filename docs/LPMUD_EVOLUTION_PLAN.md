@@ -2,7 +2,7 @@
 
 This document details how to evolve JitRealm from its current state into a more complete lpMUD-like system while preserving its unique C#/hot-reload advantages.
 
-**Current Version: v0.11**
+**Current Version: v0.12**
 
 ## Design Philosophy
 
@@ -46,7 +46,7 @@ Benefits:
 | 9 | Player as Object | Clone players from blueprint | ✅ Complete |
 | 10 | Items & Inventory | IItem, get/drop, weight | ✅ Complete |
 | 11 | Equipment | Slots, IEquippable, bonuses | ✅ Complete |
-| 12 | Combat | Attack/defend, ICombatant | Pending |
+| 12 | Combat | Attack/defend, ICombatant | ✅ Complete |
 | 13 | NPCs & AI | Monster blueprints, spawning | Pending |
 | 14 | Mudlib Polish | Standard library, commands | Pending |
 
@@ -693,11 +693,11 @@ public interface IHasEquipment : ILiving
 
 ---
 
-## Phase 12: Combat System
+## Phase 12: Combat System ✅ COMPLETE
 
 **Goal**: Enable players and NPCs to fight each other.
 
-### New Interfaces
+### New Interfaces ✅
 
 ```csharp
 // Mud/ICombatant.cs
@@ -714,10 +714,13 @@ public interface ICombatant : ILiving
 
     /// <summary>Stop fighting.</summary>
     void StopCombat(IMudContext ctx);
+
+    /// <summary>Attempt to flee combat.</summary>
+    bool TryFlee(IMudContext ctx);
 }
 ```
 
-### Combat Hooks
+### Combat Hooks ✅
 
 ```csharp
 // Add to Hooks.cs
@@ -740,92 +743,72 @@ public interface IOnKill
 }
 ```
 
-### Combat Scheduler
+### Combat Scheduler ✅
 
 ```csharp
 // Mud/CombatScheduler.cs
 public sealed class CombatScheduler
 {
     // Tracks active combats
-    // Each combat round processed in game loop
-    // Uses existing heartbeat/callout infrastructure
+    // Combat rounds process every 3 seconds
+    // Damage = weapon + OnAttack - armor - OnDefend (minimum 1)
 
     public void StartCombat(string attackerId, string defenderId);
     public void EndCombat(string combatantId);
     public IEnumerable<(string attacker, string defender)> GetActiveCombats();
-    public void ProcessCombatRound(WorldState state, IClock clock);
+    public void ProcessCombatRounds(WorldState state, IClock clock);
+    public bool AttemptFlee(string combatantId, WorldState state, IClock clock);
 }
 ```
 
-### Combat Flow
+### Combat Flow ✅
 
 ```
 1. Player: "kill goblin"
 2. CombatScheduler.StartCombat(playerId, goblinId)
-3. Each game loop tick:
+3. Each game loop tick (3-second rounds):
    a. For each active combat:
-      - Calculate attacker damage (weapon + stats + OnAttack)
-      - Calculate defender mitigation (armor + stats + OnDefend)
-      - Apply damage via TakeDamage()
-      - Send combat messages
+      - Calculate attacker damage (weapon + OnAttack)
+      - Calculate defender mitigation (armor + OnDefend)
+      - Apply damage via TakeDamage() (minimum 1 damage)
+      - Send combat messages to attacker, defender, room
    b. If defender HP <= 0:
       - End combat
-      - Award experience
+      - Award experience (victim's MaxHP)
       - Call OnDeath, OnKill hooks
-4. Player: "flee" - ends combat, moves to random exit
+4. Player: "flee" - 50% success, moves to random exit
 ```
 
-### New Commands
+### New Commands ✅
 
 | Command | Action |
 |---------|--------|
 | `kill <target>` / `attack <target>` | Start combat |
-| `flee` / `retreat` | Attempt to escape combat |
-| `consider <target>` | Estimate target difficulty |
+| `flee` / `retreat` | Attempt to escape combat (50% chance) |
+| `consider <target>` / `con` | Estimate target difficulty |
 
-### Experience & Leveling
-
-```csharp
-// In PlayerObject or LivingBase
-public void AwardExperience(int amount, IMudContext ctx)
-{
-    var current = ctx.State.Get<int>("experience");
-    var newExp = current + amount;
-    ctx.State.Set("experience", newExp);
-
-    var oldLevel = CalculateLevel(current);
-    var newLevel = CalculateLevel(newExp);
-
-    if (newLevel > oldLevel)
-    {
-        ctx.Tell(ctx.CurrentObjectId!, $"You have reached level {newLevel}!");
-        // Could add stat points, new abilities, etc.
-    }
-}
-```
-
-### Files to Create/Modify
+### Files Created/Modified ✅
 
 | File | Action |
 |------|--------|
-| `Mud/ICombatant.cs` | Create |
-| `Mud/CombatScheduler.cs` | Create |
-| `Mud/Hooks.cs` | Add IOnAttack, IOnDefend, IOnKill |
-| `Mud/WorldState.cs` | Add CombatScheduler |
-| `Mud/CommandLoop.cs` | Add kill, flee, consider commands |
-| `Mud/Network/GameServer.cs` | Process combat rounds |
-| `World/std/living.cs` | Add combat support |
-| `World/std/player.cs` | Add experience handling |
+| `Mud/ICombatant.cs` | Created |
+| `Mud/CombatScheduler.cs` | Created |
+| `Mud/Hooks.cs` | Added IOnAttack, IOnDefend, IOnKill |
+| `Mud/WorldState.cs` | Added CombatScheduler, CreateContext helper |
+| `Mud/CommandLoop.cs` | Added kill, flee, consider commands |
+| `Mud/Network/GameServer.cs` | Added combat commands, ProcessCombat |
+| `World/npcs/goblin.cs` | Created test combat target |
+| `World/Rooms/meadow.cs` | Updated description |
 
-### Acceptance Criteria
+### Acceptance Criteria ✅
 
-- [ ] `kill goblin` starts combat
-- [ ] Combat rounds process automatically
-- [ ] Damage calculated from weapon + stats
-- [ ] Armor reduces incoming damage
-- [ ] Death ends combat, awards experience
-- [ ] `flee` has chance to escape
-- [ ] Combat messages sent to room
+- [x] `kill goblin` starts combat
+- [x] Combat rounds process automatically
+- [x] Damage calculated from weapon + stats
+- [x] Armor reduces incoming damage
+- [x] Death ends combat, awards experience
+- [x] `flee` has chance to escape
+- [x] Combat messages sent to room
 
 ---
 

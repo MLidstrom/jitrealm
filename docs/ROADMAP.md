@@ -99,3 +99,16 @@
 - Example equipment: rusty_sword (weapon), leather_vest (armor), iron_helm (helmet) ✅
 - Equipment persists across save/load ✅
 - Automatic stat calculation from equipped items ✅
+
+## Phase 10 — Combat System ✅ COMPLETE
+
+- `ICombatant` interface — Attack, InCombat, CombatTarget, StopCombat, TryFlee ✅
+- Combat hooks: `IOnAttack`, `IOnDefend`, `IOnKill` ✅
+- `CombatScheduler` — tracks active combats, processes rounds ✅
+- Combat rounds: 3-second interval, automatic damage calculation ✅
+- Damage = weapon damage + OnAttack - armor - OnDefend ✅
+- Commands: kill/attack, flee/retreat, consider/con ✅
+- Experience awarded on kill (based on victim MaxHP) ✅
+- Combat ends on death or flee ✅
+- Flee: 50% success chance, moves to random exit ✅
+- Example NPC: goblin.cs for combat testing ✅
