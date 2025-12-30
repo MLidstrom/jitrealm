@@ -22,9 +22,10 @@ public sealed class CommandLoop
 
     public async Task RunAsync()
     {
-        Console.WriteLine("JitRealm v0.10");
+        Console.WriteLine("JitRealm v0.11");
         Console.WriteLine("Commands: look, go <exit>, get <item>, drop <item>, inventory, examine <item>,");
-        Console.WriteLine("          score, objects, blueprints, clone <bp>, destruct <id>, stat <id>,");
+        Console.WriteLine("          equip <item>, unequip <slot>, equipment, score,");
+        Console.WriteLine("          objects, blueprints, clone <bp>, destruct <id>, stat <id>,");
         Console.WriteLine("          reload <bp>, unload <bp>, reset <id>, save, load, quit");
 
         // Create player world object
@@ -188,6 +189,32 @@ public sealed class CommandLoop
 
                     case "score":
                         ShowScore();
+                        break;
+
+                    case "equip":
+                    case "wield":
+                    case "wear":
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("Usage: equip <item>");
+                            break;
+                        }
+                        EquipItem(string.Join(" ", parts.Skip(1)));
+                        break;
+
+                    case "unequip":
+                    case "remove":
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("Usage: unequip <slot>");
+                            break;
+                        }
+                        UnequipSlot(string.Join(" ", parts.Skip(1)));
+                        break;
+
+                    case "equipment":
+                    case "eq":
+                        ShowEquipment();
                         break;
 
                     case "quit":
@@ -768,6 +795,172 @@ public sealed class CommandLoop
             {
                 Console.WriteLine("You examine it closely but see nothing special.");
             }
+        }
+    }
+
+    private void EquipItem(string itemName)
+    {
+        if (_playerId is null)
+        {
+            Console.WriteLine("No player.");
+            return;
+        }
+
+        // Find item in inventory
+        var ctx = CreateContextFor(_playerId);
+        var itemId = ctx.FindItem(itemName, _playerId);
+        if (itemId is null)
+        {
+            Console.WriteLine($"You're not carrying '{itemName}'.");
+            return;
+        }
+
+        var item = _state.Objects!.Get<IEquippable>(itemId);
+        if (item is null)
+        {
+            Console.WriteLine("That can't be equipped.");
+            return;
+        }
+
+        // Check if something is already equipped in that slot
+        var existingItemId = _state.Equipment.GetEquipped(_playerId, item.Slot);
+        if (existingItemId is not null)
+        {
+            var existingItem = _state.Objects.Get<IEquippable>(existingItemId);
+            if (existingItem is not null)
+            {
+                // Unequip existing item first
+                var existingItemCtx = CreateContextFor(existingItemId);
+                existingItem.OnUnequip(_playerId, existingItemCtx);
+                Console.WriteLine($"You remove {existingItem.ShortDescription}.");
+            }
+        }
+
+        // Equip the new item
+        _state.Equipment.Equip(_playerId, item.Slot, itemId);
+
+        // Call OnEquip hook
+        var itemCtx = CreateContextFor(itemId);
+        item.OnEquip(_playerId, itemCtx);
+
+        Console.WriteLine($"You equip {item.ShortDescription} ({item.Slot}).");
+        DisplayMessages();
+    }
+
+    private void UnequipSlot(string slotName)
+    {
+        if (_playerId is null)
+        {
+            Console.WriteLine("No player.");
+            return;
+        }
+
+        // Try to parse slot name
+        if (!Enum.TryParse<EquipmentSlot>(slotName, ignoreCase: true, out var slot))
+        {
+            // Try partial match
+            var matchingSlots = Enum.GetValues<EquipmentSlot>()
+                .Where(s => s.ToString().StartsWith(slotName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (matchingSlots.Count == 1)
+            {
+                slot = matchingSlots[0];
+            }
+            else if (matchingSlots.Count > 1)
+            {
+                Console.WriteLine($"Ambiguous slot '{slotName}'. Did you mean: {string.Join(", ", matchingSlots)}?");
+                return;
+            }
+            else
+            {
+                Console.WriteLine($"Unknown slot '{slotName}'. Valid slots: {string.Join(", ", Enum.GetNames<EquipmentSlot>())}");
+                return;
+            }
+        }
+
+        // Check if something is equipped in that slot
+        var itemId = _state.Equipment.GetEquipped(_playerId, slot);
+        if (itemId is null)
+        {
+            Console.WriteLine($"Nothing is equipped in {slot}.");
+            return;
+        }
+
+        var item = _state.Objects!.Get<IEquippable>(itemId);
+        if (item is not null)
+        {
+            // Call OnUnequip hook
+            var itemCtx = CreateContextFor(itemId);
+            item.OnUnequip(_playerId, itemCtx);
+        }
+
+        // Unequip the item
+        _state.Equipment.Unequip(_playerId, slot);
+
+        Console.WriteLine($"You unequip {item?.ShortDescription ?? itemId}.");
+        DisplayMessages();
+    }
+
+    private void ShowEquipment()
+    {
+        if (_playerId is null)
+        {
+            Console.WriteLine("No player.");
+            return;
+        }
+
+        var equipped = _state.Equipment.GetAllEquipped(_playerId);
+        if (equipped.Count == 0)
+        {
+            Console.WriteLine("You have nothing equipped.");
+            return;
+        }
+
+        Console.WriteLine("You have equipped:");
+        foreach (var slot in Enum.GetValues<EquipmentSlot>())
+        {
+            if (equipped.TryGetValue(slot, out var itemId))
+            {
+                var item = _state.Objects!.Get<IItem>(itemId);
+                var desc = item?.ShortDescription ?? itemId;
+
+                // Add extra info for weapons/armor
+                if (item is IWeapon weapon)
+                {
+                    desc += $" ({weapon.MinDamage}-{weapon.MaxDamage} dmg)";
+                }
+                else if (item is IArmor armor)
+                {
+                    desc += $" ({armor.ArmorClass} AC)";
+                }
+
+                Console.WriteLine($"  {slot,-12}: {desc}");
+            }
+        }
+
+        // Show totals
+        int totalAC = 0;
+        int minDmg = 0, maxDmg = 0;
+        foreach (var kvp in equipped)
+        {
+            var item = _state.Objects!.Get<IItem>(kvp.Value);
+            if (item is IArmor armor)
+            {
+                totalAC += armor.ArmorClass;
+            }
+            if (item is IWeapon weapon)
+            {
+                minDmg += weapon.MinDamage;
+                maxDmg += weapon.MaxDamage;
+            }
+        }
+
+        if (totalAC > 0 || maxDmg > 0)
+        {
+            Console.WriteLine();
+            if (totalAC > 0) Console.WriteLine($"Total Armor Class: {totalAC}");
+            if (maxDmg > 0) Console.WriteLine($"Weapon Damage: {minDmg}-{maxDmg}");
         }
     }
 }

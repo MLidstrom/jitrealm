@@ -4,7 +4,7 @@ namespace JitRealm.Mud;
 /// Interface for player objects. Players are world objects that extend ILiving
 /// and represent actual connected players in the game.
 /// </summary>
-public interface IPlayer : ILiving, IHasInventory
+public interface IPlayer : ILiving, IHasInventory, IHasEquipment
 {
     /// <summary>
     /// The player's display name.

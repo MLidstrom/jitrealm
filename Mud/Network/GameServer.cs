@@ -31,7 +31,7 @@ public sealed class GameServer
         _telnet.Start();
         _running = true;
 
-        Console.WriteLine($"JitRealm v0.10 - Multi-user server");
+        Console.WriteLine($"JitRealm v0.11 - Multi-user server");
         Console.WriteLine($"Listening on port {_telnet.Port}...");
         Console.WriteLine("Press Ctrl+C to stop.");
 
@@ -238,7 +238,34 @@ public sealed class GameServer
 
             case "help":
                 await session.WriteLineAsync("Commands: look, go <exit>, get <item>, drop <item>, inventory,");
-                await session.WriteLineAsync("          examine <item>, say <msg>, who, score, quit");
+                await session.WriteLineAsync("          examine <item>, equip <item>, unequip <slot>, equipment,");
+                await session.WriteLineAsync("          say <msg>, who, score, quit");
+                break;
+
+            case "equip":
+            case "wield":
+            case "wear":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: equip <item>");
+                    break;
+                }
+                await EquipItemAsync(session, string.Join(" ", parts.Skip(1)));
+                break;
+
+            case "unequip":
+            case "remove":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: unequip <slot>");
+                    break;
+                }
+                await UnequipSlotAsync(session, string.Join(" ", parts.Skip(1)));
+                break;
+
+            case "equipment":
+            case "eq":
+                await ShowEquipmentAsync(session);
                 break;
 
             case "quit":
@@ -714,6 +741,185 @@ public sealed class GameServer
             {
                 await session.WriteLineAsync("You examine it closely but see nothing special.");
             }
+        }
+    }
+
+    private async Task EquipItemAsync(ISession session, string itemName)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+
+        // Find item in inventory
+        var ctx = CreateContextFor(playerId);
+        var itemId = ctx.FindItem(itemName, playerId);
+        if (itemId is null)
+        {
+            await session.WriteLineAsync($"You're not carrying '{itemName}'.");
+            return;
+        }
+
+        var item = _state.Objects!.Get<IEquippable>(itemId);
+        if (item is null)
+        {
+            await session.WriteLineAsync("That can't be equipped.");
+            return;
+        }
+
+        // Check if something is already equipped in that slot
+        var existingItemId = _state.Equipment.GetEquipped(playerId, item.Slot);
+        if (existingItemId is not null)
+        {
+            var existingItem = _state.Objects.Get<IEquippable>(existingItemId);
+            if (existingItem is not null)
+            {
+                // Unequip existing item first
+                var existingItemCtx = CreateContextFor(existingItemId);
+                existingItem.OnUnequip(playerId, existingItemCtx);
+                await session.WriteLineAsync($"You remove {existingItem.ShortDescription}.");
+            }
+        }
+
+        // Equip the new item
+        _state.Equipment.Equip(playerId, item.Slot, itemId);
+
+        // Call OnEquip hook
+        var itemCtx = CreateContextFor(itemId);
+        item.OnEquip(playerId, itemCtx);
+
+        await session.WriteLineAsync($"You equip {item.ShortDescription} ({item.Slot}).");
+        if (roomId is not null)
+        {
+            BroadcastToRoom(roomId, $"{session.PlayerName} equips {item.ShortDescription}.", session);
+        }
+    }
+
+    private async Task UnequipSlotAsync(ISession session, string slotName)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+
+        // Try to parse slot name
+        if (!Enum.TryParse<EquipmentSlot>(slotName, ignoreCase: true, out var slot))
+        {
+            // Try partial match
+            var matchingSlots = Enum.GetValues<EquipmentSlot>()
+                .Where(s => s.ToString().StartsWith(slotName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (matchingSlots.Count == 1)
+            {
+                slot = matchingSlots[0];
+            }
+            else if (matchingSlots.Count > 1)
+            {
+                await session.WriteLineAsync($"Ambiguous slot '{slotName}'. Did you mean: {string.Join(", ", matchingSlots)}?");
+                return;
+            }
+            else
+            {
+                await session.WriteLineAsync($"Unknown slot '{slotName}'. Valid slots: {string.Join(", ", Enum.GetNames<EquipmentSlot>())}");
+                return;
+            }
+        }
+
+        // Check if something is equipped in that slot
+        var itemId = _state.Equipment.GetEquipped(playerId, slot);
+        if (itemId is null)
+        {
+            await session.WriteLineAsync($"Nothing is equipped in {slot}.");
+            return;
+        }
+
+        var item = _state.Objects!.Get<IEquippable>(itemId);
+        if (item is not null)
+        {
+            // Call OnUnequip hook
+            var itemCtx = CreateContextFor(itemId);
+            item.OnUnequip(playerId, itemCtx);
+        }
+
+        // Unequip the item
+        _state.Equipment.Unequip(playerId, slot);
+
+        await session.WriteLineAsync($"You unequip {item?.ShortDescription ?? itemId}.");
+        if (roomId is not null)
+        {
+            BroadcastToRoom(roomId, $"{session.PlayerName} unequips {item?.ShortDescription ?? "something"}.", session);
+        }
+    }
+
+    private async Task ShowEquipmentAsync(ISession session)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var equipped = _state.Equipment.GetAllEquipped(playerId);
+        if (equipped.Count == 0)
+        {
+            await session.WriteLineAsync("You have nothing equipped.");
+            return;
+        }
+
+        await session.WriteLineAsync("You have equipped:");
+        foreach (var slot in Enum.GetValues<EquipmentSlot>())
+        {
+            if (equipped.TryGetValue(slot, out var itemId))
+            {
+                var item = _state.Objects!.Get<IItem>(itemId);
+                var desc = item?.ShortDescription ?? itemId;
+
+                // Add extra info for weapons/armor
+                if (item is IWeapon weapon)
+                {
+                    desc += $" ({weapon.MinDamage}-{weapon.MaxDamage} dmg)";
+                }
+                else if (item is IArmor armor)
+                {
+                    desc += $" ({armor.ArmorClass} AC)";
+                }
+
+                await session.WriteLineAsync($"  {slot,-12}: {desc}");
+            }
+        }
+
+        // Show totals
+        int totalAC = 0;
+        int minDmg = 0, maxDmg = 0;
+        foreach (var kvp in equipped)
+        {
+            var item = _state.Objects!.Get<IItem>(kvp.Value);
+            if (item is IArmor armor)
+            {
+                totalAC += armor.ArmorClass;
+            }
+            if (item is IWeapon weapon)
+            {
+                minDmg += weapon.MinDamage;
+                maxDmg += weapon.MaxDamage;
+            }
+        }
+
+        if (totalAC > 0 || maxDmg > 0)
+        {
+            await session.WriteLineAsync("");
+            if (totalAC > 0) await session.WriteLineAsync($"Total Armor Class: {totalAC}");
+            if (maxDmg > 0) await session.WriteLineAsync($"Weapon Damage: {minDmg}-{maxDmg}");
         }
     }
 }

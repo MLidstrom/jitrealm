@@ -45,4 +45,19 @@ public interface ISandboxedWorldAccess
     /// Gets the current time.
     /// </summary>
     DateTimeOffset Now { get; }
+
+    /// <summary>
+    /// Gets all equipped items for a living being.
+    /// </summary>
+    /// <param name="livingId">The living's object ID.</param>
+    /// <returns>Dictionary of slot to item ID.</returns>
+    IReadOnlyDictionary<EquipmentSlot, string> GetEquipment(string livingId);
+
+    /// <summary>
+    /// Gets the item equipped in a specific slot.
+    /// </summary>
+    /// <param name="livingId">The living's object ID.</param>
+    /// <param name="slot">The equipment slot.</param>
+    /// <returns>The item ID or null if nothing equipped.</returns>
+    string? GetEquippedInSlot(string livingId, EquipmentSlot slot);
 }

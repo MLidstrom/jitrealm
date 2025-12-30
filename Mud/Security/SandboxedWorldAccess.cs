@@ -49,4 +49,14 @@ public sealed class SandboxedWorldAccess : ISandboxedWorldAccess
     }
 
     public DateTimeOffset Now => _clock.Now;
+
+    public IReadOnlyDictionary<EquipmentSlot, string> GetEquipment(string livingId)
+    {
+        return _state.Equipment.GetAllEquipped(livingId);
+    }
+
+    public string? GetEquippedInSlot(string livingId, EquipmentSlot slot)
+    {
+        return _state.Equipment.GetEquipped(livingId, slot);
+    }
 }

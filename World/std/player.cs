@@ -107,6 +107,65 @@ public class PlayerBase : LivingBase, IPlayer, IOnLoad
         return CarriedWeight + weight <= CarryCapacity;
     }
 
+    // IHasEquipment implementation
+
+    /// <summary>
+    /// Total armor class from all equipped armor pieces.
+    /// </summary>
+    public int TotalArmorClass
+    {
+        get
+        {
+            if (Ctx?.World is null) return 0;
+
+            int totalAC = 0;
+            var equipment = Ctx.World.GetEquipment(Id);
+            foreach (var kvp in equipment)
+            {
+                var item = Ctx.World.GetObject<IArmor>(kvp.Value);
+                if (item is not null)
+                {
+                    totalAC += item.ArmorClass;
+                }
+            }
+            return totalAC;
+        }
+    }
+
+    /// <summary>
+    /// Weapon damage range from equipped weapon(s).
+    /// Returns (min, max) damage. If no weapon equipped, returns base unarmed damage (1-2).
+    /// </summary>
+    public (int min, int max) WeaponDamage
+    {
+        get
+        {
+            if (Ctx?.World is null) return (1, 2);
+
+            int minDmg = 0;
+            int maxDmg = 0;
+            var equipment = Ctx.World.GetEquipment(Id);
+
+            foreach (var kvp in equipment)
+            {
+                var weapon = Ctx.World.GetObject<IWeapon>(kvp.Value);
+                if (weapon is not null)
+                {
+                    minDmg += weapon.MinDamage;
+                    maxDmg += weapon.MaxDamage;
+                }
+            }
+
+            // If no weapon equipped, return unarmed damage
+            if (maxDmg == 0)
+            {
+                return (1, 2);
+            }
+
+            return (minDmg, maxDmg);
+        }
+    }
+
     /// <summary>
     /// Initialize or restore player state.
     /// </summary>

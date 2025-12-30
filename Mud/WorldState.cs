@@ -15,6 +15,7 @@ public sealed class WorldState
 
     public ObjectManager? Objects { get; set; }
     public ContainerRegistry Containers { get; } = new();
+    public EquipmentRegistry Equipment { get; } = new();
     public MessageQueue Messages { get; } = new();
     public HeartbeatScheduler Heartbeats { get; }
     public CallOutScheduler CallOuts { get; }

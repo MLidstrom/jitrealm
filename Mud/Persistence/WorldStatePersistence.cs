@@ -43,6 +43,11 @@ public sealed class WorldStatePersistence
             Containers = new ContainerSaveData
             {
                 Contents = state.Containers.ToSerializable()
+            },
+
+            Equipment = new EquipmentSaveData
+            {
+                Equipment = state.Equipment.ToSerializable()
             }
         };
 
@@ -73,12 +78,16 @@ public sealed class WorldStatePersistence
         // Clear existing state
         state.Objects.ClearAll(state);
         state.Containers.FromSerializable(null);
+        state.Equipment.FromSerializable(null);
 
         // Restore instances (includes player world objects)
         await state.Objects.RestoreInstancesAsync(data.Instances, state);
 
         // Restore container registry
         state.Containers.FromSerializable(data.Containers?.Contents);
+
+        // Restore equipment registry
+        state.Equipment.FromSerializable(data.Equipment?.Equipment);
 
         // Restore session data if session provided
         if (session is not null && data.Session is not null)

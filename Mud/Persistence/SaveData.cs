@@ -45,11 +45,22 @@ public sealed class ContainerSaveData
 }
 
 /// <summary>
+/// Serializable equipment registry state.
+/// </summary>
+public sealed class EquipmentSaveData
+{
+    /// <summary>
+    /// LivingId -> (SlotName -> ItemId)
+    /// </summary>
+    public Dictionary<string, Dictionary<string, string>>? Equipment { get; init; }
+}
+
+/// <summary>
 /// Root save data containing all world state.
 /// </summary>
 public sealed class WorldSaveData
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
     public int Version { get; init; } = CurrentVersion;
     public DateTimeOffset SavedAt { get; init; }
@@ -62,4 +73,5 @@ public sealed class WorldSaveData
 
     public List<InstanceSaveData>? Instances { get; init; }
     public ContainerSaveData? Containers { get; init; }
+    public EquipmentSaveData? Equipment { get; init; }
 }

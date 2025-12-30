@@ -19,6 +19,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Living objects** (v0.8): ILiving interface, HP/damage/heal system, World/std/living.cs base class
 - **Player as world object** (v0.9): IPlayer interface, cloneable player blueprints, level/XP system
 - **Items & Inventory** (v0.10): IItem/ICarryable interfaces, get/drop/inventory commands, weight limits
+- **Equipment System** (v0.11): IEquippable/IWeapon/IArmor interfaces, equip/unequip commands, stat bonuses
 
 ## Requirements
 
@@ -48,6 +49,11 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `inventory` / `inv` / `i` — list carried items with weights
 - `examine <item>` / `exam` / `x` — show item's detailed description
 - `score` — show player stats (HP, Level, XP)
+
+### Equipment
+- `equip <item>` / `wield` / `wear` — equip an item from inventory
+- `unequip <slot>` / `remove` — unequip item from a slot
+- `equipment` / `eq` — show equipped items with stats
 
 ### Object Management
 - `objects` — list loaded instances

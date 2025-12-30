@@ -381,41 +381,64 @@ After:   Session.PlayerId = clonedObjectId        // World object
 
 ---
 
-## Phase 11 — Equipment System
+## Phase 11 — Equipment System ✅ COMPLETE
 
 **Goal**: Allow items to be equipped in slots with stat bonuses.
 
-### New interfaces
+### New interfaces ✅
 
-- `IEquippable : ICarryable` — Slot, OnEquip(), OnUnequip()
-- `IWeapon : IEquippable` — MinDamage, MaxDamage, WeaponType
-- `IArmor : IEquippable` — ArmorClass, ArmorType
+- `IEquippable : ICarryable` — Slot, OnEquip(), OnUnequip() ✅
+- `IWeapon : IEquippable` — MinDamage, MaxDamage, WeaponType ✅
+- `IArmor : IEquippable` — ArmorClass, ArmorType ✅
+- `IHasEquipment : ILiving` — TotalArmorClass, WeaponDamage ✅
 
-### Equipment slots
+### Equipment slots ✅
 
 ```csharp
 enum EquipmentSlot { Head, Neck, Body, Back, Arms, Hands,
                      Waist, Legs, Feet, MainHand, OffHand, Ring1, Ring2 }
 ```
 
-### New registry
+### New registry ✅
 
-- `EquipmentRegistry` — tracks livingId → (slot → itemId)
+- `EquipmentRegistry` — tracks livingId → (slot → itemId) ✅
+- Serialization support for persistence ✅
 
-### New commands
+### New commands ✅
 
-- `equip <item>` — equip to appropriate slot
-- `unequip <slot>` — remove from slot
-- `equipment` / `eq` — show equipped items
-- `compare <item>` — compare to equipped
+- `equip <item>` / `wield` / `wear` — equip to appropriate slot ✅
+- `unequip <slot>` / `remove` — remove from slot ✅
+- `equipment` / `eq` — show equipped items with stats ✅
 
-### Acceptance criteria
+### Standard library ✅
 
-- [ ] IEquippable items can be equipped
-- [ ] One item per slot enforced
-- [ ] Equipped weapon affects damage
-- [ ] Equipped armor affects defense
-- [ ] Equipment persists
+- `World/std/weapon.cs` — WeaponBase class ✅
+- `World/std/armor.cs` — ArmorBase, HelmetBase, ChestArmorBase, etc. ✅
+
+### Files created/modified ✅
+
+- `Mud/IEquippable.cs` — new interfaces
+- `Mud/EquipmentRegistry.cs` — equipment tracking
+- `Mud/WorldState.cs` — added EquipmentRegistry
+- `Mud/Persistence/SaveData.cs` — EquipmentSaveData
+- `Mud/Persistence/WorldStatePersistence.cs` — save/load equipment
+- `Mud/Security/ISandboxedWorldAccess.cs` — GetEquipment, GetEquippedInSlot
+- `Mud/Security/SandboxedWorldAccess.cs` — implementations
+- `Mud/IPlayer.cs` — added IHasEquipment
+- `World/std/player.cs` — TotalArmorClass, WeaponDamage
+- `Mud/CommandLoop.cs` — equip/unequip/equipment commands
+- `Mud/Network/GameServer.cs` — multiplayer equipment commands
+- `World/Items/rusty_sword.cs` — updated to WeaponBase
+- `World/Items/leather_vest.cs` — new armor item
+- `World/Items/iron_helm.cs` — new helmet item
+
+### Acceptance criteria ✅
+
+- [x] IEquippable items can be equipped
+- [x] One item per slot enforced
+- [x] Equipped weapon affects damage (WeaponDamage property)
+- [x] Equipped armor affects defense (TotalArmorClass property)
+- [x] Equipment persists across save/load
 
 ---
 

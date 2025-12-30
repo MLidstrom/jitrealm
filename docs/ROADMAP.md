@@ -85,3 +85,17 @@
 - Example items: rusty_sword.cs, health_potion.cs ✅
 - Weight limit enforced ✅
 - Items persist in inventories ✅
+
+## Phase 9 — Equipment System ✅ COMPLETE
+
+- `IEquippable` interface — Slot, OnEquip, OnUnequip ✅
+- `IWeapon` interface — MinDamage, MaxDamage, WeaponType ✅
+- `IArmor` interface — ArmorClass, ArmorType ✅
+- `IHasEquipment` interface — TotalArmorClass, WeaponDamage ✅
+- `EquipmentRegistry` — tracks equipped items per slot ✅
+- `IPlayer` now extends `IHasEquipment` ✅
+- Commands: equip/wield/wear, unequip/remove, equipment/eq ✅
+- Standard library: `World/std/weapon.cs`, `World/std/armor.cs` ✅
+- Example equipment: rusty_sword (weapon), leather_vest (armor), iron_helm (helmet) ✅
+- Equipment persists across save/load ✅
+- Automatic stat calculation from equipped items ✅
