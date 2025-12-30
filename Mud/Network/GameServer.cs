@@ -531,7 +531,7 @@ public sealed class GameServer
                 break;
 
             case "score":
-            case "status":
+            case "sc":
                 await ShowScoreAsync(session);
                 break;
 
@@ -580,7 +580,7 @@ public sealed class GameServer
                 await session.WriteLineAsync("Equipment:  equip/wield/wear <item>, unequip/remove <slot>, eq[uipment]");
                 await session.WriteLineAsync("Combat:     kill/attack <target>, flee/retreat, consider/con <target>");
                 await session.WriteLineAsync("Social:     say <msg>, shout <msg>, whisper <player> <msg>, who");
-                await session.WriteLineAsync("Utility:    score/status, time, help/?, q[uit]");
+                await session.WriteLineAsync("Utility:    sc[ore], time, help/?, q[uit]");
                 if (session.IsWizard)
                 {
                     await session.WriteLineAsync("");

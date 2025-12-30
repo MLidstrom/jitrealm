@@ -94,7 +94,7 @@ To connect as a player, use telnet: `telnet localhost 4000`
 
 ### Utility
 - `help` / `?` — show command help (wizard commands shown only for wizards)
-- `score` / `status` — show detailed player stats (HP bar, XP, level, wizard status)
+- `score` / `sc` — show detailed player stats (HP bar, XP, level, wizard status)
 - `time` — show server time and playtime
 
 ### Wizard Commands

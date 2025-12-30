@@ -142,7 +142,7 @@
   - 13 predefined emotes: bow, wave, laugh, smile, nod, shake, shrug, sigh, cheer, think, cry, dance, yawn ✅
 - Utility commands ✅
   - `help [cmd]`/`?` — categorized command help ✅
-  - `score`/`stats`/`status` — detailed player stats with HP bar ✅
+  - `score`/`sc` — detailed player stats with HP bar ✅
   - `time`/`date` — server time and playtime ✅
 - Standard library additions ✅
   - `World/std/room.cs` — RoomBase, OutdoorRoomBase, IndoorRoomBase, DarkRoomBase ✅
@@ -181,7 +181,7 @@
   - `north`, `south`, `east`, `west`, `up`, `down` as direct commands (no `go` prefix needed)
   - `q` as shortcut for `quit`
   - `?` as shortcut for `help`
-  - `status` as alias for `score`
+  - `sc` as alias for `score`
   - Updated help text to show shortcuts
 
 - **Wizard Commands in Help** ✅
