@@ -104,8 +104,8 @@ public sealed class GameServer
             await session.WriteLineAsync("(L)ogin or (C)reate new player?");
             await session.WriteAsync("> ");
 
-            // Wait for choice
-            var choice = await session.ReadLineAsync();
+            // Wait for choice (blocking read for login flow)
+            var choice = await session.ReadLineBlockingAsync();
             if (choice is null)
             {
                 await session.CloseAsync();
@@ -135,7 +135,7 @@ public sealed class GameServer
         // Get player name
         await session.WriteLineAsync("");
         await session.WriteAsync("Enter player name: ");
-        var name = await session.ReadLineAsync();
+        var name = await session.ReadLineBlockingAsync();
         if (string.IsNullOrWhiteSpace(name))
         {
             await session.WriteLineAsync("Goodbye!");
@@ -162,7 +162,7 @@ public sealed class GameServer
 
         // Get password
         await session.WriteAsync("Enter password: ");
-        var password = await session.ReadLineAsync();
+        var password = await session.ReadLineBlockingAsync();
         if (string.IsNullOrWhiteSpace(password))
         {
             await session.WriteLineAsync("Goodbye!");
@@ -202,7 +202,7 @@ public sealed class GameServer
         // Get player name
         await session.WriteLineAsync("");
         await session.WriteAsync("Enter player name: ");
-        var name = await session.ReadLineAsync();
+        var name = await session.ReadLineBlockingAsync();
         if (string.IsNullOrWhiteSpace(name))
         {
             await session.WriteLineAsync("Goodbye!");
@@ -230,7 +230,7 @@ public sealed class GameServer
 
         // Get password
         await session.WriteAsync("Enter password: ");
-        var password = await session.ReadLineAsync();
+        var password = await session.ReadLineBlockingAsync();
         if (string.IsNullOrWhiteSpace(password))
         {
             await session.WriteLineAsync("Goodbye!");
@@ -249,7 +249,7 @@ public sealed class GameServer
 
         // Confirm password
         await session.WriteAsync("Confirm password: ");
-        var confirm = await session.ReadLineAsync();
+        var confirm = await session.ReadLineBlockingAsync();
         if (confirm != password)
         {
             await session.WriteLineAsync("Passwords don't match. Disconnecting.");
@@ -531,6 +531,7 @@ public sealed class GameServer
                 break;
 
             case "score":
+            case "status":
                 await ShowScoreAsync(session);
                 break;
 
@@ -571,11 +572,24 @@ public sealed class GameServer
                 break;
 
             case "help":
-                await session.WriteLineAsync("Commands: l[ook] [at <detail>], go <exit>, get <item>, drop <item>,");
-                await session.WriteLineAsync("          i[nventory], x/examine <item>, equip <item>, unequip <slot>,");
-                await session.WriteLineAsync("          equipment, kill <target>, flee, consider <target>,");
-                await session.WriteLineAsync("          say <msg>, who, score, quit");
-                await session.WriteLineAsync("Directions: n/north, s/south, e/east, w/west, u/up, d/down");
+            case "?":
+                await session.WriteLineAsync("=== Commands ===");
+                await session.WriteLineAsync("Navigation: l[ook] [at <detail>], go <exit>");
+                await session.WriteLineAsync("            n/north, s/south, e/east, w/west, u/up, d/down");
+                await session.WriteLineAsync("Items:      get/take <item>, drop <item>, i[nventory], x/examine <item>");
+                await session.WriteLineAsync("Equipment:  equip/wield/wear <item>, unequip/remove <slot>, eq[uipment]");
+                await session.WriteLineAsync("Combat:     kill/attack <target>, flee/retreat, consider/con <target>");
+                await session.WriteLineAsync("Social:     say <msg>, shout <msg>, whisper <player> <msg>, who");
+                await session.WriteLineAsync("Utility:    score/status, time, help/?, q[uit]");
+                if (session.IsWizard)
+                {
+                    await session.WriteLineAsync("");
+                    await session.WriteLineAsync("=== Wizard Commands ===");
+                    await session.WriteLineAsync("Objects:    blueprints, objects, clone <id>, destruct <id>");
+                    await session.WriteLineAsync("            stat <id>, reset <id>, reload <id>, unload <id>");
+                    await session.WriteLineAsync("State:      patch <id> [key] [value]");
+                    await session.WriteLineAsync("World:      save, load");
+                }
                 break;
 
             case "kill":
@@ -689,6 +703,7 @@ public sealed class GameServer
 
             case "quit":
             case "exit":
+            case "q":
                 Console.WriteLine($"[{session.SessionId}] {playerName} disconnected");
 
                 // Save player data before disconnecting
@@ -861,11 +876,25 @@ public sealed class GameServer
             return;
         }
 
+        // Build HP bar
+        var hpPercent = player.MaxHP > 0 ? (double)player.HP / player.MaxHP : 0;
+        var barLength = 20;
+        var filledLength = (int)(hpPercent * barLength);
+        var hpBar = new string('█', filledLength) + new string('░', barLength - filledLength);
+
+        // Calculate XP to next level
+        var xpForNextLevel = (int)(player.Level * _settings.Player.BaseXpPerLevel * _settings.Player.XpMultiplier);
+        var xpProgress = player.Experience;
+
         await session.WriteLineAsync($"=== {player.PlayerName} ===");
-        await session.WriteLineAsync($"  HP: {player.HP}/{player.MaxHP}");
+        if (session.IsWizard)
+            await session.WriteLineAsync($"  Status: Wizard");
         await session.WriteLineAsync($"  Level: {player.Level}");
-        await session.WriteLineAsync($"  Experience: {player.Experience}");
-        await session.WriteLineAsync($"  Session time: {player.SessionTime:hh\\:mm\\:ss}");
+        await session.WriteLineAsync($"  HP: [{hpBar}] {player.HP}/{player.MaxHP}");
+        await session.WriteLineAsync($"  XP: {xpProgress}/{xpForNextLevel} to next level");
+        await session.WriteLineAsync($"  Armor: {player.TotalArmorClass}  Damage: {player.WeaponDamage.min}-{player.WeaponDamage.max}");
+        await session.WriteLineAsync($"  Carry: {player.CarriedWeight}/{player.CarryCapacity}");
+        await session.WriteLineAsync($"  Session: {player.SessionTime:hh\\:mm\\:ss}");
     }
 
     private void BroadcastToRoom(string roomId, string message, ISession? exclude = null)

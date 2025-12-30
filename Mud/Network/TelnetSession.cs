@@ -61,6 +61,10 @@ public sealed class TelnetSession : ISession, IDisposable
         }
     }
 
+    /// <summary>
+    /// Non-blocking read - returns null if no complete line available.
+    /// Used by the game loop for polling input.
+    /// </summary>
     public Task<string?> ReadLineAsync(CancellationToken cancellationToken = default)
     {
         if (!IsConnected) return Task.FromResult<string?>(null);
@@ -113,6 +117,30 @@ public sealed class TelnetSession : ISession, IDisposable
         {
             // Connection lost
             return Task.FromResult<string?>(null);
+        }
+    }
+
+    /// <summary>
+    /// Blocking read - waits for a complete line of input.
+    /// Used by login/registration flow.
+    /// </summary>
+    public async Task<string?> ReadLineBlockingAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsConnected) return null;
+
+        try
+        {
+            // Use StreamReader's built-in async readline which properly waits
+            var line = await _reader.ReadLineAsync(cancellationToken);
+            return line;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
         }
     }
 
