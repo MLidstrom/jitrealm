@@ -21,6 +21,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Items & Inventory** (v0.10): IItem/ICarryable interfaces, get/drop/inventory commands, weight limits
 - **Equipment System** (v0.11): IEquippable/IWeapon/IArmor interfaces, equip/unequip commands, stat bonuses
 - **Combat System** (v0.12): ICombatant interface, kill/flee/consider commands, automatic combat rounds
+- **NPCs & AI** (v0.13): MonsterBase/NPCBase classes, ISpawner interface, aggressive monsters, friendly NPCs
 
 ## Requirements
 

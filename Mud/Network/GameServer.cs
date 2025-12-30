@@ -93,6 +93,9 @@ public sealed class GameServer
             // Load start room
             var startRoom = await _state.Objects!.LoadAsync<IRoom>(_startRoomId, _state);
 
+            // Process spawns for the start room
+            await _state.ProcessSpawnsAsync(startRoom.Id, new SystemClock());
+
             // Clone player from blueprint
             var player = await _state.Objects.CloneAsync<IPlayer>("std/player", _state);
 
@@ -418,6 +421,10 @@ public sealed class GameServer
 
         // Move to destination
         var destRoom = await _state.Objects.LoadAsync<IRoom>(destId, _state);
+
+        // Process spawns for the destination room
+        await _state.ProcessSpawnsAsync(destRoom.Id, new SystemClock());
+
         _state.Containers.Move(playerId, destRoom.Id);
 
         // Notify others in new room

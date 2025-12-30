@@ -2,7 +2,7 @@
 
 This document details how to evolve JitRealm from its current state into a more complete lpMUD-like system while preserving its unique C#/hot-reload advantages.
 
-**Current Version: v0.12**
+**Current Version: v0.13**
 
 ## Design Philosophy
 
@@ -47,7 +47,7 @@ Benefits:
 | 10 | Items & Inventory | IItem, get/drop, weight | ✅ Complete |
 | 11 | Equipment | Slots, IEquippable, bonuses | ✅ Complete |
 | 12 | Combat | Attack/defend, ICombatant | ✅ Complete |
-| 13 | NPCs & AI | Monster blueprints, spawning | Pending |
+| 13 | NPCs & AI | Monster blueprints, spawning | ✅ Complete |
 | 14 | Mudlib Polish | Standard library, commands | Pending |
 
 ---
@@ -812,146 +812,132 @@ public sealed class CombatScheduler
 
 ---
 
-## Phase 13: NPCs & AI
+## Phase 13: NPCs & AI ✅ COMPLETE
 
 **Goal**: Populate the world with interactive non-player characters.
 
-### Monster Base Class
+### Monster Base Class ✅
 
 ```csharp
 // World/std/monster.cs
-public abstract class MonsterBase : LivingBase, ICombatant, IOnEnter
+public abstract class MonsterBase : LivingBase, IOnEnter, IOnDeath, IHasEquipment
 {
-    public abstract int ExperienceValue { get; }
-    public abstract bool IsAggressive { get; }
-
-    public bool InCombat { get; private set; }
-    public string? CombatTarget { get; private set; }
+    public virtual int ExperienceValue => MaxHP;
+    public virtual bool IsAggressive => true;
+    public virtual int AggroDelaySeconds => 2;
+    public virtual int RespawnDelaySeconds => 60;
+    public virtual double WanderChance => 0.0;
+    public virtual int TotalArmorClass => 0;
+    public virtual (int min, int max) WeaponDamage => (1, 3);
 
     public virtual void OnEnter(IMudContext ctx, string whoId)
     {
-        // Aggressive monsters attack on sight
-        if (IsAggressive)
-        {
-            var entering = ctx.World.GetObject<ILiving>(whoId);
-            if (entering is IPlayer)
-            {
-                ctx.Emote($"snarls at {entering.Name}!");
-                ctx.CallOut(nameof(StartAttack), TimeSpan.FromSeconds(2), whoId);
-            }
-        }
+        if (!IsAlive || !IsAggressive) return;
+
+        var entering = ctx.World.GetObject<IPlayer>(whoId);
+        if (entering is null) return;
+
+        ctx.Emote($"snarls at {entering.Name}!");
+        ctx.CallOut(nameof(StartAttack), TimeSpan.FromSeconds(AggroDelaySeconds), whoId);
     }
 
     public void StartAttack(IMudContext ctx, string targetId)
     {
-        Attack(targetId, ctx);
+        if (!IsAlive) return;
+        var myRoom = ctx.World.GetObjectLocation(Id);
+        var targetRoom = ctx.World.GetObjectLocation(targetId);
+        if (myRoom != targetRoom) return;
+
+        var target = ctx.World.GetObject<ILiving>(targetId);
+        if (target is null || !target.IsAlive) return;
+
+        ctx.Emote($"attacks {target.Name}!");
+    }
+
+    public virtual void OnDeath(string? killerId, IMudContext ctx)
+    {
+        ctx.Emote("lets out a dying shriek!");
+        ctx.CallOut(nameof(Respawn), TimeSpan.FromSeconds(RespawnDelaySeconds));
+    }
+
+    public virtual void Respawn(IMudContext ctx)
+    {
+        FullHeal(ctx);
+        ctx.Emote("emerges from the shadows!");
+    }
+
+    // TryWander in Heartbeat for AI behavior
+}
+```
+
+### NPC Base Class ✅
+
+```csharp
+// World/std/npc.cs
+public abstract class NPCBase : LivingBase, IOnEnter
+{
+    public override int MaxHP => 1000;  // High HP - hard to kill
+    protected override int RegenAmount => 10;  // Fast regen
+
+    public virtual string? GetGreeting(IPlayer player) => null;
+
+    public virtual void OnEnter(IMudContext ctx, string whoId)
+    {
+        if (!IsAlive) return;
+        var entering = ctx.World.GetObject<IPlayer>(whoId);
+        if (entering is null) return;
+
+        var greeting = GetGreeting(entering);
+        if (!string.IsNullOrEmpty(greeting))
+            ctx.Say(greeting);
     }
 
     public override void Die(string? killerId, IMudContext ctx)
     {
-        base.Die(killerId, ctx);
-
-        // Award experience to killer
-        if (killerId is not null)
-        {
-            var killer = ctx.World.GetObject<IPlayer>(killerId);
-            // Experience awarded via combat system
-        }
-
-        // Drop loot
-        // Schedule respawn
-        ctx.CallOut(nameof(Respawn), TimeSpan.FromMinutes(5));
-    }
-
-    public void Respawn(IMudContext ctx)
-    {
-        ctx.State.Set("hp", MaxHP);
-        ctx.Emote("appears in a shimmer of light!");
+        ctx.Emote("staggers but remains standing!");
+        FullHeal(ctx);  // NPCs don't really die
     }
 }
 ```
 
-### Example NPC
-
-```csharp
-// World/npcs/goblin.cs
-public sealed class Goblin : MonsterBase
-{
-    public override string Name => "a goblin";
-    public override int MaxHP => 30;
-    public override int ExperienceValue => 50;
-    public override bool IsAggressive => true;
-
-    public override void Heartbeat(IMudContext ctx)
-    {
-        base.Heartbeat(ctx);
-
-        // Wander if not in combat
-        if (!InCombat && Random.Shared.NextDouble() < 0.1)
-        {
-            // Pick random exit and move
-        }
-    }
-}
-```
-
-### Friendly NPC (Shopkeeper)
-
-```csharp
-// World/npcs/shopkeeper.cs
-public sealed class Shopkeeper : LivingBase, IOnEnter
-{
-    public override string Name => "the shopkeeper";
-    public override int MaxHP => 1000; // Hard to kill
-
-    public void OnEnter(IMudContext ctx, string whoId)
-    {
-        var entering = ctx.World.GetObject<IMudObject>(whoId);
-        if (entering is IPlayer)
-        {
-            ctx.Say($"Welcome, {entering.Name}! Type 'list' to see my wares.");
-        }
-    }
-
-    // Could add buy/sell logic
-}
-```
-
-### Spawn System
+### Spawn System ✅
 
 ```csharp
 // Mud/ISpawner.cs
 public interface ISpawner
 {
-    /// <summary>Blueprints to spawn and their counts.</summary>
     IReadOnlyDictionary<string, int> Spawns { get; }
-
-    /// <summary>Called periodically to replenish spawns.</summary>
     void Respawn(IMudContext ctx);
 }
 
-// Rooms can implement ISpawner to auto-populate
+// WorldState.ProcessSpawnsAsync() tracks and replenishes spawns
+// Called when entering rooms and on room load
 ```
 
-### Files to Create/Modify
+### Files Created/Modified ✅
 
 | File | Action |
 |------|--------|
-| `Mud/ISpawner.cs` | Create |
-| `World/std/monster.cs` | Create |
-| `World/std/npc.cs` | Create (non-combat NPC base) |
-| `World/npcs/goblin.cs` | Create |
-| `World/npcs/shopkeeper.cs` | Create |
-| `Mud/SpawnScheduler.cs` | Create (optional) |
+| `Mud/ISpawner.cs` | Created |
+| `World/std/monster.cs` | Created |
+| `World/std/npc.cs` | Created |
+| `World/npcs/goblin.cs` | Updated to extend MonsterBase |
+| `World/npcs/shopkeeper.cs` | Created |
+| `World/Rooms/meadow.cs` | Added ISpawner (spawns goblin) |
+| `World/Rooms/shop.cs` | Created with ISpawner (spawns shopkeeper) |
+| `World/Rooms/start.cs` | Added east exit to shop |
+| `Mud/WorldState.cs` | Added ProcessSpawnsAsync helper |
+| `Mud/CommandLoop.cs` | Spawn processing on room enter |
+| `Mud/Network/GameServer.cs` | Spawn processing for multiplayer |
 
-### Acceptance Criteria
+### Acceptance Criteria ✅
 
-- [ ] Goblin spawns in meadow
-- [ ] Aggressive monsters attack players
-- [ ] Monsters use Heartbeat for AI
-- [ ] Dead monsters respawn after delay
-- [ ] Experience awarded on kill
-- [ ] Friendly NPCs can talk
+- [x] Monsters spawn in rooms (meadow spawns goblin)
+- [x] Aggressive monsters attack players (via OnEnter + CallOut)
+- [x] Monsters use Heartbeat for AI (wander behavior)
+- [x] Dead monsters respawn after delay (via CallOut)
+- [x] Experience awarded on kill (via combat system)
+- [x] Friendly NPCs can talk (shopkeeper greets players)
 
 ---
 

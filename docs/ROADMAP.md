@@ -112,3 +112,18 @@
 - Combat ends on death or flee ✅
 - Flee: 50% success chance, moves to random exit ✅
 - Example NPC: goblin.cs for combat testing ✅
+
+## Phase 11 — NPCs & AI ✅ COMPLETE
+
+- `ISpawner` interface — rooms define NPCs to spawn ✅
+- `MonsterBase` standard library class — aggressive NPCs ✅
+  - ExperienceValue, IsAggressive, AggroDelaySeconds ✅
+  - Auto-attack players on sight via OnEnter + CallOut ✅
+  - Respawn after death via CallOut ✅
+  - Wander behavior via Heartbeat ✅
+- `NPCBase` standard library class — friendly NPCs ✅
+  - High HP, fast regen, greetings via GetGreeting() ✅
+  - NPCs don't die (full heal on damage) ✅
+- `ProcessSpawnsAsync()` — tracks and replenishes NPCs in rooms ✅
+- Example NPCs: goblin.cs (monster), shopkeeper.cs (friendly) ✅
+- Example rooms: meadow.cs (spawns goblin), shop.cs (spawns shopkeeper) ✅

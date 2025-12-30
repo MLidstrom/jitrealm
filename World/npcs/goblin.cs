@@ -2,19 +2,24 @@ using System;
 using JitRealm.Mud;
 
 /// <summary>
-/// A simple goblin monster for combat testing.
-/// Spawns in rooms and can be attacked by players.
+/// A goblin monster that lurks in dark places.
+/// Aggressive and will attack players on sight.
 /// </summary>
-public sealed class Goblin : LivingBase, IOnDamage, IOnDeath, IOnEnter, IHasEquipment
+public sealed class Goblin : MonsterBase, IOnDamage
 {
     public override string Name => "a goblin";
     public override int MaxHP => 30;
+    public override int ExperienceValue => 30;
+    public override bool IsAggressive => true;
+    public override int AggroDelaySeconds => 2;
+    public override int RespawnDelaySeconds => 60;
+
     public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(3);
     protected override int RegenAmount => 1;
 
-    // IHasEquipment - goblin has natural "armor" and "weapon"
-    public int TotalArmorClass => 1;  // Tough skin
-    public (int min, int max) WeaponDamage => (2, 4);  // Claws and crude weapon
+    // Natural armor (tough skin) and weapons (claws)
+    public override int TotalArmorClass => 1;
+    public override (int min, int max) WeaponDamage => (2, 4);
 
     public override void OnLoad(IMudContext ctx)
     {
@@ -24,7 +29,7 @@ public sealed class Goblin : LivingBase, IOnDamage, IOnDeath, IOnEnter, IHasEqui
 
     public int OnDamage(int amount, string? attackerId, IMudContext ctx)
     {
-        // Goblins snarl when hurt
+        // Goblins snarl when hurt badly
         if (amount > 5)
         {
             ctx.Emote("snarls angrily!");
@@ -32,25 +37,15 @@ public sealed class Goblin : LivingBase, IOnDamage, IOnDeath, IOnEnter, IHasEqui
         return amount;  // No damage reduction
     }
 
-    public void OnDeath(string? killerId, IMudContext ctx)
+    public override void OnDeath(string? killerId, IMudContext ctx)
     {
         ctx.Emote("shrieks as it falls!");
 
-        // Schedule respawn after 60 seconds
-        ctx.CallOut(nameof(Respawn), TimeSpan.FromSeconds(60));
+        // Schedule respawn
+        ctx.CallOut(nameof(Respawn), TimeSpan.FromSeconds(RespawnDelaySeconds));
     }
 
-    public void OnEnter(IMudContext ctx, string whoId)
-    {
-        // Goblins notice when players enter
-        var entering = ctx.World.GetObject<IPlayer>(whoId);
-        if (entering is not null && IsAlive)
-        {
-            ctx.Emote("eyes the newcomer warily.");
-        }
-    }
-
-    public void Respawn(IMudContext ctx)
+    public override void Respawn(IMudContext ctx)
     {
         FullHeal(ctx);
         ctx.Emote("crawls back from the shadows!");

@@ -496,39 +496,62 @@ enum EquipmentSlot { Head, Neck, Body, Back, Arms, Hands,
 
 ---
 
-## Phase 13 — NPCs & AI
+## Phase 13 — NPCs & AI ✅ COMPLETE
 
 **Goal**: Populate the world with monsters and NPCs.
 
-### Standard library
+### Standard library ✅
 
-- `World/std/monster.cs` — MonsterBase class
-  - ExperienceValue, IsAggressive
-  - AI via Heartbeat (patrol, hunt)
+- `World/std/monster.cs` — MonsterBase class ✅
+  - ExperienceValue, IsAggressive, AggroDelaySeconds, RespawnDelaySeconds
+  - AI via Heartbeat (wander behavior)
+  - Auto-attack players on sight via OnEnter + CallOut
   - Respawn after death via CallOut
 
-- `World/std/npc.cs` — non-combat NPC base
-  - Shopkeepers, quest givers, etc.
+- `World/std/npc.cs` — non-combat NPC base ✅
+  - High HP, fast regeneration
+  - Greeting system via GetGreeting()
+  - NPCs don't really die (full heal on damage)
 
-### Spawn system
+### Spawn system ✅
 
-- `ISpawner` interface — rooms can spawn NPCs
-- Spawns dict: blueprintId → count
-- Respawn() called periodically
+- `ISpawner` interface — rooms can spawn NPCs ✅
+- Spawns dict: blueprintId → count ✅
+- ProcessSpawnsAsync() in WorldState tracks and replenishes NPCs ✅
+- Called when entering rooms and on room load ✅
 
-### Example NPCs
+### Example NPCs ✅
 
-- `World/npcs/goblin.cs` — aggressive monster
-- `World/npcs/shopkeeper.cs` — friendly NPC
+- `World/npcs/goblin.cs` — aggressive monster (extends MonsterBase) ✅
+- `World/npcs/shopkeeper.cs` — friendly NPC (extends NPCBase) ✅
 
-### Acceptance criteria
+### Example spawn rooms ✅
 
-- [ ] Monsters spawn in rooms
-- [ ] Aggressive monsters attack players
-- [ ] Monster AI via Heartbeat
-- [ ] Dead monsters respawn
-- [ ] Experience awarded on kill
-- [ ] Friendly NPCs can talk
+- `World/Rooms/meadow.cs` — spawns 1 goblin (implements ISpawner) ✅
+- `World/Rooms/shop.cs` — spawns 1 shopkeeper (implements ISpawner) ✅
+
+### Files created/modified ✅
+
+- `Mud/ISpawner.cs` — new interface with Spawns dict and Respawn method
+- `World/std/monster.cs` — MonsterBase class
+- `World/std/npc.cs` — NPCBase class
+- `World/npcs/goblin.cs` — updated to extend MonsterBase
+- `World/npcs/shopkeeper.cs` — new friendly NPC
+- `World/Rooms/meadow.cs` — added ISpawner implementation
+- `World/Rooms/shop.cs` — new room with shopkeeper spawn
+- `World/Rooms/start.cs` — added exit to shop
+- `Mud/WorldState.cs` — added ProcessSpawnsAsync helper
+- `Mud/CommandLoop.cs` — spawn processing on room enter/load
+- `Mud/Network/GameServer.cs` — spawn processing for multiplayer
+
+### Acceptance criteria ✅
+
+- [x] Monsters spawn in rooms
+- [x] Aggressive monsters attack players
+- [x] Monster AI via Heartbeat (wander)
+- [x] Dead monsters respawn
+- [x] Experience awarded on kill
+- [x] Friendly NPCs can talk
 
 ---
 

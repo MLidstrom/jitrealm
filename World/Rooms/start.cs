@@ -13,7 +13,8 @@ public sealed class StartRoom : MudObjectBase, IRoom, IResettable
 
     public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
-        ["north"] = "Rooms/meadow.cs"
+        ["north"] = "Rooms/meadow.cs",
+        ["east"] = "Rooms/shop.cs"
     };
 
     public IReadOnlyList<string> Contents => Array.Empty<string>();
