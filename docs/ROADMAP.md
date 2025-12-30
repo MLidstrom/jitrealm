@@ -127,3 +127,23 @@
 - `ProcessSpawnsAsync()` — tracks and replenishes NPCs in rooms ✅
 - Example NPCs: goblin.cs (monster), shopkeeper.cs (friendly) ✅
 - Example rooms: meadow.cs (spawns goblin), shop.cs (spawns shopkeeper) ✅
+
+## Phase 14 — Mudlib Polish ✅ COMPLETE
+
+- Command registry system with categorized help ✅
+  - `ICommand` interface — Name, Aliases, Usage, Description, Category, IsWizardOnly ✅
+  - `CommandRegistry` — lookup, categorization, help generation ✅
+  - `CommandContext` — execution context with state access ✅
+  - `CommandFactory` — registers all standard commands ✅
+- Social commands ✅
+  - `shout`/`yell` — speak to adjacent rooms ✅
+  - `whisper`/`tell`/`msg` — private messages ✅
+  - `who`/`players`/`online` — list online players ✅
+  - 13 predefined emotes: bow, wave, laugh, smile, nod, shake, shrug, sigh, cheer, think, cry, dance, yawn ✅
+- Utility commands ✅
+  - `help [cmd]`/`?` — categorized command help ✅
+  - `score`/`stats`/`status` — detailed player stats with HP bar ✅
+  - `time`/`date` — server time and playtime ✅
+- Standard library additions ✅
+  - `World/std/room.cs` — RoomBase, OutdoorRoomBase, IndoorRoomBase, DarkRoomBase ✅
+- Session wizard support: `ISession.IsWizard` property ✅

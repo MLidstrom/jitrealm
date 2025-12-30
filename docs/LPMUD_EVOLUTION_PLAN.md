@@ -2,7 +2,7 @@
 
 This document details how to evolve JitRealm from its current state into a more complete lpMUD-like system while preserving its unique C#/hot-reload advantages.
 
-**Current Version: v0.13**
+**Current Version: v0.14**
 
 ## Design Philosophy
 
@@ -48,7 +48,8 @@ Benefits:
 | 11 | Equipment | Slots, IEquippable, bonuses | ✅ Complete |
 | 12 | Combat | Attack/defend, ICombatant | ✅ Complete |
 | 13 | NPCs & AI | Monster blueprints, spawning | ✅ Complete |
-| 14 | Mudlib Polish | Standard library, commands | Pending |
+| 14 | Mudlib Polish | Command registry, social commands | ✅ Complete |
+| 15 | Web Frontend | WebSocket API, SvelteKit client | Pending |
 
 ---
 
@@ -941,7 +942,7 @@ public interface ISpawner
 
 ---
 
-## Phase 14: Mudlib Polish
+## Phase 14: Mudlib Polish ✅ COMPLETE
 
 **Goal**: Create a complete standard library and improve command handling.
 
@@ -1031,16 +1032,19 @@ public sealed class CommandRegistry
 
 ## Implementation Priority
 
-### Must Have (Core lpMUD Feel)
-1. Phase 8: Living Foundation
-2. Phase 9: Player as World Object
-3. Phase 10: Items & Inventory
-4. Phase 13: NPCs (basic monsters)
+### Must Have (Core lpMUD Feel) ✅
+1. Phase 8: Living Foundation ✅
+2. Phase 9: Player as World Object ✅
+3. Phase 10: Items & Inventory ✅
+4. Phase 13: NPCs (basic monsters) ✅
 
-### Should Have (Complete Experience)
-5. Phase 11: Equipment
-6. Phase 12: Combat
-7. Phase 14: Mudlib Polish
+### Should Have (Complete Experience) ✅
+5. Phase 11: Equipment ✅
+6. Phase 12: Combat ✅
+7. Phase 14: Mudlib Polish ✅
+
+### Next Up
+8. Phase 15: Web Frontend
 
 ### Nice to Have (Future)
 - Spell/magic system

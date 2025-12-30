@@ -555,11 +555,11 @@ enum EquipmentSlot { Head, Neck, Body, Back, Arms, Hands,
 
 ---
 
-## Phase 14 — Mudlib Polish
+## Phase 14 — Mudlib Polish ✅ COMPLETE
 
 **Goal**: Complete standard library and command system.
 
-### Standard library structure
+### Standard library structure ✅
 
 ```
 World/std/
@@ -567,55 +567,289 @@ World/std/
 ├── player.cs      # Player blueprint
 ├── monster.cs     # Monster blueprint
 ├── npc.cs         # Non-combat NPC
-├── room.cs        # Room base class
-├── item.cs        # Item base
+├── room.cs        # Room base class (RoomBase, OutdoorRoomBase, IndoorRoomBase)
+├── item.cs        # Item base (ItemBase, ContainerBase)
 ├── weapon.cs      # Weapon base
-├── armor.cs       # Armor base
-└── container.cs   # Container base
+└── armor.cs       # Armor base
 ```
 
-### Command dispatch
+### Command dispatch ✅
 
-- `ICommand` interface — Name, Aliases, Usage, Description, ExecuteAsync()
-- `CommandRegistry` — register and lookup commands
+- `ICommand` interface — Name, Aliases, Usage, Description, Category, IsWizardOnly, ExecuteAsync()
+- `CommandRegistry` — register and lookup commands, categorized help
+- `CommandContext` — execution context with state, player, output access
+- `CommandFactory` — creates registry with all standard commands
 
-### Social commands
+### Social commands ✅
 
-- `shout <message>` — speak to adjacent rooms
-- `whisper <player> <message>` — private message
-- Pre-defined emotes: `bow`, `wave`, `laugh`, etc.
+- `shout <message>` / `yell` — speak to adjacent rooms
+- `whisper <player> <message>` / `tell` / `msg` — private message
+- `who` / `players` / `online` — list online players
+- Pre-defined emotes: `bow`, `wave`, `laugh`, `smile`, `nod`, `shake`, `shrug`, `sigh`, `cheer`, `think`, `cry`, `dance`, `yawn`
 
-### Utility commands
+### Utility commands ✅
 
-- `help [command]` — show help
-- `score` — show player stats
-- `time` — show game time
+- `help [command]` / `?` — show help with categories
+- `score` / `stats` / `status` — show detailed player stats (HP bar, XP to next level, equipment stats)
+- `time` / `date` — show server time and playtime
+
+### Files created ✅
+
+- `Mud/Commands/ICommand.cs` — command interface
+- `Mud/Commands/CommandBase.cs` — abstract base class
+- `Mud/Commands/CommandContext.cs` — execution context
+- `Mud/Commands/CommandRegistry.cs` — command lookup and help
+- `Mud/Commands/CommandFactory.cs` — command registration
+- `Mud/Commands/Social/ShoutCommand.cs` — shout to adjacent rooms
+- `Mud/Commands/Social/WhisperCommand.cs` — private messages
+- `Mud/Commands/Social/WhoCommand.cs` — list online players
+- `Mud/Commands/Social/EmoteCommands.cs` — 13 predefined emotes
+- `Mud/Commands/Utility/HelpCommand.cs` — categorized help system
+- `Mud/Commands/Utility/TimeCommand.cs` — time and playtime
+- `Mud/Commands/Utility/ScoreCommand.cs` — detailed player stats
+- `World/std/room.cs` — RoomBase, OutdoorRoomBase, IndoorRoomBase, DarkRoomBase
+
+### Files modified ✅
+
+- `Mud/Network/ISession.cs` — added IsWizard property
+- `Mud/Network/ConsoleSession.cs` — implemented IsWizard (default true)
+- `Mud/Network/TelnetSession.cs` — implemented IsWizard
+- `Mud/CommandLoop.cs` — integrated CommandRegistry for extensible commands
+
+### Acceptance criteria ✅
+
+- [x] Full World/std/ library
+- [x] Command registry with help
+- [x] Social commands work
+- [x] Score shows all player stats
+
+---
+
+## Phase 15 — Web Frontend
+
+**Goal**: Modern web-based client with wizard tools for world building.
+
+### Architecture
+
+```
+┌─────────────────────┐         ┌─────────────────────────────────────┐
+│   SvelteKit App     │◄──WS───►│  JitRealm C# Server                 │
+│   (TypeScript)      │         │                                     │
+├─────────────────────┤         ├─────────────────────────────────────┤
+│ - Game Terminal     │         │ - WebSocket Server (port 8080)      │
+│ - Stats Panel       │         │ - JSON Protocol Handler             │
+│ - Wizard Editor*    │         │ - File API (wizard only)            │
+│ - File Explorer*    │         │ - Existing: Telnet, Game Loop       │
+└─────────────────────┘         └─────────────────────────────────────┘
+                                 * = wizard-only features
+```
+
+### Phase 15a — Backend WebSocket API
+
+**Add IsWizard to player system:**
+- `Mud/IPlayer.cs` — Add `bool IsWizard { get; }`
+- `World/std/player.cs` — Implement from state store
+- New command: `wizard <playername>` (admin only)
+
+**WebSocket server infrastructure:**
+```
+Mud/Network/
+├── WebSocketServer.cs       # Accept WS connections (HttpListener)
+├── WebSocketSession.cs      # ISession implementation for WS
+├── Protocol/
+│   ├── MessageTypes.cs      # Client/Server message type enums
+│   ├── ClientMessage.cs     # Incoming: { type, payload }
+│   ├── ServerMessage.cs     # Outgoing: { type, payload }
+│   └── MessageHandler.cs    # Route messages, check wizard perms
+└── FileOperations.cs        # Safe file read/write for wizards
+```
+
+**JSON protocol message types:**
+
+| Client → Server | Description | Wizard Only |
+|-----------------|-------------|-------------|
+| `Auth_Login` | `{ name }` | No |
+| `Command` | `{ command }` | No |
+| `File_List` | `{ path }` | Yes |
+| `File_Read` | `{ path }` | Yes |
+| `File_Write` | `{ path, content }` | Yes |
+| `Blueprint_Reload` | `{ blueprintId }` | Yes |
+| `Object_Stat` | `{ objectId }` | Yes |
+
+| Server → Client | Description |
+|-----------------|-------------|
+| `Auth_Success` | `{ playerId, playerName, isWizard }` |
+| `Auth_Failed` | `{ reason }` |
+| `Room_Look` | `{ name, description, exits, contents }` |
+| `Message` | `{ type, from, text }` |
+| `Combat_Round` | `{ attacker, defender, damage, hp }` |
+| `Player_Stats` | `{ hp, maxHp, level, xp }` |
+| `File_List_Result` | `{ files[] }` |
+| `File_Content` | `{ path, content }` |
+| `Error` | `{ code, message }` |
+
+**Security:**
+- All wizard endpoints check `session.IsWizard`
+- File paths validated (no traversal outside World/)
+- WebSocket connections require authentication
+
+### Phase 15b — Game Event Broadcasting
+
+**Push events to WebSocket clients:**
+- Room changes → `Room_Look`
+- Combat rounds → `Combat_Round`
+- HP/stats changes → `Player_Stats`
+- Messages → `Message`
+
+**WebGameServer loop:**
+```csharp
+while (!ct.IsCancellationRequested)
+{
+    // Process incoming WebSocket messages
+    // Process game tick (heartbeats, combat, callouts)
+    // Broadcast state updates to clients
+    await Task.Delay(100, ct);
+}
+```
+
+### Phase 15c — SvelteKit Frontend
+
+**Tech stack:**
+- SvelteKit 2.x + Svelte 5
+- xterm.js — terminal emulation
+- Monaco Editor — code editing
+- svelte-splitpanes — resizable panels
+- bits-ui — UI components
+
+**Project structure:**
+```
+web/
+├── src/
+│   ├── lib/
+│   │   ├── stores/          # auth, game, connection
+│   │   ├── components/
+│   │   │   ├── Terminal.svelte
+│   │   │   ├── StatsPanel.svelte
+│   │   │   └── wizard/      # FileExplorer, CodeEditor
+│   │   └── protocol/        # WebSocket client, types
+│   └── routes/
+│       ├── +page.svelte     # Login
+│       └── game/+page.svelte # Main interface
+└── package.json
+```
+
+### Phase 15d — Player UI (Everyone)
+
+**Components:**
+- Terminal — xterm.js for game output with ANSI colors
+- CommandInput — text input with history
+- StatsPanel — HP bar, level, XP
+
+**Layout:**
+```
+┌─────────────────────────────────────────┐
+│ Game Terminal        │  Stats Panel     │
+│ ──────────────────── │  ─────────────── │
+│ > look               │  HP: ████░ 80/100│
+│ A sunny meadow...    │  Level: 5        │
+│ >                    │  XP: 4500        │
+└─────────────────────────────────────────┘
+```
+
+### Phase 15e — Wizard UI (Wizard Only)
+
+**Additional tabs/panels for wizards:**
+- World Editor tab — file explorer + Monaco editor
+- Objects tab — loaded blueprints/instances inspector
+
+**Layout (wizard view):**
+```
+┌─────────────────────────────────────────────────────────┐
+│  [Game] [World Editor] [Objects]                        │
+├────────────────┬────────────────────────────────────────┤
+│ File Explorer  │  Monaco Editor                         │
+│ 📁 World/      │  [Save] [Reload]                       │
+│   📁 Rooms/    │  ───────────────────────────────────── │
+│     meadow.cs  │  public class Meadow : IRoom { }      │
+│   📁 npcs/     │                                        │
+└────────────────┴────────────────────────────────────────┘
+```
+
+**Wizard workflow:**
+1. Browse files in File Explorer
+2. Click file → loads in Monaco Editor
+3. Edit C# code
+4. Save → `File_Write` to server
+5. Reload → `Blueprint_Reload` to hot-reload
+
+### Files to create
+
+**Backend (C#):**
+| File | Purpose |
+|------|---------|
+| `Mud/Network/WebSocketServer.cs` | Accept WebSocket connections |
+| `Mud/Network/WebSocketSession.cs` | ISession for WebSocket |
+| `Mud/Network/WebGameServer.cs` | Game loop for WebSocket clients |
+| `Mud/Network/Protocol/MessageTypes.cs` | Message type enums |
+| `Mud/Network/Protocol/ClientMessage.cs` | Incoming message structure |
+| `Mud/Network/Protocol/ServerMessage.cs` | Outgoing message structure |
+| `Mud/Network/Protocol/MessageHandler.cs` | Route and handle messages |
+| `Mud/Network/Protocol/FileOperations.cs` | Wizard file read/write |
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `Mud/IPlayer.cs` | Add `bool IsWizard` |
+| `World/std/player.cs` | Implement IsWizard |
+| `Program.cs` | Add `--web` flag for WebSocket server |
+
+**Frontend (web/):**
+| File | Purpose |
+|------|---------|
+| `web/src/lib/stores/auth.ts` | Auth state with isWizard |
+| `web/src/lib/stores/game.ts` | Game state (room, stats) |
+| `web/src/lib/protocol/client.ts` | WebSocket client |
+| `web/src/lib/components/Terminal.svelte` | xterm.js wrapper |
+| `web/src/lib/components/wizard/FileExplorer.svelte` | File tree |
+| `web/src/lib/components/wizard/CodeEditor.svelte` | Monaco wrapper |
 
 ### Acceptance criteria
 
-- [ ] Full World/std/ library
-- [ ] Command registry with help
-- [ ] Social commands work
-- [ ] Score shows all player stats
+- [ ] WebSocket server accepts connections on port 8080
+- [ ] JSON protocol handles auth, commands, file operations
+- [ ] Wizard endpoints check session.IsWizard
+- [ ] SvelteKit app connects and authenticates
+- [ ] Terminal displays game output with colors
+- [ ] Stats panel shows HP/Level/XP
+- [ ] Wizards see additional tabs
+- [ ] File explorer browses World/ directory
+- [ ] Monaco editor edits .cs files
+- [ ] Save writes file to server
+- [ ] Reload hot-reloads blueprint
 
 ---
 
 ## Implementation Priority
 
-### Core lpMUD Feel (do first)
-- Phase 8: Living Foundation
-- Phase 9: Player as World Object
-- Phase 10: Items & Inventory
-- Phase 13: NPCs (basic)
+### Core lpMUD Feel (completed)
+- Phase 8: Living Foundation ✅
+- Phase 9: Player as World Object ✅
+- Phase 10: Items & Inventory ✅
+- Phase 13: NPCs & AI ✅
 
-### Complete Experience (do next)
-- Phase 11: Equipment
-- Phase 12: Combat
-- Phase 14: Mudlib Polish
+### Complete Experience (completed)
+- Phase 11: Equipment ✅
+- Phase 12: Combat ✅
+
+### Polish & Accessibility
+- Phase 14: Mudlib Polish ✅
+
+### Web & Future (next)
+- Phase 15: Web Frontend
 
 ### Future Enhancements
 - Spell/magic system
 - Quest system
 - Crafting
 - Guilds/classes
-- World builder tools
+- Visual room/map editor

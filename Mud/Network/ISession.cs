@@ -22,6 +22,11 @@ public interface ISession
     string? PlayerName { get; set; }
 
     /// <summary>
+    /// Whether this session has wizard privileges.
+    /// </summary>
+    bool IsWizard { get; set; }
+
+    /// <summary>
     /// Whether the session is still connected.
     /// </summary>
     bool IsConnected { get; }

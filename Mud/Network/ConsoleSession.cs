@@ -8,6 +8,7 @@ public sealed class ConsoleSession : ISession
     public string SessionId { get; } = "console";
     public string? PlayerId { get; set; }
     public string? PlayerName { get; set; }
+    public bool IsWizard { get; set; } = true; // Console user is always a wizard
     public bool IsConnected => true; // Console is always "connected"
     public bool HasPendingInput => Console.KeyAvailable;
 

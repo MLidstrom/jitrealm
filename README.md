@@ -22,6 +22,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Equipment System** (v0.11): IEquippable/IWeapon/IArmor interfaces, equip/unequip commands, stat bonuses
 - **Combat System** (v0.12): ICombatant interface, kill/flee/consider commands, automatic combat rounds
 - **NPCs & AI** (v0.13): MonsterBase/NPCBase classes, ISpawner interface, aggressive monsters, friendly NPCs
+- **Mudlib Polish** (v0.14): Command registry, social commands (shout/whisper/emotes), help system, RoomBase class
 
 ## Requirements
 
@@ -61,6 +62,18 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `kill <target>` / `attack` — start combat with a target
 - `flee` / `retreat` — attempt to escape combat (50% chance)
 - `consider <target>` / `con` — estimate target difficulty
+
+### Social
+- `say <message>` — speak to the room
+- `shout <message>` / `yell` — shout to adjacent rooms
+- `whisper <player> <message>` / `tell` — private message
+- `who` — list online players
+- `bow`, `wave`, `laugh`, `smile`, `nod`, `shrug`, `sigh`, `cheer`, `think`, `cry`, `dance`, `yawn` — emotes
+
+### Utility
+- `help [command]` — show command help
+- `score` — show detailed player stats
+- `time` — show server time and playtime
 
 ### Object Management
 - `objects` — list loaded instances
