@@ -679,6 +679,57 @@ World/std/
 
 ---
 
+## Post v0.15 Polish ✅ COMPLETE
+
+**Goal**: Quality-of-life improvements for players and world builders.
+
+### Item Aliases ✅
+
+- `IItem.Aliases` property — list of alternative names
+- `FindItem()` in MudContext searches by name or any alias
+- All example items updated with aliases:
+  - rusty_sword: "sword", "rusty sword", "blade", "weapon"
+  - health_potion: "potion", "red potion", "health potion", "vial"
+  - leather_vest: "vest", "leather vest", "leather armor", "armor"
+  - iron_helm: "helm", "helmet", "iron helm", "iron helmet"
+
+### Object Details ✅
+
+- `IMudObject.Details` property — `IReadOnlyDictionary<string, string>`
+- Maps keywords to detailed descriptions for "look at X" commands
+- Default empty dictionary in MudObjectBase
+- `LookAtDetailAsync()` in GameServer searches:
+  1. Room details
+  2. Inventory items
+  3. Room items
+  4. NPCs/other objects
+- Example rooms updated with details:
+  - start.cs: walls, stone, cursor, terminal, ground, floor, symbols
+  - meadow.cs: grass, sky, clouds, flowers, wildflowers, breeze
+
+### Command Shortcuts ✅
+
+- `l` as alias for `look`
+- Direction shortcuts: `n`, `s`, `e`, `w`, `u`, `d`
+- Full direction names work without `go` prefix: `north`, `south`, etc.
+- Updated help text to show all shortcuts
+
+### Files modified
+
+| File | Change |
+|------|--------|
+| `Mud/IMudObject.cs` | Added `Details` property |
+| `Mud/MudObjectBase.cs` | Added default empty `Details` |
+| `Mud/IItem.cs` | Added `Aliases` property |
+| `World/std/item.cs` | Added `Aliases` implementation |
+| `Mud/MudContext.cs` | Updated `FindItem()` to check aliases |
+| `Mud/Network/GameServer.cs` | Added `LookAtDetailAsync()`, direction shortcuts |
+| `World/Rooms/start.cs` | Added room details |
+| `World/Rooms/meadow.cs` | Added room details |
+| `World/Items/*.cs` | Added aliases to all items |
+
+---
+
 ## Phase 16 — Web Frontend
 
 **Goal**: Modern web-based client with wizard tools for world building.

@@ -24,6 +24,9 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **NPCs & AI** (v0.13): MonsterBase/NPCBase classes, ISpawner interface, aggressive monsters, friendly NPCs
 - **Mudlib Polish** (v0.14): Command registry, social commands (shout/whisper/emotes), help system, RoomBase class
 - **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
+- **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
+- **Object Details**: All objects support "look at X" for granular descriptions (e.g., "look at grass")
+- **Command Shortcuts**: `l` for look, `n/s/e/w/u/d` for directions
 
 ## Requirements
 
@@ -58,12 +61,14 @@ To connect as a player, use telnet: `telnet localhost 4000`
 ## Commands
 
 ### Navigation
-- `look` — show current room
+- `look` / `l` — show current room
+- `look at <detail>` / `l <detail>` — examine room detail (grass, walls, etc.)
 - `go <exit>` — move via an exit (triggers IOnLeave/IOnEnter hooks)
+- `n` / `s` / `e` / `w` / `u` / `d` — direction shortcuts (north/south/east/west/up/down)
 - `quit` — exit
 
 ### Items & Inventory
-- `get <item>` / `take <item>` — pick up an item from the room
+- `get <item>` / `take <item>` — pick up an item from the room (items have aliases, e.g., "sword" or "blade")
 - `drop <item>` — drop an item to the room
 - `inventory` / `inv` / `i` — list carried items with weights
 - `examine <item>` / `exam` / `x` — show item's detailed description

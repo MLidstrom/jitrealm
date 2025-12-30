@@ -161,3 +161,22 @@
 - Command-line argument overrides (`--port`) ✅
 - Cross-platform support (Windows, Linux, macOS) ✅
 - Platform-specific path normalization ✅
+
+## Recent Additions (Post v0.15) ✅ COMPLETE
+
+- **Item Aliases** ✅
+  - `IItem.Aliases` property for alternative names (e.g., "sword", "blade", "weapon")
+  - `FindItem()` searches by name or any alias
+  - All example items updated with aliases
+
+- **Object Details** ✅
+  - `IMudObject.Details` dictionary for granular descriptions
+  - `look at <detail>` command to examine room/object details
+  - Example: `look at grass`, `look at walls`, `look at cursor`
+  - Details added to start.cs and meadow.cs rooms
+
+- **Command Shortcuts** ✅
+  - `l` as shortcut for `look`
+  - Direction shortcuts: `n`, `s`, `e`, `w`, `u`, `d`
+  - `north`, `south`, `east`, `west`, `up`, `down` as direct commands (no `go` prefix needed)
+  - Updated help text to show shortcuts

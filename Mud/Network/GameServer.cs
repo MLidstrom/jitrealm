@@ -177,6 +177,7 @@ public sealed class GameServer
         switch (cmd)
         {
             case "look":
+            case "l":
                 if (parts.Length == 1)
                 {
                     await ShowRoomAsync(session);
@@ -198,6 +199,32 @@ public sealed class GameServer
                     break;
                 }
                 await GoAsync(session, parts[1]);
+                break;
+
+            // Direction shortcuts
+            case "n":
+            case "north":
+                await GoAsync(session, "north");
+                break;
+            case "s":
+            case "south":
+                await GoAsync(session, "south");
+                break;
+            case "e":
+            case "east":
+                await GoAsync(session, "east");
+                break;
+            case "w":
+            case "west":
+                await GoAsync(session, "west");
+                break;
+            case "u":
+            case "up":
+                await GoAsync(session, "up");
+                break;
+            case "d":
+            case "down":
+                await GoAsync(session, "down");
                 break;
 
             case "say":
@@ -256,10 +283,11 @@ public sealed class GameServer
                 break;
 
             case "help":
-                await session.WriteLineAsync("Commands: look [at <detail>], go <exit>, get <item>, drop <item>,");
-                await session.WriteLineAsync("          inventory, examine <item>, equip <item>, unequip <slot>,");
+                await session.WriteLineAsync("Commands: l[ook] [at <detail>], go <exit>, get <item>, drop <item>,");
+                await session.WriteLineAsync("          i[nventory], x/examine <item>, equip <item>, unequip <slot>,");
                 await session.WriteLineAsync("          equipment, kill <target>, flee, consider <target>,");
                 await session.WriteLineAsync("          say <msg>, who, score, quit");
+                await session.WriteLineAsync("Directions: n/north, s/south, e/east, w/west, u/up, d/down");
                 break;
 
             case "kill":
