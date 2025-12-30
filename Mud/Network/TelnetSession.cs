@@ -61,28 +61,58 @@ public sealed class TelnetSession : ISession, IDisposable
         }
     }
 
-    public async Task<string?> ReadLineAsync(CancellationToken cancellationToken = default)
+    public Task<string?> ReadLineAsync(CancellationToken cancellationToken = default)
     {
-        if (!IsConnected) return null;
+        if (!IsConnected) return Task.FromResult<string?>(null);
 
         try
         {
-            // Use a timeout to allow checking for cancellation
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(TimeSpan.FromMilliseconds(100));
+            // Only attempt to read if data is available - prevents blocking
+            if (!_stream.DataAvailable)
+            {
+                return Task.FromResult<string?>(null);
+            }
 
-            var line = await _reader.ReadLineAsync(cts.Token);
-            return line;
-        }
-        catch (OperationCanceledException)
-        {
-            // Timeout or cancellation - no input available
-            return null;
+            // Read available data character by character until we get a full line
+            while (_stream.DataAvailable && !cancellationToken.IsCancellationRequested)
+            {
+                var ch = (char)_reader.Read();
+
+                // Handle line endings: \r\n, \n, or \r alone
+                if (ch == '\n')
+                {
+                    var line = _inputBuffer.ToString();
+                    _inputBuffer.Clear();
+                    return Task.FromResult<string?>(line);
+                }
+                else if (ch == '\r')
+                {
+                    // Check if next char is \n
+                    if (_stream.DataAvailable)
+                    {
+                        var peek = (char)_reader.Peek();
+                        if (peek == '\n')
+                        {
+                            _reader.Read(); // consume the \n
+                        }
+                    }
+                    var line = _inputBuffer.ToString();
+                    _inputBuffer.Clear();
+                    return Task.FromResult<string?>(line);
+                }
+                else
+                {
+                    _inputBuffer.Append(ch);
+                }
+            }
+
+            // Not a complete line yet
+            return Task.FromResult<string?>(null);
         }
         catch (IOException)
         {
             // Connection lost
-            return null;
+            return Task.FromResult<string?>(null);
         }
     }
 

@@ -12,6 +12,7 @@ public class LeatherVest : JitRealm.World.Std.ChestArmorBase
     public override string ArmorType => "leather";
 
     public override string ShortDescription => "a worn leather vest";
+    public override IReadOnlyList<string> Aliases => new[] { "vest", "leather vest", "leather armor", "armor" };
     public override string LongDescription =>
         "A simple leather vest, made from tanned cowhide. It's seen better days " +
         "but still offers some protection against minor attacks.";

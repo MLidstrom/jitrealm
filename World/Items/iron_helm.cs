@@ -11,6 +11,7 @@ public class IronHelm : JitRealm.World.Std.HelmetBase
     public override string ArmorType => "metal";
 
     public override string ShortDescription => "an iron helm";
+    public override IReadOnlyList<string> Aliases => new[] { "helm", "helmet", "iron helm", "iron helmet" };
     public override string LongDescription =>
         "A sturdy iron helmet with a rounded top and cheek guards. " +
         "It's heavy but offers good protection for the head.";

@@ -219,9 +219,21 @@ public sealed class MudContext : IMudContext
             if (obj.Name.ToLowerInvariant().Contains(normalizedName))
                 return itemId;
 
-            // Also check ShortDescription for IItem
-            if (obj is IItem item && item.ShortDescription.ToLowerInvariant().Contains(normalizedName))
-                return itemId;
+            // For IItem, also check Aliases and ShortDescription
+            if (obj is IItem item)
+            {
+                // Check aliases first (preferred lookup method)
+                foreach (var alias in item.Aliases)
+                {
+                    if (alias.ToLowerInvariant().Contains(normalizedName) ||
+                        normalizedName.Contains(alias.ToLowerInvariant()))
+                        return itemId;
+                }
+
+                // Fall back to ShortDescription
+                if (item.ShortDescription.ToLowerInvariant().Contains(normalizedName))
+                    return itemId;
+            }
         }
 
         return null;

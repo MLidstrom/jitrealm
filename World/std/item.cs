@@ -18,6 +18,13 @@ public class ItemBase : MudObjectBase, ICarryable, IOnLoad
     public virtual string ShortDescription => Ctx?.State.Get<string>("short_desc") ?? Name;
     public virtual string LongDescription => Ctx?.State.Get<string>("long_desc") ?? "A nondescript item.";
 
+    /// <summary>
+    /// Alternative names/keywords for looking up this item.
+    /// Override in subclasses or call SetAliases() to customize.
+    /// Default returns an empty list (falls back to Name matching).
+    /// </summary>
+    public virtual IReadOnlyList<string> Aliases => Ctx?.State.Get<string[]>("aliases") ?? Array.Empty<string>();
+
     public virtual void OnLoad(IMudContext ctx)
     {
         Ctx = ctx;
@@ -98,6 +105,14 @@ public class ItemBase : MudObjectBase, ICarryable, IOnLoad
     public void SetLongDescription(string desc, IMudContext ctx)
     {
         ctx.State.Set("long_desc", desc);
+    }
+
+    /// <summary>
+    /// Set the item's aliases (alternative lookup names).
+    /// </summary>
+    public void SetAliases(string[] aliases, IMudContext ctx)
+    {
+        ctx.State.Set("aliases", aliases);
     }
 }
 

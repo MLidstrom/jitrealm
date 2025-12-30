@@ -18,6 +18,7 @@ public interface IItem : IMudObject
 
     /// <summary>
     /// Brief description shown in room/inventory lists.
+    /// Example: "a rusty sword"
     /// </summary>
     string ShortDescription { get; }
 
@@ -25,6 +26,13 @@ public interface IItem : IMudObject
     /// Detailed description shown when examining the item.
     /// </summary>
     string LongDescription { get; }
+
+    /// <summary>
+    /// Alternative names/keywords for this item used in player commands.
+    /// Players can use any of these words to refer to the item.
+    /// Example: ["sword", "rusty sword", "blade", "weapon"]
+    /// </summary>
+    IReadOnlyList<string> Aliases { get; }
 }
 
 /// <summary>

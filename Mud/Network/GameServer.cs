@@ -112,7 +112,7 @@ public sealed class GameServer
             }
 
             // Move player to start room
-            _state.Containers.Add(player.Id, startRoom.Id);
+            _state.Containers.Add(startRoom.Id, player.Id);
 
             // Register session
             _state.Sessions.Add(session);
