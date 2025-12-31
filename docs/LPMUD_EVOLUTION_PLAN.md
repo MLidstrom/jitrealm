@@ -2,7 +2,7 @@
 
 This document details how to evolve JitRealm from its current state into a more complete lpMUD-like system while preserving its unique C#/hot-reload advantages.
 
-**Current Version: v0.15**
+**Current Version: v0.16**
 
 ## Design Philosophy
 
@@ -50,7 +50,8 @@ Benefits:
 | 13 | NPCs & AI | Monster blueprints, spawning | ✅ Complete |
 | 14 | Mudlib Polish | Command registry, social commands | ✅ Complete |
 | 15 | Configuration | appsettings.json, cross-platform | ✅ Complete |
-| 16 | Web Frontend | WebSocket API, SvelteKit client | Pending |
+| 16 | Player Accounts | Login/registration, persistent data | ✅ Complete |
+| 17 | Web Frontend | WebSocket API, SvelteKit client | Pending |
 
 ---
 
@@ -1044,9 +1045,10 @@ public sealed class CommandRegistry
 6. Phase 12: Combat ✅
 7. Phase 14: Mudlib Polish ✅
 8. Phase 15: Configuration ✅
+9. Phase 16: Player Accounts ✅
 
 ### Next Up
-9. Phase 16: Web Frontend
+10. Phase 17: Web Frontend
 
 ### Nice to Have (Future)
 - Spell/magic system
