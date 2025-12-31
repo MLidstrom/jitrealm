@@ -16,6 +16,9 @@ public sealed class ObjectManager
 {
     private readonly string _worldRoot;
     private readonly IClock _clock;
+    private readonly bool _forceGcOnUnload;
+    private readonly int _forceGcEveryNUnloads;
+    private int _unloadCounter;
 
     // Blueprint cache: blueprintPath -> handle
     private readonly Dictionary<string, BlueprintHandle> _blueprints =
@@ -25,10 +28,12 @@ public sealed class ObjectManager
     private readonly Dictionary<string, InstanceHandle> _instances =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public ObjectManager(string worldRoot, IClock? clock = null)
+    public ObjectManager(string worldRoot, IClock? clock = null, bool forceGcOnUnload = false, int forceGcEveryNUnloads = 25)
     {
         _worldRoot = worldRoot;
         _clock = clock ?? new SystemClock();
+        _forceGcOnUnload = forceGcOnUnload;
+        _forceGcEveryNUnloads = forceGcEveryNUnloads <= 0 ? 25 : forceGcEveryNUnloads;
     }
 
     // === Public API ===
@@ -41,6 +46,21 @@ public sealed class ObjectManager
     /// For backward compatibility with existing code.
     /// </summary>
     public IEnumerable<string> ListLoadedIds() => _instances.Keys.OrderBy(x => x);
+
+    /// <summary>
+    /// Number of loaded blueprints (no enumeration/sorting).
+    /// </summary>
+    public int BlueprintCount => _blueprints.Count;
+
+    /// <summary>
+    /// Number of loaded instances (no enumeration/sorting).
+    /// </summary>
+    public int InstanceCount => _instances.Count;
+
+    /// <summary>
+    /// Enumerate instance IDs without sorting (useful for hot paths).
+    /// </summary>
+    public IEnumerable<string> EnumerateInstanceIds() => _instances.Keys;
 
     /// <summary>
     /// Get an existing instance by ID.
@@ -181,7 +201,7 @@ public sealed class ObjectManager
 
         // Unload old ALC
         oldBlueprint.Alc.Unload();
-        TriggerGC();
+        MaybeTriggerGC();
     }
 
     /// <summary>
@@ -273,7 +293,7 @@ public sealed class ObjectManager
         // Remove blueprint and unload ALC
         _blueprints.Remove(blueprintId);
         blueprint.Alc.Unload();
-        TriggerGC();
+        MaybeTriggerGC();
 
         return Task.CompletedTask;
     }
@@ -314,6 +334,25 @@ public sealed class ObjectManager
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Count how many instances exist for a given blueprint.
+    /// This is O(N) but avoids sorting and avoids string prefix heuristics.
+    /// </summary>
+    public int CountInstancesForBlueprint(string blueprintId)
+    {
+        blueprintId = ObjectId.Normalize(blueprintId);
+        if (!blueprintId.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            blueprintId += ".cs";
+
+        int count = 0;
+        foreach (var inst in _instances.Values)
+        {
+            if (inst.Blueprint.BlueprintId.Equals(blueprintId, StringComparison.OrdinalIgnoreCase))
+                count++;
+        }
+        return count;
     }
 
     // === Persistence Methods ===
@@ -429,7 +468,7 @@ public sealed class ObjectManager
         }
         _blueprints.Clear();
 
-        TriggerGC();
+        MaybeTriggerGC();
     }
 
     // === Internal Methods ===
@@ -566,14 +605,23 @@ public sealed class ObjectManager
         return obj;
     }
 
-    private static List<MetadataReference> GetReferences()
+    private static IReadOnlyList<MetadataReference> GetReferences()
     {
         // Use safe references whitelist for security sandboxing
         return SafeReferences.GetSafeReferences();
     }
 
-    private static void TriggerGC()
+    private void MaybeTriggerGC()
     {
+        if (!_forceGcOnUnload)
+            return;
+
+        var n = _forceGcEveryNUnloads;
+        if (n <= 0) n = 25;
+
+        if (Interlocked.Increment(ref _unloadCounter) % n != 0)
+            return;
+
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();

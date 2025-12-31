@@ -93,12 +93,7 @@ public sealed class MudContext : IMudContext
             return false;
 
         // Create a context for the target object
-        var targetCtx = new MudContext(_internalWorld, Clock)
-        {
-            State = _internalWorld.Objects.GetStateStore(targetId) ?? new DictionaryStateStore(),
-            CurrentObjectId = targetId,
-            RoomId = _internalWorld.Containers.GetContainer(targetId)
-        };
+        var targetCtx = _internalWorld.CreateContext(targetId, Clock, _internalWorld.Containers.GetContainer(targetId));
 
         target.TakeDamage(amount, CurrentObjectId, targetCtx);
         return true;
@@ -114,12 +109,7 @@ public sealed class MudContext : IMudContext
             return false;
 
         // Create a context for the target object
-        var targetCtx = new MudContext(_internalWorld, Clock)
-        {
-            State = _internalWorld.Objects.GetStateStore(targetId) ?? new DictionaryStateStore(),
-            CurrentObjectId = targetId,
-            RoomId = _internalWorld.Containers.GetContainer(targetId)
-        };
+        var targetCtx = _internalWorld.CreateContext(targetId, Clock, _internalWorld.Containers.GetContainer(targetId));
 
         target.Heal(amount, targetCtx);
         return true;
@@ -142,12 +132,10 @@ public sealed class MudContext : IMudContext
             if (containerObj is not null)
             {
                 // Create context for the item
-                var itemCtx = new MudContext(_internalWorld, Clock)
-                {
-                    State = _internalWorld.Objects.GetStateStore(objectId) ?? new DictionaryStateStore(),
-                    CurrentObjectId = objectId,
-                    RoomId = _internalWorld.Containers.GetContainer(currentContainer)
-                };
+                var itemCtx = _internalWorld.CreateContext(
+                    objectId,
+                    Clock,
+                    roomIdOverride: _internalWorld.Containers.GetContainer(currentContainer));
                 carryable.OnDrop(itemCtx, currentContainer);
             }
         }
@@ -162,12 +150,10 @@ public sealed class MudContext : IMudContext
             if (destObj is not null)
             {
                 // Create context for the item
-                var itemCtx = new MudContext(_internalWorld, Clock)
-                {
-                    State = _internalWorld.Objects.GetStateStore(objectId) ?? new DictionaryStateStore(),
-                    CurrentObjectId = objectId,
-                    RoomId = _internalWorld.Containers.GetContainer(destinationId)
-                };
+                var itemCtx = _internalWorld.CreateContext(
+                    objectId,
+                    Clock,
+                    roomIdOverride: _internalWorld.Containers.GetContainer(destinationId));
                 carryable2.OnGet(itemCtx, destinationId);
             }
         }

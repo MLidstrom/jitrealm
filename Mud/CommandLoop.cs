@@ -11,6 +11,7 @@ public sealed class CommandLoop
     private readonly WorldState _state;
     private readonly WorldStatePersistence _persistence;
     private readonly DriverSettings _settings;
+    private readonly IClock _clock;
     private string? _playerId;
     private readonly ConsoleSession _session;
     private readonly CommandRegistry _commandRegistry;
@@ -20,6 +21,7 @@ public sealed class CommandLoop
         _state = state;
         _persistence = persistence;
         _settings = settings;
+        _clock = state.Clock;
         _session = new ConsoleSession();
         _commandRegistry = CommandFactory.CreateRegistry();
     }
@@ -75,7 +77,7 @@ public sealed class CommandLoop
                     case "l":
                         if (parts.Length == 1)
                         {
-                            await LookAsync();
+                        await LookAsync();
                         }
                         else
                         {
@@ -290,7 +292,7 @@ public sealed class CommandLoop
         var startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
 
         // Process spawns for the start room
-        await _state.ProcessSpawnsAsync(startRoom.Id, new SystemClock());
+        await _state.ProcessSpawnsAsync(startRoom.Id, _clock);
 
         // Clone a player from the player blueprint
         var player = await _state.Objects.CloneAsync<IPlayer>(_settings.Paths.PlayerBlueprint, _state);
@@ -569,7 +571,7 @@ public sealed class CommandLoop
         var dest = await _state.Objects!.LoadAsync<IRoom>(destId, _state);
 
         // Process spawns for the destination room
-        await _state.ProcessSpawnsAsync(dest.Id, new SystemClock());
+        await _state.ProcessSpawnsAsync(dest.Id, _clock);
 
         // Move player to new room via ContainerRegistry
         _state.Containers.Move(_playerId!, dest.Id);
@@ -622,7 +624,7 @@ public sealed class CommandLoop
         // Process spawns if this is a room with ISpawner
         if (obj is ISpawner)
         {
-            var spawned = await _state.ProcessSpawnsAsync(objectId, new SystemClock());
+            var spawned = await _state.ProcessSpawnsAsync(objectId, _clock);
             if (spawned > 0)
             {
                 Console.WriteLine($"Spawned {spawned} creature(s).");
@@ -663,16 +665,7 @@ public sealed class CommandLoop
 
     private MudContext CreateContextFor(string objectId)
     {
-        // Get the actual state store from the instance
-        var stateStore = _state.Objects!.GetStateStore(objectId) ?? new DictionaryStateStore();
-
-        var clock = new SystemClock();
-        return new MudContext(_state, clock)
-        {
-            State = stateStore,
-            CurrentObjectId = objectId,
-            RoomId = _state.Containers.GetContainer(objectId) ?? objectId
-        };
+        return _state.CreateContext(objectId);
     }
 
     private async Task<bool> TryExecuteRegisteredCommandAsync(string commandName, string[] args)
@@ -777,44 +770,17 @@ public sealed class CommandLoop
                 continue;
             }
 
-            // Find and invoke the method via reflection
-            var method = obj.GetType().GetMethod(callout.MethodName);
-            if (method is null)
-            {
-                Console.WriteLine($"[CallOut error in {callout.TargetId}]: Method '{callout.MethodName}' not found");
-                continue;
-            }
-
             var ctx = CreateContextFor(callout.TargetId);
 
-            // Build argument list - first param is always IMudContext
-            var parameters = method.GetParameters();
-            var args = new object?[parameters.Length];
-
-            if (parameters.Length > 0 && parameters[0].ParameterType == typeof(IMudContext))
-            {
-                args[0] = ctx;
-
-                // Fill remaining args from callout.Args
-                if (callout.Args is not null)
-                {
-                    for (int i = 1; i < parameters.Length && i - 1 < callout.Args.Length; i++)
-                    {
-                        args[i] = callout.Args[i - 1];
-                    }
-                }
-            }
-            else if (callout.Args is not null)
-            {
-                // No context parameter, just pass args directly
-                for (int i = 0; i < parameters.Length && i < callout.Args.Length; i++)
-                {
-                    args[i] = callout.Args[i];
-                }
-            }
-
             SafeInvoker.TryInvokeCallout(
-                () => method.Invoke(obj, args),
+                () =>
+                {
+                    if (!CallOutInvoker.TryInvoke(obj, callout, ctx,
+                            msg => Console.WriteLine($"[CallOut error in {callout.TargetId}]: {msg}")))
+                    {
+                        Console.WriteLine($"[CallOut error in {callout.TargetId}]: Method '{callout.MethodName}' not found");
+                    }
+                },
                 $"CallOut {callout.MethodName} in {callout.TargetId}");
         }
 
@@ -1165,8 +1131,6 @@ public sealed class CommandLoop
 
     private void ProcessCombat()
     {
-        var clock = new SystemClock();
-
         void SendMessage(string targetId, string message)
         {
             if (targetId == _playerId)
@@ -1175,7 +1139,7 @@ public sealed class CommandLoop
             }
         }
 
-        var deaths = _state.Combat.ProcessCombatRounds(_state, clock, SendMessage);
+        var deaths = _state.Combat.ProcessCombatRounds(_state, _clock, SendMessage);
 
         // Handle deaths - award experience, trigger hooks
         foreach (var (killerId, victimId) in deaths)
@@ -1263,15 +1227,14 @@ public sealed class CommandLoop
         }
 
         // Start combat
-        var clock = new SystemClock();
-        _state.Combat.StartCombat(_playerId, targetId, clock.Now);
+        _state.Combat.StartCombat(_playerId, targetId, _clock.Now);
 
         Console.WriteLine($"You attack {target.Name}!");
 
         // If target is not already in combat, they fight back
         if (!_state.Combat.IsInCombat(targetId))
         {
-            _state.Combat.StartCombat(targetId, _playerId, clock.Now);
+            _state.Combat.StartCombat(targetId, _playerId, _clock.Now);
         }
     }
 
@@ -1289,8 +1252,7 @@ public sealed class CommandLoop
             return;
         }
 
-        var clock = new SystemClock();
-        var exitDir = _state.Combat.AttemptFlee(_playerId, _state, clock);
+        var exitDir = _state.Combat.AttemptFlee(_playerId, _state, _clock);
 
         if (exitDir is null)
         {

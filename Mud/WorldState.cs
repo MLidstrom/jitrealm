@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using JitRealm.Mud.Diagnostics;
 using JitRealm.Mud.Network;
 
 namespace JitRealm.Mud;
@@ -15,6 +16,12 @@ public sealed class WorldState
         CallOuts = new CallOutScheduler(_clock);
     }
 
+    /// <summary>
+    /// The clock backing schedulers and time-based systems.
+    /// Prefer reusing this clock instead of allocating new clocks per operation.
+    /// </summary>
+    public IClock Clock => _clock;
+
     public ObjectManager? Objects { get; set; }
     public ContainerRegistry Containers { get; } = new();
     public EquipmentRegistry Equipment { get; } = new();
@@ -22,6 +29,7 @@ public sealed class WorldState
     public MessageQueue Messages { get; } = new();
     public HeartbeatScheduler Heartbeats { get; }
     public CallOutScheduler CallOuts { get; }
+    public LoopMetrics Metrics { get; } = new();
 
     /// <summary>
     /// Session manager for multi-player mode.
@@ -43,6 +51,24 @@ public sealed class WorldState
             State = Objects?.GetStateStore(objectId) ?? new DictionaryStateStore(),
             CurrentObjectId = objectId,
             RoomId = Containers.GetContainer(objectId)
+        };
+    }
+
+    /// <summary>
+    /// Convenience overload using the world's default clock.
+    /// </summary>
+    public MudContext CreateContext(string objectId) => CreateContext(objectId, _clock);
+
+    /// <summary>
+    /// Create a MudContext with an explicit room override (used by internal driver logic).
+    /// </summary>
+    public MudContext CreateContext(string objectId, IClock clock, string? roomIdOverride)
+    {
+        return new MudContext(this, clock)
+        {
+            State = Objects?.GetStateStore(objectId) ?? new DictionaryStateStore(),
+            CurrentObjectId = objectId,
+            RoomId = roomIdOverride ?? Containers.GetContainer(objectId)
         };
     }
 
@@ -100,23 +126,6 @@ public sealed class WorldState
     {
         if (Objects is null)
             return 0;
-
-        var normalizedBlueprint = blueprintId.Replace("\\", "/").ToLowerInvariant();
-        if (!normalizedBlueprint.EndsWith(".cs"))
-            normalizedBlueprint += ".cs";
-
-        int count = 0;
-        foreach (var instanceId in Objects.ListInstanceIds())
-        {
-            // Check if this instance is a clone of the specified blueprint
-            // Clone IDs look like "Items/rusty_sword.cs#000001"
-            var normalizedId = instanceId.Replace("\\", "/").ToLowerInvariant();
-            if (normalizedId.StartsWith(normalizedBlueprint))
-            {
-                count++;
-            }
-        }
-
-        return count;
+        return Objects.CountInstancesForBlueprint(blueprintId);
     }
 }

@@ -1,22 +1,17 @@
 namespace JitRealm.Mud;
 
 /// <summary>
-/// Entry tracking the next heartbeat time for an object.
-/// </summary>
-public sealed class HeartbeatEntry
-{
-    public required string ObjectId { get; init; }
-    public required TimeSpan Interval { get; init; }
-    public DateTimeOffset NextFireTime { get; set; }
-}
-
-/// <summary>
 /// Simple scheduler for IHeartbeat objects.
 /// Tracks next fire time per object and returns due heartbeats.
 /// </summary>
 public sealed class HeartbeatScheduler
 {
-    private readonly Dictionary<string, HeartbeatEntry> _entries = new(StringComparer.OrdinalIgnoreCase);
+    // Keep canonical schedule state per object.
+    // Optimization: track the earliest next-fire time so we can avoid scanning unless something is due.
+    private readonly Dictionary<string, (long IntervalTicks, long NextFireTicksUtc)> _entries =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private long _nextGlobalFireTicksUtc = long.MaxValue;
     private readonly IClock _clock;
 
     public HeartbeatScheduler(IClock clock)
@@ -29,12 +24,13 @@ public sealed class HeartbeatScheduler
     /// </summary>
     public void Register(string objectId, TimeSpan interval)
     {
-        _entries[objectId] = new HeartbeatEntry
-        {
-            ObjectId = objectId,
-            Interval = interval,
-            NextFireTime = _clock.Now + interval
-        };
+        var nowTicks = _clock.Now.UtcTicks;
+        var intervalTicks = interval.Ticks;
+        var nextTicks = nowTicks + intervalTicks;
+        _entries[objectId] = (intervalTicks, nextTicks);
+
+        if (nextTicks < _nextGlobalFireTicksUtc)
+            _nextGlobalFireTicksUtc = nextTicks;
     }
 
     /// <summary>
@@ -42,7 +38,16 @@ public sealed class HeartbeatScheduler
     /// </summary>
     public void Unregister(string objectId)
     {
-        _entries.Remove(objectId);
+        if (_entries.TryGetValue(objectId, out var existing))
+        {
+            _entries.Remove(objectId);
+
+            // If we removed the entry that was the global minimum, recompute (rare).
+            if (existing.NextFireTicksUtc == _nextGlobalFireTicksUtc)
+            {
+                _nextGlobalFireTicksUtc = ComputeNextGlobalFireTicksUtc();
+            }
+        }
     }
 
     /// <summary>
@@ -56,18 +61,33 @@ public sealed class HeartbeatScheduler
     /// </summary>
     public IReadOnlyList<string> GetDueHeartbeats()
     {
-        var now = _clock.Now;
-        var due = new List<string>();
+        var nowTicks = _clock.Now.UtcTicks;
+        if (nowTicks < _nextGlobalFireTicksUtc || _entries.Count == 0)
+            return Array.Empty<string>();
 
-        foreach (var entry in _entries.Values)
+        // Something is due; scan once, update due entries, and recompute new global minimum.
+        var due = new List<string>();
+        long newMin = long.MaxValue;
+
+        // Copy to avoid modifying the dictionary while enumerating.
+        foreach (var kvp in _entries.ToArray())
         {
-            if (now >= entry.NextFireTime)
+            var objectId = kvp.Key;
+            var intervalTicks = kvp.Value.IntervalTicks;
+            var nextFire = kvp.Value.NextFireTicksUtc;
+
+            if (nowTicks >= nextFire)
             {
-                due.Add(entry.ObjectId);
-                entry.NextFireTime = now + entry.Interval;
+                due.Add(objectId);
+                nextFire = nowTicks + intervalTicks;
+                _entries[objectId] = (intervalTicks, nextFire);
             }
+
+            if (nextFire < newMin)
+                newMin = nextFire;
         }
 
+        _nextGlobalFireTicksUtc = newMin;
         return due;
     }
 
@@ -75,4 +95,15 @@ public sealed class HeartbeatScheduler
     /// Get count of registered heartbeat objects.
     /// </summary>
     public int Count => _entries.Count;
+
+    private long ComputeNextGlobalFireTicksUtc()
+    {
+        long min = long.MaxValue;
+        foreach (var entry in _entries.Values)
+        {
+            if (entry.NextFireTicksUtc < min)
+                min = entry.NextFireTicksUtc;
+        }
+        return min;
+    }
 }
