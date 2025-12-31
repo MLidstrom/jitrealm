@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Diagnostics;
 using JitRealm.Mud.Configuration;
+using JitRealm.Mud.Diagnostics;
 using JitRealm.Mud.Persistence;
 using JitRealm.Mud.Players;
 using JitRealm.Mud.Security;
@@ -16,6 +18,7 @@ public sealed class GameServer
     private readonly TelnetServer _telnet;
     private readonly DriverSettings _settings;
     private readonly PlayerAccountService _accounts;
+    private readonly IClock _clock;
     private bool _running;
 
     /// <summary>
@@ -28,6 +31,7 @@ public sealed class GameServer
         _state = state;
         _persistence = persistence;
         _settings = settings;
+        _clock = state.Clock;
         _accounts = new PlayerAccountService(settings);
         _telnet = new TelnetServer(settings.Server.Port);
 
@@ -49,28 +53,51 @@ public sealed class GameServer
         {
             while (_running && !cancellationToken.IsCancellationRequested)
             {
+                var tickStart = Stopwatch.GetTimestamp();
+
                 // Accept any pending connections
                 await _telnet.AcceptPendingConnectionsAsync();
 
                 // Process heartbeats (world-wide)
-                ProcessHeartbeats();
+                var hbStart = Stopwatch.GetTimestamp();
+                var dueHeartbeats = ProcessHeartbeats();
+                var hbTicks = Stopwatch.GetTimestamp() - hbStart;
 
                 // Process callouts (world-wide)
-                ProcessCallOuts();
+                var coStart = Stopwatch.GetTimestamp();
+                var dueCallouts = ProcessCallOuts();
+                var coTicks = Stopwatch.GetTimestamp() - coStart;
 
                 // Process combat rounds (world-wide)
+                var combatStart = Stopwatch.GetTimestamp();
                 ProcessCombat();
+                var combatTicks = Stopwatch.GetTimestamp() - combatStart;
 
                 // Process input from all sessions
+                var inputStart = Stopwatch.GetTimestamp();
                 await ProcessAllSessionsAsync();
+                var inputTicks = Stopwatch.GetTimestamp() - inputStart;
 
                 // Deliver messages to sessions
+                var deliverStart = Stopwatch.GetTimestamp();
                 DeliverMessages();
+                var deliverTicks = Stopwatch.GetTimestamp() - deliverStart;
 
                 // Prune disconnected sessions
                 _state.Sessions.PruneDisconnected();
 
                 // Small delay to prevent busy-loop
+                var totalTicks = Stopwatch.GetTimestamp() - tickStart;
+                _state.Metrics.RecordTick(
+                    heartbeatsTicks: hbTicks,
+                    dueHeartbeats: dueHeartbeats,
+                    calloutsTicks: coTicks,
+                    dueCallouts: dueCallouts,
+                    combatTicks: combatTicks,
+                    inputTicks: inputTicks,
+                    deliverTicks: deliverTicks,
+                    totalTicks: totalTicks);
+
                 await Task.Delay(_settings.GameLoop.LoopDelayMs, cancellationToken);
             }
         }
@@ -292,7 +319,7 @@ public sealed class GameServer
             }
 
             // Process spawns for the room
-            await _state.ProcessSpawnsAsync(startRoom.Id, new SystemClock());
+            await _state.ProcessSpawnsAsync(startRoom.Id, _clock);
 
             // Clone player from blueprint
             var player = await _state.Objects.CloneAsync<IPlayer>(_settings.Paths.PlayerBlueprint, _state);
@@ -883,7 +910,7 @@ public sealed class GameServer
         var destRoom = await _state.Objects.LoadAsync<IRoom>(destId, _state);
 
         // Process spawns for the destination room
-        await _state.ProcessSpawnsAsync(destRoom.Id, new SystemClock());
+        await _state.ProcessSpawnsAsync(destRoom.Id, _clock);
 
         _state.Containers.Move(playerId, destRoom.Id);
 
@@ -958,7 +985,7 @@ public sealed class GameServer
         }
     }
 
-    private void ProcessHeartbeats()
+    private int ProcessHeartbeats()
     {
         var dueObjects = _state.Heartbeats.GetDueHeartbeats();
 
@@ -971,9 +998,11 @@ public sealed class GameServer
                 SafeInvoker.TryInvokeHeartbeat(() => heartbeat.Heartbeat(ctx), $"Heartbeat in {objectId}");
             }
         }
+
+        return dueObjects.Count;
     }
 
-    private void ProcessCallOuts()
+    private int ProcessCallOuts()
     {
         var dueCallouts = _state.CallOuts.GetDueCallouts();
 
@@ -982,36 +1011,21 @@ public sealed class GameServer
             var obj = _state.Objects!.Get<IMudObject>(callout.TargetId);
             if (obj is null) continue;
 
-            var method = obj.GetType().GetMethod(callout.MethodName);
-            if (method is null)
-            {
-                Console.WriteLine($"[CallOut error in {callout.TargetId}]: Method '{callout.MethodName}' not found");
-                continue;
-            }
-
             var ctx = CreateContextFor(callout.TargetId);
-            var parameters = method.GetParameters();
-            var args = new object?[parameters.Length];
-
-            if (parameters.Length > 0 && parameters[0].ParameterType == typeof(IMudContext))
-            {
-                args[0] = ctx;
-                if (callout.Args is not null)
-                {
-                    for (int i = 1; i < parameters.Length && i - 1 < callout.Args.Length; i++)
-                        args[i] = callout.Args[i - 1];
-                }
-            }
-            else if (callout.Args is not null)
-            {
-                for (int i = 0; i < parameters.Length && i < callout.Args.Length; i++)
-                    args[i] = callout.Args[i];
-            }
 
             SafeInvoker.TryInvokeCallout(
-                () => method.Invoke(obj, args),
+                () =>
+                {
+                    if (!CallOutInvoker.TryInvoke(obj, callout, ctx,
+                            msg => Console.WriteLine($"[CallOut error in {callout.TargetId}]: {msg}")))
+                    {
+                        Console.WriteLine($"[CallOut error in {callout.TargetId}]: Method '{callout.MethodName}' not found");
+                    }
+                },
                 $"CallOut {callout.MethodName} in {callout.TargetId}");
         }
+
+        return dueCallouts.Count;
     }
 
     private void DeliverMessages()
@@ -1057,14 +1071,7 @@ public sealed class GameServer
 
     private MudContext CreateContextFor(string objectId)
     {
-        var stateStore = _state.Objects!.GetStateStore(objectId) ?? new DictionaryStateStore();
-        var clock = new SystemClock();
-        return new MudContext(_state, clock)
-        {
-            State = stateStore,
-            CurrentObjectId = objectId,
-            RoomId = _state.Containers.GetContainer(objectId) ?? objectId
-        };
+        return _state.CreateContext(objectId);
     }
 
     private string GetObjectName(string objectId)
@@ -1578,8 +1585,6 @@ public sealed class GameServer
 
     private void ProcessCombat()
     {
-        var clock = new SystemClock();
-
         void SendMessage(string targetId, string message)
         {
             var targetSession = _state.Sessions.GetByPlayerId(targetId);
@@ -1589,7 +1594,7 @@ public sealed class GameServer
             }
         }
 
-        var deaths = _state.Combat.ProcessCombatRounds(_state, clock, SendMessage);
+        var deaths = _state.Combat.ProcessCombatRounds(_state, _clock, SendMessage);
 
         // Handle deaths - award experience, trigger hooks
         foreach (var (killerId, victimId) in deaths)
@@ -1685,8 +1690,7 @@ public sealed class GameServer
         }
 
         // Start combat
-        var clock = new SystemClock();
-        _state.Combat.StartCombat(playerId, targetId, clock.Now);
+        _state.Combat.StartCombat(playerId, targetId, _clock.Now);
 
         await session.WriteLineAsync($"You attack {target.Name}!");
         BroadcastToRoom(roomId, $"{session.PlayerName} attacks {target.Name}!", session);
@@ -1694,7 +1698,7 @@ public sealed class GameServer
         // If target is not already in combat, they fight back
         if (!_state.Combat.IsInCombat(targetId))
         {
-            _state.Combat.StartCombat(targetId, playerId, clock.Now);
+            _state.Combat.StartCombat(targetId, playerId, _clock.Now);
         }
     }
 
@@ -1713,8 +1717,7 @@ public sealed class GameServer
             return;
         }
 
-        var clock = new SystemClock();
-        var exitDir = _state.Combat.AttemptFlee(playerId, _state, clock);
+        var exitDir = _state.Combat.AttemptFlee(playerId, _state, _clock);
 
         if (exitDir is null)
         {

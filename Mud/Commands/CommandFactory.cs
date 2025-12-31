@@ -70,5 +70,6 @@ public static class CommandFactory
         registry.Register(new StatCommand());
         registry.Register(new ResetCommand());
         registry.Register(new PatchCommand());
+        registry.Register(new PerfCommand());
     }
 }

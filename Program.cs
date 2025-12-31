@@ -1,5 +1,6 @@
 using JitRealm.Mud;
 using JitRealm.Mud.Configuration;
+using JitRealm.Mud.Diagnostics;
 using JitRealm.Mud.Network;
 using JitRealm.Mud.Persistence;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +19,7 @@ configuration.Bind(settings);
 
 // Parse command-line arguments (override settings)
 var serverMode = args.Contains("--server") || args.Contains("-s");
+var perfBenchMode = args.Contains("--perfbench");
 for (int i = 0; i < args.Length - 1; i++)
 {
     if (args[i] is "--port" or "-p" && int.TryParse(args[i + 1], out var p))
@@ -33,12 +35,25 @@ var savePath = Path.Combine(saveDir, settings.Paths.SaveFileName);
 
 var state = new WorldState
 {
-    Objects = new ObjectManager(worldDir, new SystemClock())
+    Objects = new ObjectManager(
+        worldDir,
+        new SystemClock(),
+        forceGcOnUnload: settings.Performance.ForceGcOnUnload,
+        forceGcEveryNUnloads: settings.Performance.ForceGcEveryNUnloads)
 };
 
 // Set up persistence
 var provider = new JsonPersistenceProvider(savePath);
 var persistence = new WorldStatePersistence(provider);
+
+if (perfBenchMode)
+{
+    // Run a deterministic driver benchmark and exit.
+    // Example:
+    //   dotnet run -- --perfbench --blueprint std/perf_dummy.cs --count 2000 --ticks 5000
+    await PerfHarness.RunAsync(baseDir, settings, args);
+    return;
+}
 
 if (serverMode)
 {

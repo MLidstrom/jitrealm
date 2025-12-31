@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 
 namespace JitRealm.Mud.Security;
@@ -59,7 +60,9 @@ public static class SafeReferences
     /// Gets the safe metadata references for world code compilation.
     /// </summary>
     /// <returns>List of safe assembly references.</returns>
-    public static List<MetadataReference> GetSafeReferences()
+    public static IReadOnlyList<MetadataReference> GetSafeReferences() => Cached.Value;
+
+    private static readonly Lazy<ImmutableArray<MetadataReference>> Cached = new(() =>
     {
         var refs = new List<MetadataReference>();
 
@@ -86,8 +89,8 @@ public static class SafeReferences
             refs.Add(MetadataReference.CreateFromFile(hostAsm.Location));
         }
 
-        return refs;
-    }
+        return refs.ToImmutableArray();
+    });
 
     /// <summary>
     /// Checks if an assembly name is in the allowed list.

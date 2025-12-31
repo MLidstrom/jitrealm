@@ -35,6 +35,28 @@ public sealed class DriverSettings
     /// Player default settings.
     /// </summary>
     public PlayerSettings Player { get; set; } = new();
+
+    /// <summary>
+    /// Performance and resource-usage tuning.
+    /// </summary>
+    public PerformanceSettings Performance { get; set; } = new();
+}
+
+/// <summary>
+/// Performance tuning settings. Defaults are conservative for server mode.
+/// </summary>
+public sealed class PerformanceSettings
+{
+    /// <summary>
+    /// If true, the driver may trigger full blocking GC cycles after unload/reload operations.
+    /// This can help reclaim collectible AssemblyLoadContext memory, but it is CPU-expensive.
+    /// </summary>
+    public bool ForceGcOnUnload { get; set; } = false;
+
+    /// <summary>
+    /// If ForceGcOnUnload is enabled, run a forced GC only every N unload/reload operations.
+    /// </summary>
+    public int ForceGcEveryNUnloads { get; set; } = 25;
 }
 
 /// <summary>
