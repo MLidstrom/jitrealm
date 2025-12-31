@@ -823,6 +823,45 @@ players/
 
 ---
 
+## Post v0.16 Polish ✅ COMPLETE
+
+**Goal**: Quality-of-life improvements for gameplay and wizard tools.
+
+### Item Grouping & Formatting ✅
+
+- New `ItemFormatter` utility class in `Mud/ItemFormatter.cs`
+- Groups duplicate items in displays: "2 rusty swords" instead of "rusty sword, rusty sword"
+- Adds proper articles: "a rusty sword", "an iron helmet"
+- English pluralization with irregular word support (knife→knives, elf→elves, dwarf→dwarves, etc.)
+- Applied to room contents ("You see: ...") and inventory display
+
+### "here" Keyword for Wizard Commands ✅
+
+- Wizards can reference current room as "here" in commands
+- New `ResolveObjectId()` helper in `CommandContext`
+- Supported commands: `reload here`, `stat here`, `patch here`, `reset here`, `destruct here`, `unload here`
+
+### Time Command Fix ✅
+
+- `time`/`date` command now works (was missing from GameServer dispatch)
+- Shows server time, session duration, total playtime
+
+### Files added
+
+| File | Purpose |
+|------|---------|
+| `Mud/ItemFormatter.cs` | Item grouping, pluralization, articles |
+
+### Files modified
+
+| File | Change |
+|------|--------|
+| `Mud/Commands/CommandContext.cs` | Added `ResolveObjectId()` for "here" keyword |
+| `Mud/Commands/Wizard/WizardCommands.cs` | Updated 6 commands to use `ResolveObjectId()` |
+| `Mud/Network/GameServer.cs` | Item grouping in room/inventory, time command handler |
+
+---
+
 ## Phase 17 — Web Frontend
 
 **Goal**: Modern web-based client with wizard tools for world building.

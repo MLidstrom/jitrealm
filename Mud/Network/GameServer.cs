@@ -562,6 +562,11 @@ public sealed class GameServer
                 await ShowScoreAsync(session);
                 break;
 
+            case "time":
+            case "date":
+                await ShowTimeAsync(session);
+                break;
+
             case "get":
             case "take":
                 if (parts.Length < 2)
@@ -846,7 +851,7 @@ public sealed class GameServer
         // Show other players and objects in room
         var contents = _state.Containers.GetContents(roomId);
         var players = new List<string>();
-        var objects = new List<string>();
+        var objectNames = new List<string>();
 
         foreach (var objId in contents)
         {
@@ -859,17 +864,24 @@ public sealed class GameServer
                 var otherSession = _state.Sessions.GetByPlayerId(objId);
                 players.Add(otherSession?.PlayerName ?? obj.Name);
             }
+            else if (obj is IItem item)
+            {
+                objectNames.Add(item.ShortDescription);
+            }
             else if (obj is not null)
             {
-                objects.Add(obj.Name);
+                objectNames.Add(obj.Name);
             }
         }
 
         if (players.Count > 0)
             await session.WriteLineAsync("Players here: " + string.Join(", ", players));
 
-        if (objects.Count > 0)
-            await session.WriteLineAsync("You see: " + string.Join(", ", objects));
+        if (objectNames.Count > 0)
+        {
+            var formatted = ItemFormatter.FormatGroupedList(objectNames);
+            await session.WriteLineAsync("You see: " + formatted);
+        }
     }
 
     private async Task GoAsync(ISession session, string exit)
@@ -973,6 +985,39 @@ public sealed class GameServer
         await session.WriteLineAsync($"  Armor: {player.TotalArmorClass}  Damage: {player.WeaponDamage.min}-{player.WeaponDamage.max}");
         await session.WriteLineAsync($"  Carry: {player.CarriedWeight}/{player.CarryCapacity}");
         await session.WriteLineAsync($"  Session: {player.SessionTime:hh\\:mm\\:ss}");
+    }
+
+    private async Task ShowTimeAsync(ISession session)
+    {
+        var now = DateTimeOffset.Now;
+        await session.WriteLineAsync($"=== Time ===");
+        await session.WriteLineAsync($"Server time: {now:yyyy-MM-dd HH:mm:ss zzz}");
+
+        var playerId = session.PlayerId;
+        if (playerId is not null)
+        {
+            var player = _state.Objects!.Get<IPlayer>(playerId);
+            if (player is not null)
+            {
+                await session.WriteLineAsync($"Session time: {FormatTimeSpan(player.SessionTime)}");
+
+                if (player is PlayerBase playerBase)
+                {
+                    await session.WriteLineAsync($"Total playtime: {FormatTimeSpan(playerBase.TotalPlaytime)}");
+                }
+            }
+        }
+    }
+
+    private static string FormatTimeSpan(TimeSpan ts)
+    {
+        if (ts.TotalDays >= 1)
+            return $"{(int)ts.TotalDays}d {ts.Hours}h {ts.Minutes}m";
+        if (ts.TotalHours >= 1)
+            return $"{(int)ts.TotalHours}h {ts.Minutes}m {ts.Seconds}s";
+        if (ts.TotalMinutes >= 1)
+            return $"{(int)ts.TotalMinutes}m {ts.Seconds}s";
+        return $"{ts.Seconds}s";
     }
 
     private void BroadcastToRoom(string roomId, string message, ISession? exclude = null)
@@ -1188,19 +1233,51 @@ public sealed class GameServer
 
         await session.WriteLineAsync("You are carrying:");
         int totalWeight = 0;
+
+        // Group items by description with their weights
+        var itemGroups = new Dictionary<string, (int count, int totalWeight)>(StringComparer.OrdinalIgnoreCase);
+        var nonItems = new List<string>();
+
         foreach (var itemId in contents)
         {
             var item = _state.Objects!.Get<IItem>(itemId);
             if (item is not null)
             {
-                await session.WriteLineAsync($"  {item.ShortDescription} ({item.Weight} lbs)");
+                var desc = item.ShortDescription;
+                if (itemGroups.TryGetValue(desc, out var existing))
+                {
+                    itemGroups[desc] = (existing.count + 1, existing.totalWeight + item.Weight);
+                }
+                else
+                {
+                    itemGroups[desc] = (1, item.Weight);
+                }
                 totalWeight += item.Weight;
             }
             else
             {
                 var obj = _state.Objects.Get<IMudObject>(itemId);
-                await session.WriteLineAsync($"  {obj?.Name ?? itemId}");
+                nonItems.Add(obj?.Name ?? itemId);
             }
+        }
+
+        // Display grouped items
+        foreach (var (desc, (count, weight)) in itemGroups.OrderBy(kv => kv.Key))
+        {
+            if (count == 1)
+            {
+                await session.WriteLineAsync($"  {ItemFormatter.WithArticle(desc)} ({weight} lbs)");
+            }
+            else
+            {
+                await session.WriteLineAsync($"  {count} {ItemFormatter.Pluralize(desc)} ({weight} lbs)");
+            }
+        }
+
+        // Display non-item objects (grouped)
+        foreach (var formatted in ItemFormatter.FormatGrouped(nonItems))
+        {
+            await session.WriteLineAsync($"  {formatted}");
         }
 
         var player = _state.Objects!.Get<IPlayer>(playerId);

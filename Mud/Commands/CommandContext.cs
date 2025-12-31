@@ -74,4 +74,19 @@ public class CommandContext
     {
         Output($"Error: {message}");
     }
+
+    /// <summary>
+    /// Resolve special object references like "here" to actual object IDs.
+    /// </summary>
+    /// <param name="reference">The reference to resolve (e.g., "here" or an actual object ID)</param>
+    /// <returns>The resolved object ID, or null if the reference couldn't be resolved</returns>
+    public string? ResolveObjectId(string reference)
+    {
+        if (string.Equals(reference, "here", StringComparison.OrdinalIgnoreCase))
+        {
+            return GetPlayerLocation();
+        }
+
+        return reference;
+    }
 }

@@ -57,14 +57,20 @@ public class ObjectsCommand : WizardCommandBase
 public class ReloadCommand : WizardCommandBase
 {
     public override string Name => "reload";
-    public override string Usage => "reload <blueprintId>";
+    public override string Usage => "reload <blueprintId|here>";
     public override string Description => "Hot-reload a blueprint from disk";
 
     public override async Task ExecuteAsync(CommandContext context, string[] args)
     {
         if (!RequireArgs(context, args, 1)) return;
 
-        var blueprintId = args[0];
+        var blueprintId = context.ResolveObjectId(args[0]);
+        if (blueprintId is null)
+        {
+            context.Output("Could not resolve object reference.");
+            return;
+        }
+
         await context.State.Objects!.ReloadBlueprintAsync(blueprintId, context.State);
         context.Output($"Reloaded blueprint {blueprintId}");
     }
@@ -76,14 +82,20 @@ public class ReloadCommand : WizardCommandBase
 public class UnloadCommand : WizardCommandBase
 {
     public override string Name => "unload";
-    public override string Usage => "unload <blueprintId>";
+    public override string Usage => "unload <blueprintId|here>";
     public override string Description => "Unload a blueprint and its instances";
 
     public override async Task ExecuteAsync(CommandContext context, string[] args)
     {
         if (!RequireArgs(context, args, 1)) return;
 
-        var blueprintId = args[0];
+        var blueprintId = context.ResolveObjectId(args[0]);
+        if (blueprintId is null)
+        {
+            context.Output("Could not resolve object reference.");
+            return;
+        }
+
         await context.State.Objects!.UnloadBlueprintAsync(blueprintId, context.State);
         context.Output($"Unloaded blueprint {blueprintId}");
     }
@@ -124,14 +136,20 @@ public class CloneCommand : WizardCommandBase
 public class DestructCommand : WizardCommandBase
 {
     public override string Name => "destruct";
-    public override string Usage => "destruct <objectId>";
+    public override string Usage => "destruct <objectId|here>";
     public override string Description => "Remove an object instance";
 
     public override async Task ExecuteAsync(CommandContext context, string[] args)
     {
         if (!RequireArgs(context, args, 1)) return;
 
-        var objectId = args[0];
+        var objectId = context.ResolveObjectId(args[0]);
+        if (objectId is null)
+        {
+            context.Output("Could not resolve object reference.");
+            return;
+        }
+
         await context.State.Objects!.DestructAsync(objectId, context.State);
         context.State.Containers.Remove(objectId);
         context.Output($"Destructed {objectId}");
@@ -144,14 +162,20 @@ public class DestructCommand : WizardCommandBase
 public class StatCommand : WizardCommandBase
 {
     public override string Name => "stat";
-    public override string Usage => "stat <id>";
+    public override string Usage => "stat <id|here>";
     public override string Description => "Show details about a blueprint or instance";
 
     public override Task ExecuteAsync(CommandContext context, string[] args)
     {
         if (!RequireArgs(context, args, 1)) return Task.CompletedTask;
 
-        var id = args[0];
+        var id = context.ResolveObjectId(args[0]);
+        if (id is null)
+        {
+            context.Output("Could not resolve object reference.");
+            return Task.CompletedTask;
+        }
+
         var stats = context.State.Objects!.GetStats(id);
 
         if (stats is null)
@@ -194,14 +218,20 @@ public class StatCommand : WizardCommandBase
 public class ResetCommand : WizardCommandBase
 {
     public override string Name => "reset";
-    public override string Usage => "reset <objectId>";
+    public override string Usage => "reset <objectId|here>";
     public override string Description => "Trigger reset on a resettable object";
 
     public override Task ExecuteAsync(CommandContext context, string[] args)
     {
         if (!RequireArgs(context, args, 1)) return Task.CompletedTask;
 
-        var objectId = args[0];
+        var objectId = context.ResolveObjectId(args[0]);
+        if (objectId is null)
+        {
+            context.Output("Could not resolve object reference.");
+            return Task.CompletedTask;
+        }
+
         var obj = context.State.Objects!.Get<IMudObject>(objectId);
 
         if (obj is null)
@@ -229,22 +259,29 @@ public class ResetCommand : WizardCommandBase
 public class PatchCommand : WizardCommandBase
 {
     public override string Name => "patch";
-    public override string Usage => "patch <objectId> [key] [value]";
+    public override string Usage => "patch <objectId|here> [key] [value]";
     public override string Description => "View or modify object state variables";
 
     public override Task ExecuteAsync(CommandContext context, string[] args)
     {
         if (args.Length == 0)
         {
-            context.Output("Usage: patch <objectId> [key] [value]");
+            context.Output("Usage: patch <objectId|here> [key] [value]");
             context.Output("  patch <objectId>           - show all state variables");
             context.Output("  patch <objectId> <key>     - show specific variable");
             context.Output("  patch <objectId> <key> <value> - set variable");
+            context.Output("  Use 'here' to reference current room");
             context.Output("Value types: int (123), bool (true/false), string (anything else)");
             return Task.CompletedTask;
         }
 
-        var objectId = args[0];
+        var objectId = context.ResolveObjectId(args[0]);
+        if (objectId is null)
+        {
+            context.Output("Could not resolve object reference.");
+            return Task.CompletedTask;
+        }
+
         var stateStore = context.State.Objects!.GetStateStore(objectId);
 
         if (stateStore is null)

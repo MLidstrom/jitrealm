@@ -216,3 +216,21 @@
 - **New Files** ✅
   - `Mud/Players/PlayerAccountData.cs` — serialization format
   - `Mud/Players/PlayerAccountService.cs` — account management service
+
+## Post v0.16 Polish ✅
+
+- **Item Grouping & Formatting** ✅
+  - `ItemFormatter` utility class for grouped item display
+  - Room contents: "You see: 2 rusty swords" instead of "rusty sword, rusty sword"
+  - Inventory: Groups items with combined weights (e.g., "2 rusty swords (10 lbs)")
+  - Proper articles: "a rusty sword", "an iron helmet"
+  - English pluralization with irregular word support (knife→knives, elf→elves, etc.)
+
+- **"here" Keyword for Wizard Commands** ✅
+  - Wizards can reference current room as "here" in commands
+  - Supported: `reload here`, `stat here`, `patch here`, `reset here`, `destruct here`, `unload here`
+  - `ResolveObjectId()` helper in CommandContext
+
+- **Time Command Fix** ✅
+  - `time`/`date` command now works (was missing from GameServer dispatch)
+  - Shows server time, session duration, total playtime
