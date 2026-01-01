@@ -132,6 +132,11 @@ public sealed class GameServer
             await session.WriteLineAsync("");
             await session.WriteLineAsync($"=== {_settings.Server.MudName} v{_settings.Server.Version} ===");
             await session.WriteLineAsync("");
+            if (!_accounts.AnyPlayersExist())
+            {
+                await session.WriteLineAsync("No player accounts found yet. Choose (C) to create your first character.");
+                await session.WriteLineAsync("");
+            }
             await session.WriteLineAsync("(L)ogin or (C)reate new player?");
             await session.WriteAsync("> ");
 
@@ -251,60 +256,85 @@ public sealed class GameServer
 
     private async Task HandleCreatePlayerAsync(TelnetSession session)
     {
-        // Get player name
         await session.WriteLineAsync("");
-        await session.WriteAsync("Enter player name: ");
-        var name = await session.ReadLineBlockingAsync();
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            await session.WriteLineAsync("Goodbye!");
-            await session.CloseAsync();
-            return;
-        }
-        name = name.Trim();
 
-        // Validate name
-        var nameError = PlayerAccountService.ValidatePlayerName(name);
-        if (nameError is not null)
-        {
-            await session.WriteLineAsync(nameError);
-            await session.CloseAsync();
-            return;
-        }
+        const int maxAttempts = 3;
 
-        // Check if player already exists
-        if (await _accounts.PlayerExistsAsync(name))
+        // Get player name (retry instead of disconnecting on typos)
+        string? name = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            await session.WriteLineAsync("That name is already taken. Disconnecting.");
-            await session.CloseAsync();
-            return;
-        }
+            await session.WriteAsync("Enter player name: ");
+            name = await session.ReadLineBlockingAsync();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                await session.WriteLineAsync("Goodbye!");
+                await session.CloseAsync();
+                return;
+            }
+            name = name.Trim();
 
-        // Get password
-        await session.WriteAsync("Enter password: ");
-        var password = await session.ReadLineBlockingAsync();
-        if (string.IsNullOrWhiteSpace(password))
-        {
-            await session.WriteLineAsync("Goodbye!");
-            await session.CloseAsync();
-            return;
+            var nameError = PlayerAccountService.ValidatePlayerName(name);
+            if (nameError is not null)
+            {
+                await session.WriteLineAsync(nameError);
+                name = null;
+                continue;
+            }
+
+            if (await _accounts.PlayerExistsAsync(name))
+            {
+                await session.WriteLineAsync("That name is already taken. Try again.");
+                name = null;
+                continue;
+            }
+
+            break;
         }
 
-        // Validate password
-        var passwordError = PlayerAccountService.ValidatePassword(password);
-        if (passwordError is not null)
+        if (name is null)
         {
-            await session.WriteLineAsync(passwordError);
+            await session.WriteLineAsync("Too many failed attempts. Disconnecting.");
             await session.CloseAsync();
             return;
         }
 
-        // Confirm password
-        await session.WriteAsync("Confirm password: ");
-        var confirm = await session.ReadLineBlockingAsync();
-        if (confirm != password)
+        // Get password (retry instead of disconnecting)
+        string? password = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            await session.WriteLineAsync("Passwords don't match. Disconnecting.");
+            await session.WriteAsync("Enter password: ");
+            password = await session.ReadLineBlockingAsync();
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                await session.WriteLineAsync("Goodbye!");
+                await session.CloseAsync();
+                return;
+            }
+
+            var passwordError = PlayerAccountService.ValidatePassword(password);
+            if (passwordError is not null)
+            {
+                await session.WriteLineAsync(passwordError);
+                password = null;
+                continue;
+            }
+
+            await session.WriteAsync("Confirm password: ");
+            var confirm = await session.ReadLineBlockingAsync();
+            if (confirm != password)
+            {
+                await session.WriteLineAsync("Passwords don't match. Try again.");
+                password = null;
+                continue;
+            }
+
+            break;
+        }
+
+        if (password is null)
+        {
+            await session.WriteLineAsync("Too many failed attempts. Disconnecting.");
             await session.CloseAsync();
             return;
         }

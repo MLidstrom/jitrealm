@@ -64,6 +64,22 @@ public sealed class PlayerAccountService
     }
 
     /// <summary>
+    /// Returns true if any player account files exist on disk.
+    /// Useful for first-run UX (prompt users to create a player).
+    /// </summary>
+    public bool AnyPlayersExist()
+    {
+        try
+        {
+            return Directory.EnumerateFiles(_playersDirectory, "*.json", SearchOption.AllDirectories).Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Validate a player name.
     /// </summary>
     /// <returns>Error message or null if valid.</returns>
