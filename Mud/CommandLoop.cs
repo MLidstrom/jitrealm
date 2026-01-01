@@ -537,10 +537,10 @@ public sealed class CommandLoop
                     Console.WriteLine(item.LongDescription);
                     return;
                 }
-                // For livings, show a basic description
+                // For livings, show their description and HP
                 if (obj is ILiving living)
                 {
-                    Console.WriteLine($"You look at {obj.Name}.");
+                    Console.WriteLine(living.Description);
                     Console.WriteLine($"  HP: {living.HP}/{living.MaxHP}");
                     return;
                 }

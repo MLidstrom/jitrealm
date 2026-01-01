@@ -40,6 +40,11 @@ public sealed class DriverSettings
     /// Performance and resource-usage tuning.
     /// </summary>
     public PerformanceSettings Performance { get; set; } = new();
+
+    /// <summary>
+    /// LLM (AI) settings for NPC conversations and behavior.
+    /// </summary>
+    public LlmSettings Llm { get; set; } = new();
 }
 
 /// <summary>
@@ -236,4 +241,51 @@ public sealed class PlayerSettings
     /// Base XP required per level.
     /// </summary>
     public int BaseXpPerLevel { get; set; } = 100;
+}
+
+/// <summary>
+/// LLM settings for NPC AI.
+/// </summary>
+public sealed class LlmSettings
+{
+    /// <summary>
+    /// Enable LLM-powered NPC behavior.
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// LLM provider: "ollama", "openai", "anthropic".
+    /// </summary>
+    public string Provider { get; set; } = "ollama";
+
+    /// <summary>
+    /// Ollama server URL.
+    /// </summary>
+    public string OllamaUrl { get; set; } = "http://localhost:11434";
+
+    /// <summary>
+    /// Model name to use (e.g., "llama3.2:7b", "mistral").
+    /// </summary>
+    public string Model { get; set; } = "llama3.2:7b";
+
+    /// <summary>
+    /// Temperature for response generation (0.0-2.0).
+    /// Lower = more deterministic, higher = more creative.
+    /// </summary>
+    public double Temperature { get; set; } = 0.8;
+
+    /// <summary>
+    /// Maximum tokens in response.
+    /// </summary>
+    public int MaxTokens { get; set; } = 150;
+
+    /// <summary>
+    /// Timeout for LLM requests in milliseconds.
+    /// </summary>
+    public int TimeoutMs { get; set; } = 30000;
+
+    /// <summary>
+    /// Directory containing NPC prompt files (relative to World directory).
+    /// </summary>
+    public string PromptsDirectory { get; set; } = "npcs";
 }

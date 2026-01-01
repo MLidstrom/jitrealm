@@ -862,6 +862,144 @@ players/
 
 ---
 
+## LLM-Powered NPCs ✅ COMPLETE
+
+**Goal**: NPCs that react intelligently to the world using LLM (Large Language Model) integration.
+
+### LLM Service ✅
+
+- `ILlmService` interface — abstraction for LLM providers
+- `OpenAILlmService` — OpenAI/compatible API implementation
+- `LlmSettings` — configuration (endpoint, model, API key, enabled flag)
+- Async completion with system prompt and user message
+
+### NPC Capabilities System ✅
+
+- `NpcCapabilities` flags enum — species-based action limitations:
+  - `CanSpeak`, `CanEmote`, `CanAttack`, `CanFlee`
+  - `CanManipulateItems`, `CanTrade`, `CanFollow`, `CanWander`, `CanUseDoors`
+  - Presets: `Animal`, `Humanoid`, `Beast`, `Merchant`
+
+### Room Event System ✅
+
+- `RoomEvent` class — observable events in rooms
+- `RoomEventType` enum — Speech, Emote, Arrival, Departure, Combat, ItemTaken, ItemDropped, Death
+- NPCs observe all room activity via `OnRoomEventAsync(RoomEvent, IMudContext)`
+- Events include actor, message, direction, target information
+
+### NPC Context Building ✅
+
+- `NpcContext` class — complete environmental awareness for NPCs
+- Includes: room info, exits, players, other NPCs, items, combat state, recent events
+- `BuildEnvironmentDescription()` — human-readable context for LLM
+- `BuildActionInstructions()` — capability-aware action suggestions
+
+### NPC Command Execution ✅
+
+- `NpcCommandExecutor` — allows NPCs to issue player-like commands
+- Supported commands: say, emote, go, get, drop, kill, flee
+- Direction shortcuts: n/s/e/w/u/d
+- Respects `NpcCapabilities` (cat can't speak, goblin can)
+- `ExecuteCommandAsync(command)` added to IMudContext
+
+### Generic Emote Command ✅
+
+- `emote <action>` / `me <action>` — custom emotes for players
+- Example: "emote looks around" → "Alice looks around"
+
+### Example LLM NPCs ✅
+
+- `World/npcs/cat.cs` — animal NPC (emotes only, no speech)
+- `World/npcs/goblin.cs` — humanoid monster (full capabilities)
+- Both react to room events with LLM-generated responses
+
+### Files created
+
+| File | Purpose |
+|------|---------|
+| `Mud/AI/ILlmService.cs` | LLM service interface |
+| `Mud/AI/OpenAILlmService.cs` | OpenAI API implementation |
+| `Mud/AI/ILlmNpc.cs` | LLM NPC interface, RoomEvent, NpcCapabilities |
+| `Mud/AI/NpcContext.cs` | Environmental context for NPCs |
+| `Mud/AI/NpcCommandExecutor.cs` | NPC command execution |
+| `Mud/Network/NpcSession.cs` | Session implementation for NPCs |
+| `World/npcs/cat.cs` | Example animal NPC |
+
+### Files modified
+
+| File | Change |
+|------|--------|
+| `Mud/IMudContext.cs` | Added LLM methods, ExecuteCommandAsync, CurrentObjectId |
+| `Mud/MudContext.cs` | Implemented LLM methods and command execution |
+| `Mud/WorldState.cs` | Added LlmService, NpcCommands, RoomEventLog |
+| `Mud/Network/GameServer.cs` | Room events, emote command, NPC event triggering |
+| `Mud/Configuration/DriverSettings.cs` | Added LlmSettings section |
+| `appsettings.json` | Added LLM configuration |
+
+### Acceptance criteria ✅
+
+- [x] LLM service connects to OpenAI-compatible API
+- [x] NPCs react to room events (speech, arrivals, etc.)
+- [x] NPC capabilities limit available actions
+- [x] Cat can only emote, goblin can speak
+- [x] NPCs can execute commands like players
+- [x] Environmental context includes room, entities, items
+
+### LivingBase LLM Integration ✅
+
+Refactored LLM NPC support into `LivingBase` for minimal boilerplate:
+
+**Description Property:**
+- `ILiving.Description` — shown when players look at NPCs
+- Override in NPC classes for custom descriptions
+- Default: `$"You see {Name}."` (generic fallback)
+
+**Event Processing (in LivingBase):**
+- `QueueLlmEvent(event, ctx)` — queue events for heartbeat processing
+- `ProcessPendingLlmEvent(ctx)` — auto-called in Heartbeat for ILlmNpc
+- `HasPendingLlmEvent` — check for pending events
+- `GetLlmReactionInstructions(event)` — context-aware reaction instructions:
+  - **Speech events**: instructs LLM to respond with speech ("You MUST reply with speech")
+  - **Other events**: instructs LLM to use emotes
+
+**System Prompt Builder (in LivingBase):**
+- `BuildSystemPrompt()` — generates consistent prompts from properties
+- `NpcIdentity` — who they are (defaults to Name)
+- `NpcNature` — physical description
+- `NpcCommunicationStyle` — speech patterns
+- `NpcPersonality` — character traits
+- `NpcExamples` — example responses
+- `NpcExtraRules` — character-specific rules
+
+**Auto-generated prompt rules:**
+- Emote format with asterisks (third-person: `*smiles*` not `*I smile*`)
+- Speech format with quotes (`"Hello!"`)
+- "NEVER use first person (I, me, my)"
+- "You CANNOT speak" (if !CanSpeak)
+- "NEVER break character"
+- "Respond with exactly ONE action per event"
+
+**Response Parsing:**
+- `NpcCommandExecutor` parses both `*emote*` and `[emote]` patterns
+- Only executes first action per response (spam prevention)
+- Truncates speech to first sentence
+- **First-person auto-correction**: "I smile" → "smiles", "I look around" → "looks around"
+
+### Files modified (LivingBase refactor)
+
+| File | Change |
+|------|--------|
+| `Mud/ILiving.cs` | Added `Description` property to interface |
+| `World/std/living.cs` | Added Description, LLM event queue, prompt builder, context-aware reactions |
+| `World/npcs/cat.cs` | Added explicit Description, uses base class features |
+| `World/npcs/goblin.cs` | Added explicit Description, uses base class features |
+| `World/npcs/shopkeeper.cs` | Added explicit Description, uses base class features |
+| `Mud/AI/NpcCommandExecutor.cs` | Bracket pattern, one-action limit, first-person emote fix |
+| `Mud/CommandLoop.cs` | Updated look command to show living.Description |
+| `Mud/Network/GameServer.cs` | Updated look command to show living.Description |
+
+---
+
 ## Phase 17 — Web Frontend
 
 **Goal**: Modern web-based client with wizard tools for world building.

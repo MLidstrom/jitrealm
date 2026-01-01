@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using JitRealm.Mud.AI;
 using JitRealm.Mud.Diagnostics;
 using JitRealm.Mud.Network;
 
@@ -8,6 +9,7 @@ namespace JitRealm.Mud;
 public sealed class WorldState
 {
     private readonly IClock _clock;
+    private NpcCommandExecutor? _npcCommandExecutor;
 
     public WorldState(IClock? clock = null)
     {
@@ -15,6 +17,17 @@ public sealed class WorldState
         Heartbeats = new HeartbeatScheduler(_clock);
         CallOuts = new CallOutScheduler(_clock);
     }
+
+    /// <summary>
+    /// Command executor for NPCs to issue player-like commands.
+    /// </summary>
+    public NpcCommandExecutor NpcCommands => _npcCommandExecutor ??= new NpcCommandExecutor(this, _clock);
+
+    /// <summary>
+    /// Optional LLM service for AI-powered NPCs.
+    /// Set during server initialization if LLM is enabled.
+    /// </summary>
+    public ILlmService? LlmService { get; set; }
 
     /// <summary>
     /// The clock backing schedulers and time-based systems.
@@ -39,6 +52,11 @@ public sealed class WorldState
     public SessionManager Sessions { get; } = new();
 
     /// <summary>
+    /// Event log for NPC awareness. Stores recent events per room.
+    /// </summary>
+    public RoomEventLog EventLog { get; } = new();
+
+    /// <summary>
     /// Create a MudContext for a specific object.
     /// </summary>
     /// <param name="objectId">The object ID to create the context for</param>
@@ -46,7 +64,7 @@ public sealed class WorldState
     /// <returns>A MudContext configured for the object</returns>
     public MudContext CreateContext(string objectId, IClock clock)
     {
-        return new MudContext(this, clock)
+        return new MudContext(this, clock, LlmService)
         {
             State = Objects?.GetStateStore(objectId) ?? new DictionaryStateStore(),
             CurrentObjectId = objectId,
@@ -64,7 +82,7 @@ public sealed class WorldState
     /// </summary>
     public MudContext CreateContext(string objectId, IClock clock, string? roomIdOverride)
     {
-        return new MudContext(this, clock)
+        return new MudContext(this, clock, LlmService)
         {
             State = Objects?.GetStateStore(objectId) ?? new DictionaryStateStore(),
             CurrentObjectId = objectId,

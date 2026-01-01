@@ -234,3 +234,38 @@
 - **Time Command Fix** ✅
   - `time`/`date` command now works (was missing from GameServer dispatch)
   - Shows server time, session duration, total playtime
+
+## LLM-Powered NPCs ✅
+
+- **LLM Service Integration** ✅
+  - `ILlmService` interface — abstraction for LLM providers
+  - `OpenAILlmService` — OpenAI-compatible API implementation
+  - `LlmSettings` configuration — endpoint, model, API key, enabled flag
+
+- **NPC Capabilities System** ✅
+  - `NpcCapabilities` flags enum — species-based action limitations
+  - Presets: Animal (emote only), Humanoid (full), Beast, Merchant
+  - Capabilities: CanSpeak, CanEmote, CanAttack, CanFlee, CanManipulateItems, etc.
+
+- **Room Event System** ✅
+  - `RoomEvent` class — observable room activity
+  - Event types: Speech, Emote, Arrival, Departure, Combat, ItemTaken, ItemDropped, Death
+  - NPCs observe events via `OnRoomEventAsync(RoomEvent, IMudContext)`
+
+- **LivingBase LLM Integration** ✅
+  - `Description` property for NPC look descriptions
+  - `QueueLlmEvent()` / `ProcessPendingLlmEvent()` — heartbeat-based processing
+  - `GetLlmReactionInstructions()` — context-aware (speech→speech, other→emote)
+  - `BuildSystemPrompt()` — auto-generates consistent NPC prompts
+  - Properties: NpcNature, NpcCommunicationStyle, NpcPersonality, NpcExamples, NpcExtraRules
+
+- **NPC Command Execution** ✅
+  - `NpcCommandExecutor` — NPCs issue player-like commands (say, emote, go, get, drop, kill, flee)
+  - First-person emote auto-correction: "I smile" → "smiles"
+  - Parses `*emote*` and `[emote]` patterns
+  - One action per heartbeat (spam prevention)
+
+- **Example NPCs** ✅
+  - `cat.cs` — animal NPC (emotes only, no speech)
+  - `goblin.cs` — humanoid monster (full capabilities)
+  - `shopkeeper.cs` — merchant NPC (friendly speech)

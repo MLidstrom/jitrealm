@@ -8,7 +8,7 @@ public sealed class StartRoom : MudObjectBase, IRoom, IResettable, ISpawner
 
     public override string Name => "The Starting Room";
 
-    public string Description => "A bare room with stone walls. A flickering terminal cursor seems to watch you.";
+    public string Description => "A bare room with stone walls. A flickering terminal cursor seems to watch you. A cat lounges in the corner.";
 
     public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
     {
@@ -25,7 +25,9 @@ public sealed class StartRoom : MudObjectBase, IRoom, IResettable, ISpawner
         ["floor"] = "The floor is made of worn flagstones, smooth from countless footsteps. " +
                     "Dust gathers in the cracks between them.",
         ["symbols"] = "Strange symbols are carved into the walls - angular runes that seem to " +
-                      "shimmer faintly when you look at them directly. Their meaning is unclear."
+                      "shimmer faintly when you look at them directly. Their meaning is unclear.",
+        ["cat"] = "A small domestic cat with soft fur. It watches you with keen, intelligent eyes, " +
+                  "its tail flicking lazily back and forth."
     };
 
     public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
@@ -36,10 +38,11 @@ public sealed class StartRoom : MudObjectBase, IRoom, IResettable, ISpawner
 
     public IReadOnlyList<string> Contents => Array.Empty<string>();
 
-    // ISpawner implementation - spawn the rusty sword
+    // ISpawner implementation - spawn the rusty sword and a cat
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
-        ["Items/rusty_sword.cs"] = 1
+        ["Items/rusty_sword.cs"] = 1,
+        ["npcs/cat.cs"] = 1
     };
 
     public void Respawn(IMudContext ctx)

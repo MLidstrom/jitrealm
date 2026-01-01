@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Diagnostics;
+using JitRealm.Mud.AI;
 using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Diagnostics;
 using JitRealm.Mud.Persistence;
@@ -551,6 +552,40 @@ public sealed class GameServer
                 var sayMsg = string.Join(" ", parts.Skip(1));
                 BroadcastToRoom(playerLocation!, $"{playerName} says: {sayMsg}", session);
                 await session.WriteLineAsync($"You say: {sayMsg}");
+                _state.EventLog.Record(playerLocation!, $"{playerName} said: \"{sayMsg}\"");
+
+                // Trigger LLM responses from NPCs in the room
+                var speechEvent = new RoomEvent
+                {
+                    Type = RoomEventType.Speech,
+                    ActorId = playerId,
+                    ActorName = playerName,
+                    Message = sayMsg
+                };
+                await TriggerNpcRoomEventAsync(speechEvent, playerLocation!);
+                break;
+
+            case "emote":
+            case "me":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: emote <action>");
+                    break;
+                }
+                var emoteAction = string.Join(" ", parts.Skip(1));
+                BroadcastToRoom(playerLocation!, $"{playerName} {emoteAction}", session);
+                await session.WriteLineAsync($"You {emoteAction}");
+                _state.EventLog.Record(playerLocation!, $"{playerName} {emoteAction}");
+
+                // Trigger LLM responses from NPCs in the room
+                var emoteEvent = new RoomEvent
+                {
+                    Type = RoomEventType.Emote,
+                    ActorId = playerId,
+                    ActorName = playerName,
+                    Message = emoteAction
+                };
+                await TriggerNpcRoomEventAsync(emoteEvent, playerLocation!);
                 break;
 
             case "who":
@@ -917,6 +952,17 @@ public sealed class GameServer
 
         // Notify others in current room
         BroadcastToRoom(currentRoomId, $"{playerName} leaves {exit}.", session);
+        _state.EventLog.Record(currentRoomId, $"{playerName} left {exit}");
+
+        // Trigger NPC reactions to departure
+        var departureEvent = new RoomEvent
+        {
+            Type = RoomEventType.Departure,
+            ActorId = playerId,
+            ActorName = playerName,
+            Direction = exit
+        };
+        await TriggerNpcRoomEventAsync(departureEvent, currentRoomId);
 
         // Move to destination
         var destRoom = await _state.Objects.LoadAsync<IRoom>(destId, _state);
@@ -928,6 +974,17 @@ public sealed class GameServer
 
         // Notify others in new room
         BroadcastToRoom(destRoom.Id, $"{playerName} has arrived.", session);
+        _state.EventLog.Record(destRoom.Id, $"{playerName} arrived");
+
+        // Trigger NPC reactions to arrival
+        var arrivalEvent = new RoomEvent
+        {
+            Type = RoomEventType.Arrival,
+            ActorId = playerId,
+            ActorName = playerName,
+            Direction = GetOppositeDirection(exit)
+        };
+        await TriggerNpcRoomEventAsync(arrivalEvent, destRoom.Id);
 
         // Show new room
         await ShowRoomAsync(session);
@@ -1175,6 +1232,17 @@ public sealed class GameServer
         ctx.Move(itemId, playerId);
         await session.WriteLineAsync($"You pick up {item.ShortDescription}.");
         BroadcastToRoom(roomId, $"{session.PlayerName} picks up {item.ShortDescription}.", session);
+        _state.EventLog.Record(roomId, $"{session.PlayerName} picked up {item.ShortDescription}");
+
+        // Trigger NPC reactions
+        var pickupEvent = new RoomEvent
+        {
+            Type = RoomEventType.ItemTaken,
+            ActorId = playerId,
+            ActorName = session.PlayerName ?? "Someone",
+            Target = item.ShortDescription
+        };
+        await TriggerNpcRoomEventAsync(pickupEvent, roomId);
     }
 
     private async Task DropItemAsync(ISession session, string itemName)
@@ -1213,6 +1281,17 @@ public sealed class GameServer
         ctx.Move(itemId, roomId);
         await session.WriteLineAsync($"You drop {item.ShortDescription}.");
         BroadcastToRoom(roomId, $"{session.PlayerName} drops {item.ShortDescription}.", session);
+        _state.EventLog.Record(roomId, $"{session.PlayerName} dropped {item.ShortDescription}");
+
+        // Trigger NPC reactions
+        var dropEvent = new RoomEvent
+        {
+            Type = RoomEventType.ItemDropped,
+            ActorId = playerId,
+            ActorName = session.PlayerName ?? "Someone",
+            Target = item.ShortDescription
+        };
+        await TriggerNpcRoomEventAsync(dropEvent, roomId);
     }
 
     private async Task ShowInventoryAsync(ISession session)
@@ -1415,10 +1494,10 @@ public sealed class GameServer
                     await session.WriteLineAsync(item.LongDescription);
                     return;
                 }
-                // For livings, show a basic description
+                // For livings, show their description and HP
                 if (obj is ILiving living)
                 {
-                    await session.WriteLineAsync($"You look at {obj.Name}.");
+                    await session.WriteLineAsync(living.Description);
                     await session.WriteLineAsync($"  HP: {living.HP}/{living.MaxHP}");
                     return;
                 }
@@ -1771,6 +1850,7 @@ public sealed class GameServer
 
         await session.WriteLineAsync($"You attack {target.Name}!");
         BroadcastToRoom(roomId, $"{session.PlayerName} attacks {target.Name}!", session);
+        _state.EventLog.Record(roomId, $"{session.PlayerName} attacked {target.Name}");
 
         // If target is not already in combat, they fight back
         if (!_state.Combat.IsInCombat(targetId))
@@ -1877,6 +1957,50 @@ public sealed class GameServer
                 await session.WriteLineAsync($"  Weapon Damage: {min}-{max}");
             }
         }
+    }
+
+    private async Task TriggerNpcRoomEventAsync(RoomEvent roomEvent, string roomId)
+    {
+        if (_state.Objects is null) return;
+
+        var contents = _state.Containers.GetContents(roomId);
+        foreach (var objId in contents)
+        {
+            // Skip the actor - they don't need to react to their own actions
+            if (objId == roomEvent.ActorId) continue;
+
+            var obj = _state.Objects.Get<IMudObject>(objId);
+            if (obj is ILlmNpc llmNpc)
+            {
+                try
+                {
+                    var ctx = CreateContextFor(objId);
+                    await llmNpc.OnRoomEventAsync(roomEvent, ctx);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[LLM] Error in NPC {objId} response: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    private static string? GetOppositeDirection(string direction)
+    {
+        return direction.ToLowerInvariant() switch
+        {
+            "north" or "n" => "south",
+            "south" or "s" => "north",
+            "east" or "e" => "west",
+            "west" or "w" => "east",
+            "up" or "u" => "below",
+            "down" or "d" => "above",
+            "northeast" or "ne" => "southwest",
+            "northwest" or "nw" => "southeast",
+            "southeast" or "se" => "northwest",
+            "southwest" or "sw" => "northeast",
+            _ => null
+        };
     }
 
     private string? FindTargetInRoom(string name, string roomId, string? excludeId = null)

@@ -25,6 +25,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Mudlib Polish** (v0.14): Command registry, social commands (shout/whisper/emotes), help system, RoomBase class
 - **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
 - **Player Accounts** (v0.16): Login/registration with SHA256 passwords, persistent player data (state, inventory, equipment, location)
+- **LLM-Powered NPCs**: AI-driven NPC behavior via OpenAI-compatible APIs (configurable), context-aware reactions to room events
 - **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
 - **Object Details**: All objects support "look at X" for granular descriptions (e.g., "look at grass")
 - **Command Shortcuts**: `l` for look, `n/s/e/w/u/d` for directions
@@ -90,7 +91,8 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `shout <message>` / `yell` — shout to adjacent rooms
 - `whisper <player> <message>` / `tell` — private message
 - `who` — list online players
-- `bow`, `wave`, `laugh`, `smile`, `nod`, `shrug`, `sigh`, `cheer`, `think`, `cry`, `dance`, `yawn` — emotes
+- `emote <action>` / `me <action>` — custom emote (e.g., "emote looks around")
+- `bow`, `wave`, `laugh`, `smile`, `nod`, `shrug`, `sigh`, `cheer`, `think`, `cry`, `dance`, `yawn` — pre-defined emotes
 
 ### Utility
 - `help` / `?` — show command help (wizard commands shown only for wizards)

@@ -7,6 +7,11 @@ namespace JitRealm.Mud;
 public interface ILiving : IMudObject
 {
     /// <summary>
+    /// Detailed description shown when examining this living being.
+    /// </summary>
+    string Description { get; }
+
+    /// <summary>
     /// Current hit points.
     /// </summary>
     int HP { get; }

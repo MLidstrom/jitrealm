@@ -42,10 +42,16 @@ public static class ItemFormatter
 
     /// <summary>
     /// Add an indefinite article (a/an) to a name.
+    /// Skips if the name already starts with an article.
     /// </summary>
     public static string WithArticle(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
+            return name;
+
+        // Check if name already starts with an article
+        var lower = name.ToLowerInvariant();
+        if (lower.StartsWith("a ") || lower.StartsWith("an ") || lower.StartsWith("the "))
             return name;
 
         var firstChar = char.ToLowerInvariant(name[0]);

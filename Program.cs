@@ -1,4 +1,5 @@
 using JitRealm.Mud;
+using JitRealm.Mud.AI;
 using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Diagnostics;
 using JitRealm.Mud.Network;
@@ -41,6 +42,14 @@ var state = new WorldState
         forceGcOnUnload: settings.Performance.ForceGcOnUnload,
         forceGcEveryNUnloads: settings.Performance.ForceGcEveryNUnloads)
 };
+
+// Set up LLM service if enabled
+if (settings.Llm.Enabled)
+{
+    var llmService = new OllamaLlmService(settings.Llm);
+    state.LlmService = llmService;
+    Console.WriteLine($"LLM service enabled: {settings.Llm.Provider} ({settings.Llm.Model})");
+}
 
 // Set up persistence
 var provider = new JsonPersistenceProvider(savePath);
