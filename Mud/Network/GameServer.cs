@@ -2296,14 +2296,14 @@ public sealed class GameServer
                     console.MarkupLine("[bold yellow]Spectre markup[/] [green]works[/] if ANSI is enabled.");
                     var panel = new Panel("This is a [blue]Panel[/].")
                         .Header("Spectre.Console");
-                    // Avoid Unicode box-drawing; many telnet clients are not UTF-8 and will show mojibake.
-                    panel.Border = BoxBorder.Ascii;
+                    // Full-featured Spectre output (Unicode box drawing).
+                    panel.Border = BoxBorder.Rounded;
                     console.Write(panel);
 
                     var table = new Table();
                     table.AddColumn("Key");
                     table.AddColumn("Value");
-                    table.Border(TableBorder.Ascii);
+                    table.Border(TableBorder.Rounded);
                     table.AddRow("SupportsAnsi", session.SupportsAnsi.ToString());
                     table.AddRow("Formatter", session.Formatter.GetType().Name);
                     table.AddRow("SessionId", session.SessionId);
