@@ -1,3 +1,5 @@
+using JitRealm.Mud.Formatting;
+
 namespace JitRealm.Mud.Network;
 
 /// <summary>
@@ -5,12 +7,28 @@ namespace JitRealm.Mud.Network;
 /// </summary>
 public sealed class ConsoleSession : ISession
 {
+    private bool _supportsAnsi = true;
+    private IMudFormatter? _formatter;
+
     public string SessionId { get; } = "console";
     public string? PlayerId { get; set; }
     public string? PlayerName { get; set; }
     public bool IsWizard { get; set; } = true; // Console user is always a wizard
     public bool IsConnected => true; // Console is always "connected"
     public bool HasPendingInput => Console.KeyAvailable;
+
+    public bool SupportsAnsi
+    {
+        get => _supportsAnsi;
+        set
+        {
+            _supportsAnsi = value;
+            _formatter = null; // Force re-creation
+        }
+    }
+
+    public IMudFormatter Formatter =>
+        _formatter ??= _supportsAnsi ? new MudFormatter() : new PlainTextFormatter();
 
     public Task WriteLineAsync(string text)
     {

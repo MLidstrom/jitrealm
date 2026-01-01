@@ -45,6 +45,11 @@ public sealed class DriverSettings
     /// LLM (AI) settings for NPC conversations and behavior.
     /// </summary>
     public LlmSettings Llm { get; set; } = new();
+
+    /// <summary>
+    /// Display and formatting settings.
+    /// </summary>
+    public DisplaySettings Display { get; set; } = new();
 }
 
 /// <summary>
@@ -288,4 +293,15 @@ public sealed class LlmSettings
     /// Directory containing NPC prompt files (relative to World directory).
     /// </summary>
     public string PromptsDirectory { get; set; } = "npcs";
+}
+
+/// <summary>
+/// Display and formatting settings.
+/// </summary>
+public sealed class DisplaySettings
+{
+    /// <summary>
+    /// Enable ANSI color codes by default for new sessions.
+    /// </summary>
+    public bool DefaultColorsEnabled { get; set; } = true;
 }

@@ -269,3 +269,26 @@
   - `cat.cs` — animal NPC (emotes only, no speech)
   - `goblin.cs` — humanoid monster (full capabilities)
   - `shopkeeper.cs` — merchant NPC (friendly speech)
+
+## Rich Terminal Output (Spectre.Console) ✅
+
+- **Formatting System** ✅
+  - `IMudFormatter` interface — abstraction for all output formatting
+  - `MudFormatter` — Spectre.Console implementation with ANSI colors
+  - `PlainTextFormatter` — fallback for non-ANSI terminals
+  - `MudTheme` — consistent color scheme (room names, players, NPCs, combat, etc.)
+
+- **Session Integration** ✅
+  - `ISession.SupportsAnsi` — per-session color toggle
+  - `ISession.Formatter` — automatic formatter selection based on ANSI support
+  - Session-level color persistence
+
+- **Formatted Output** ✅
+  - Room display: colored room names, descriptions, exits
+  - Player stats: HP bar with gradient colors (green→yellow→red)
+  - Inventory/Equipment: formatted tables with weight info
+  - Combat messages: colored damage dealt/received
+
+- **Configuration** ✅
+  - `Display.DefaultColorsEnabled` in appsettings.json
+  - `colors on|off` command for runtime toggle

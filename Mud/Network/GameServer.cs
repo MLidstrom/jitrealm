@@ -3,9 +3,11 @@ using System.Diagnostics;
 using JitRealm.Mud.AI;
 using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Diagnostics;
+using JitRealm.Mud.Formatting;
 using JitRealm.Mud.Persistence;
 using JitRealm.Mud.Players;
 using JitRealm.Mud.Security;
+using Spectre.Console;
 
 namespace JitRealm.Mud.Network;
 
@@ -602,6 +604,12 @@ public sealed class GameServer
                 await ShowTimeAsync(session);
                 break;
 
+            case "colors":
+            case "colour":
+            case "color":
+                await ToggleColorsAsync(session, parts.Length > 1 ? parts[1] : null);
+                break;
+
             case "get":
             case "take":
                 if (parts.Length < 2)
@@ -857,31 +865,33 @@ public sealed class GameServer
     private async Task ShowRoomAsync(ISession session)
     {
         var playerId = session.PlayerId;
+        var fmt = session.Formatter;
+
         if (playerId is null)
         {
-            await session.WriteLineAsync("You are nowhere.");
+            await session.WriteLineAsync(fmt.FormatError("You are nowhere."));
             return;
         }
 
         var roomId = _state.Containers.GetContainer(playerId);
         if (roomId is null)
         {
-            await session.WriteLineAsync("You are nowhere.");
+            await session.WriteLineAsync(fmt.FormatError("You are nowhere."));
             return;
         }
 
         var room = _state.Objects!.Get<IRoom>(roomId);
         if (room is null)
         {
-            await session.WriteLineAsync("You are nowhere.");
+            await session.WriteLineAsync(fmt.FormatError("You are nowhere."));
             return;
         }
 
-        await session.WriteLineAsync(room.Name);
-        await session.WriteLineAsync(room.Description);
+        await session.WriteLineAsync(fmt.FormatRoomName(room.Name));
+        await session.WriteLineAsync(fmt.FormatRoomDescription(room.Description));
 
         if (room.Exits.Count > 0)
-            await session.WriteLineAsync("Exits: " + string.Join(", ", room.Exits.Keys));
+            await session.WriteLineAsync(fmt.FormatExits(room.Exits.Keys));
 
         // Show other players and objects in room
         var contents = _state.Containers.GetContents(roomId);
@@ -910,12 +920,12 @@ public sealed class GameServer
         }
 
         if (players.Count > 0)
-            await session.WriteLineAsync("Players here: " + string.Join(", ", players));
+            await session.WriteLineAsync(fmt.FormatPlayersHere(players));
 
         if (objectNames.Count > 0)
         {
             var formatted = ItemFormatter.FormatGroupedList(objectNames);
-            await session.WriteLineAsync("You see: " + formatted);
+            await session.WriteLineAsync(fmt.FormatObjectsHere(formatted));
         }
     }
 
@@ -1010,38 +1020,31 @@ public sealed class GameServer
     private async Task ShowScoreAsync(ISession session)
     {
         var playerId = session.PlayerId;
+        var fmt = session.Formatter;
+
         if (playerId is null)
         {
-            await session.WriteLineAsync("No player.");
+            await session.WriteLineAsync(fmt.FormatError("No player."));
             return;
         }
 
         var player = _state.Objects!.Get<IPlayer>(playerId);
         if (player is null)
         {
-            await session.WriteLineAsync("Player not found.");
+            await session.WriteLineAsync(fmt.FormatError("Player not found."));
             return;
         }
 
-        // Build HP bar
-        var hpPercent = player.MaxHP > 0 ? (double)player.HP / player.MaxHP : 0;
-        var barLength = 20;
-        var filledLength = (int)(hpPercent * barLength);
-        var hpBar = new string('█', filledLength) + new string('░', barLength - filledLength);
-
         // Calculate XP to next level
         var xpForNextLevel = (int)(player.Level * _settings.Player.BaseXpPerLevel * _settings.Player.XpMultiplier);
-        var xpProgress = player.Experience;
 
-        await session.WriteLineAsync($"=== {player.PlayerName} ===");
-        if (session.IsWizard)
-            await session.WriteLineAsync($"  Status: Wizard");
-        await session.WriteLineAsync($"  Level: {player.Level}");
-        await session.WriteLineAsync($"  HP: [{hpBar}] {player.HP}/{player.MaxHP}");
-        await session.WriteLineAsync($"  XP: {xpProgress}/{xpForNextLevel} to next level");
-        await session.WriteLineAsync($"  Armor: {player.TotalArmorClass}  Damage: {player.WeaponDamage.min}-{player.WeaponDamage.max}");
-        await session.WriteLineAsync($"  Carry: {player.CarriedWeight}/{player.CarryCapacity}");
-        await session.WriteLineAsync($"  Session: {player.SessionTime:hh\\:mm\\:ss}");
+        await session.WriteLineAsync(fmt.FormatScoreHeader(player.PlayerName, session.IsWizard));
+        await session.WriteLineAsync(fmt.FormatLevel(player.Level));
+        await session.WriteLineAsync(fmt.FormatHpBar(player.HP, player.MaxHP));
+        await session.WriteLineAsync(fmt.FormatXpProgress(player.Experience, xpForNextLevel));
+        await session.WriteLineAsync(fmt.FormatCombatStats(player.TotalArmorClass, player.WeaponDamage.min, player.WeaponDamage.max));
+        await session.WriteLineAsync(fmt.FormatCarryWeight(player.CarriedWeight, player.CarryCapacity));
+        await session.WriteLineAsync(fmt.FormatSessionTime(player.SessionTime));
     }
 
     private async Task ShowTimeAsync(ISession session)
@@ -1297,20 +1300,22 @@ public sealed class GameServer
     private async Task ShowInventoryAsync(ISession session)
     {
         var playerId = session.PlayerId;
+        var fmt = session.Formatter;
+
         if (playerId is null)
         {
-            await session.WriteLineAsync("No player.");
+            await session.WriteLineAsync(fmt.FormatError("No player."));
             return;
         }
 
         var contents = _state.Containers.GetContents(playerId);
         if (contents.Count == 0)
         {
-            await session.WriteLineAsync("You are not carrying anything.");
+            await session.WriteLineAsync(fmt.FormatInventoryEmpty());
             return;
         }
 
-        await session.WriteLineAsync("You are carrying:");
+        await session.WriteLineAsync(fmt.FormatInventoryHeader());
         int totalWeight = 0;
 
         // Group items by description with their weights
@@ -1343,14 +1348,10 @@ public sealed class GameServer
         // Display grouped items
         foreach (var (desc, (count, weight)) in itemGroups.OrderBy(kv => kv.Key))
         {
-            if (count == 1)
-            {
-                await session.WriteLineAsync($"  {ItemFormatter.WithArticle(desc)} ({weight} lbs)");
-            }
-            else
-            {
-                await session.WriteLineAsync($"  {count} {ItemFormatter.Pluralize(desc)} ({weight} lbs)");
-            }
+            var displayDesc = count == 1
+                ? ItemFormatter.WithArticle(desc)
+                : $"{count} {ItemFormatter.Pluralize(desc)}";
+            await session.WriteLineAsync(fmt.FormatInventoryItem(displayDesc, weight, count));
         }
 
         // Display non-item objects (grouped)
@@ -1362,7 +1363,7 @@ public sealed class GameServer
         var player = _state.Objects!.Get<IPlayer>(playerId);
         if (player is not null)
         {
-            await session.WriteLineAsync($"Total weight: {totalWeight}/{player.CarryCapacity} lbs");
+            await session.WriteLineAsync(fmt.FormatInventoryTotal(totalWeight, player.CarryCapacity));
         }
     }
 
@@ -1679,38 +1680,41 @@ public sealed class GameServer
     private async Task ShowEquipmentAsync(ISession session)
     {
         var playerId = session.PlayerId;
+        var fmt = session.Formatter;
+
         if (playerId is null)
         {
-            await session.WriteLineAsync("No player.");
+            await session.WriteLineAsync(fmt.FormatError("No player."));
             return;
         }
 
         var equipped = _state.Equipment.GetAllEquipped(playerId);
         if (equipped.Count == 0)
         {
-            await session.WriteLineAsync("You have nothing equipped.");
+            await session.WriteLineAsync(fmt.FormatEquipmentEmpty());
             return;
         }
 
-        await session.WriteLineAsync("You have equipped:");
+        await session.WriteLineAsync(fmt.FormatEquipmentHeader());
         foreach (var slot in Enum.GetValues<EquipmentSlot>())
         {
             if (equipped.TryGetValue(slot, out var itemId))
             {
                 var item = _state.Objects!.Get<IItem>(itemId);
                 var desc = item?.ShortDescription ?? itemId;
+                string? stats = null;
 
                 // Add extra info for weapons/armor
                 if (item is IWeapon weapon)
                 {
-                    desc += $" ({weapon.MinDamage}-{weapon.MaxDamage} dmg)";
+                    stats = $"({weapon.MinDamage}-{weapon.MaxDamage} dmg)";
                 }
                 else if (item is IArmor armor)
                 {
-                    desc += $" ({armor.ArmorClass} AC)";
+                    stats = $"({armor.ArmorClass} AC)";
                 }
 
-                await session.WriteLineAsync($"  {slot,-12}: {desc}");
+                await session.WriteLineAsync(fmt.FormatEquipmentSlot(slot.ToString(), desc, stats));
             }
         }
 
@@ -1733,9 +1737,7 @@ public sealed class GameServer
 
         if (totalAC > 0 || maxDmg > 0)
         {
-            await session.WriteLineAsync("");
-            if (totalAC > 0) await session.WriteLineAsync($"Total Armor Class: {totalAC}");
-            if (maxDmg > 0) await session.WriteLineAsync($"Weapon Damage: {minDmg}-{maxDmg}");
+            await session.WriteLineAsync(fmt.FormatEquipmentTotals(totalAC, minDmg, maxDmg));
         }
     }
 
@@ -2241,5 +2243,81 @@ public sealed class GameServer
         }
 
         await session.WriteLineAsync($"Set {stateKey} = {newValue}");
+    }
+
+    private async Task ToggleColorsAsync(ISession session, string? argument)
+    {
+        var fmt = session.Formatter;
+
+        if (argument is null)
+        {
+            // Show current status
+            var status = session.SupportsAnsi ? "enabled" : "disabled";
+            await session.WriteLineAsync(fmt.FormatInfo($"Colors are currently {status}. Use 'colors on' or 'colors off' to change."));
+            return;
+        }
+
+        switch (argument.ToLowerInvariant())
+        {
+            case "on":
+            case "true":
+            case "yes":
+            case "enable":
+                session.SupportsAnsi = true;
+                await session.WriteLineAsync(session.Formatter.FormatSuccess("Colors enabled."));
+                break;
+
+            case "off":
+            case "false":
+            case "no":
+            case "disable":
+                session.SupportsAnsi = false;
+                await session.WriteLineAsync(session.Formatter.FormatInfo("Colors disabled."));
+                break;
+
+            case "test":
+                // Output raw ANSI escape codes directly to test terminal support
+                await session.WriteLineAsync("Testing ANSI color support...");
+                await session.WriteLineAsync("");
+
+                // Raw ANSI codes (ESC = \x1b = \u001b)
+                await session.WriteLineAsync("Raw ANSI escape codes:");
+                await session.WriteLineAsync("\u001b[31mThis should be RED\u001b[0m");
+                await session.WriteLineAsync("\u001b[32mThis should be GREEN\u001b[0m");
+                await session.WriteLineAsync("\u001b[33mThis should be YELLOW\u001b[0m");
+                await session.WriteLineAsync("\u001b[34mThis should be BLUE\u001b[0m");
+                await session.WriteLineAsync("\u001b[1;35mThis should be BOLD MAGENTA\u001b[0m");
+                await session.WriteLineAsync("");
+
+                // Spectre.Console generated (real Spectre rendering to session output)
+                await session.WriteLineAsync("Spectre.Console generated (table/panel):");
+                var spectre = SpectreSessionRenderer.Render(console =>
+                {
+                    console.MarkupLine("[bold yellow]Spectre markup[/] [green]works[/] if ANSI is enabled.");
+                    console.Write(new Panel("This is a [blue]Panel[/].")
+                        .Header("Spectre.Console")
+                        .Border(BoxBorder.Rounded));
+
+                    var table = new Table();
+                    table.AddColumn("Key");
+                    table.AddColumn("Value");
+                    table.AddRow("SupportsAnsi", session.SupportsAnsi.ToString());
+                    table.AddRow("Formatter", session.Formatter.GetType().Name);
+                    table.AddRow("SessionId", session.SessionId);
+                    console.Write(table);
+                }, enableAnsi: session.SupportsAnsi);
+
+                await session.WriteAsync(spectre);
+                await session.WriteLineAsync("");
+
+                // Show formatter type
+                await session.WriteLineAsync($"Current formatter: {session.Formatter.GetType().Name}");
+                await session.WriteLineAsync($"SupportsAnsi: {session.SupportsAnsi}");
+                break;
+
+            default:
+                await session.WriteLineAsync(fmt.FormatError("Usage: colors on|off|test"));
+                break;
+        }
     }
 }

@@ -1,3 +1,5 @@
+using JitRealm.Mud.Formatting;
+
 namespace JitRealm.Mud.Network;
 
 /// <summary>
@@ -21,6 +23,8 @@ public sealed class NpcSession : ISession
     public bool IsWizard { get; set; } = false;
     public bool IsConnected => true;
     public bool HasPendingInput => false;
+    public bool SupportsAnsi { get; set; } = false; // NPCs don't need colors
+    public IMudFormatter Formatter { get; } = new PlainTextFormatter();
 
     /// <summary>
     /// Get all output that was written to this session.

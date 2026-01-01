@@ -26,6 +26,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
 - **Player Accounts** (v0.16): Login/registration with SHA256 passwords, persistent player data (state, inventory, equipment, location)
 - **LLM-Powered NPCs**: AI-driven NPC behavior via OpenAI-compatible APIs (configurable), context-aware reactions to room events
+- **Rich Terminal Output**: ANSI colors via Spectre.Console, toggleable per-session with `colors on|off`
 - **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
 - **Object Details**: All objects support "look at X" for granular descriptions (e.g., "look at grass")
 - **Command Shortcuts**: `l` for look, `n/s/e/w/u/d` for directions
@@ -98,6 +99,7 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `help` / `?` — show command help (wizard commands shown only for wizards)
 - `score` / `sc` — show detailed player stats (HP bar, XP, level, wizard status)
 - `time` — show server time and playtime
+- `colors on|off` — toggle ANSI color codes for terminal output
 
 ### Wizard Commands
 These commands are visible in `help` and executable only for wizard users:

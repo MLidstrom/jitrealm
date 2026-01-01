@@ -1,3 +1,5 @@
+using JitRealm.Mud.Formatting;
+
 namespace JitRealm.Mud.Network;
 
 /// <summary>
@@ -25,6 +27,16 @@ public interface ISession
     /// Whether this session has wizard privileges.
     /// </summary>
     bool IsWizard { get; set; }
+
+    /// <summary>
+    /// Whether this session supports ANSI color codes.
+    /// </summary>
+    bool SupportsAnsi { get; set; }
+
+    /// <summary>
+    /// The formatter to use for output, based on ANSI support.
+    /// </summary>
+    IMudFormatter Formatter { get; }
 
     /// <summary>
     /// Whether the session is still connected.

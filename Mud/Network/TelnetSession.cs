@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text;
+using JitRealm.Mud.Formatting;
 
 namespace JitRealm.Mud.Network;
 
@@ -14,6 +15,8 @@ public sealed class TelnetSession : ISession, IDisposable
     private readonly StreamWriter _writer;
     private readonly StringBuilder _inputBuffer = new();
     private bool _disposed;
+    private bool _supportsAnsi = true;
+    private IMudFormatter? _formatter;
 
     public string SessionId { get; }
     public string? PlayerId { get; set; }
@@ -22,14 +25,29 @@ public sealed class TelnetSession : ISession, IDisposable
     public bool IsConnected => !_disposed && _client.Connected;
     public bool HasPendingInput => _stream.DataAvailable;
 
+    public bool SupportsAnsi
+    {
+        get => _supportsAnsi;
+        set
+        {
+            _supportsAnsi = value;
+            _formatter = null; // Force re-creation
+        }
+    }
+
+    public IMudFormatter Formatter =>
+        _formatter ??= _supportsAnsi ? new MudFormatter() : new PlainTextFormatter();
+
     public TelnetSession(TcpClient client, string sessionId)
     {
         _client = client;
         SessionId = sessionId;
 
         _stream = client.GetStream();
-        _reader = new StreamReader(_stream, Encoding.ASCII);
-        _writer = new StreamWriter(_stream, Encoding.ASCII) { AutoFlush = true };
+        // Use UTF-8 so Unicode box drawing (used by Spectre.Console tables/panels) renders correctly.
+        // Pure ANSI escape sequences are ASCII-compatible, so this is safe for color codes as well.
+        _reader = new StreamReader(_stream, Encoding.UTF8);
+        _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
     }
 
     public async Task WriteLineAsync(string text)
