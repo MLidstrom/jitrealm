@@ -16,6 +16,11 @@ public sealed class PlayerAccountService
     private readonly JsonSerializerOptions _jsonOptions;
 
     /// <summary>
+    /// Fully-qualified path to the players directory used by this instance.
+    /// </summary>
+    public string PlayersDirectory => _playersDirectory;
+
+    /// <summary>
     /// Minimum player name length.
     /// </summary>
     public const int MinNameLength = 3;
@@ -32,7 +37,13 @@ public sealed class PlayerAccountService
 
     public PlayerAccountService(DriverSettings settings)
     {
-        _playersDirectory = Path.Combine(AppContext.BaseDirectory, settings.Paths.PlayersDirectory);
+        // IMPORTANT:
+        // Use the current working directory as the base for relative paths so running from the repo root
+        // finds existing player files under ./players. AppContext.BaseDirectory points at bin/{config}/net8.0/,
+        // which would create a separate players directory in the output folder and make logins "not found".
+        _playersDirectory = Path.IsPathRooted(settings.Paths.PlayersDirectory)
+            ? settings.Paths.PlayersDirectory
+            : Path.GetFullPath(settings.Paths.PlayersDirectory, Directory.GetCurrentDirectory());
         _jsonOptions = new JsonSerializerOptions
         {
             WriteIndented = true,

@@ -50,6 +50,7 @@ public sealed class GameServer
 
         Console.WriteLine($"{_settings.Server.MudName} v{_settings.Server.Version} - Multi-user server");
         Console.WriteLine($"Listening on port {_telnet.Port}...");
+        Console.WriteLine($"Players directory: {_accounts.PlayersDirectory}");
         Console.WriteLine("Press Ctrl+C to stop.");
 
         try
@@ -162,22 +163,34 @@ public sealed class GameServer
 
     private async Task HandleLoginAsync(TelnetSession session)
     {
-        // Get player name
         await session.WriteLineAsync("");
-        await session.WriteAsync("Enter player name: ");
-        var name = await session.ReadLineBlockingAsync();
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            await session.WriteLineAsync("Goodbye!");
-            await session.CloseAsync();
-            return;
-        }
-        name = name.Trim();
 
-        // Check if player exists
-        if (!await _accounts.PlayerExistsAsync(name))
+        const int maxAttempts = 3;
+
+        // Get player name (retry instead of immediately disconnecting)
+        string? name = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            await session.WriteLineAsync("Player not found. Disconnecting.");
+            await session.WriteAsync("Enter player name: ");
+            name = await session.ReadLineBlockingAsync();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                await session.WriteLineAsync("Goodbye!");
+                await session.CloseAsync();
+                return;
+            }
+            name = name.Trim();
+
+            if (await _accounts.PlayerExistsAsync(name))
+                break;
+
+            name = null;
+            await session.WriteLineAsync("Player not found. Try again.");
+        }
+
+        if (name is null)
+        {
+            await session.WriteLineAsync("Too many failed attempts. Disconnecting.");
             await session.CloseAsync();
             return;
         }
@@ -190,20 +203,29 @@ public sealed class GameServer
             return;
         }
 
-        // Get password
-        await session.WriteAsync("Enter password: ");
-        var password = await session.ReadLineBlockingAsync();
-        if (string.IsNullOrWhiteSpace(password))
+        // Get password (retry instead of immediately disconnecting)
+        string? password = null;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            await session.WriteLineAsync("Goodbye!");
-            await session.CloseAsync();
-            return;
+            await session.WriteAsync("Enter password: ");
+            password = await session.ReadLineBlockingAsync();
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                await session.WriteLineAsync("Goodbye!");
+                await session.CloseAsync();
+                return;
+            }
+
+            if (await _accounts.ValidateCredentialsAsync(name, password))
+                break;
+
+            password = null;
+            await session.WriteLineAsync("Invalid password. Try again.");
         }
 
-        // Validate credentials
-        if (!await _accounts.ValidateCredentialsAsync(name, password))
+        if (password is null)
         {
-            await session.WriteLineAsync("Invalid password. Disconnecting.");
+            await session.WriteLineAsync("Too many failed attempts. Disconnecting.");
             await session.CloseAsync();
             return;
         }
