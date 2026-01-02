@@ -1129,6 +1129,13 @@ public sealed class GameServer
         // Process spawns for the destination room
         await _state.ProcessSpawnsAsync(destRoom.Id, _clock);
 
+        // Special case: If entering the shop, also load and spawn the storage room
+        if (destRoom.Id.StartsWith("Rooms/shop.cs", StringComparison.OrdinalIgnoreCase))
+        {
+            var storageRoom = await _state.Objects.LoadAsync<IRoom>("Rooms/shop_storage.cs", _state);
+            await _state.ProcessSpawnsAsync(storageRoom.Id, _clock);
+        }
+
         _state.Containers.Move(playerId, destRoom.Id);
 
         // Notify others in new room
