@@ -7,9 +7,9 @@ using JitRealm.Mud.AI;
 
 /// <summary>
 /// A friendly shopkeeper who greets visitors and responds to conversation.
-/// Implements IShopkeeper to list items for sale.
+/// Stock is stored in the shop_storage room; a sign in the shop lists prices.
 /// </summary>
-public sealed class Shopkeeper : NPCBase, ILlmNpc, IShopkeeper
+public sealed class Shopkeeper : NPCBase, ILlmNpc
 {
     public override string Name => "the shopkeeper";
     public override string Description =>
@@ -21,15 +21,6 @@ public sealed class Shopkeeper : NPCBase, ILlmNpc, IShopkeeper
     // ILlmNpc implementation
     public NpcCapabilities Capabilities => NpcCapabilities.Merchant;
     public string SystemPrompt => BuildSystemPrompt();
-
-    // IShopkeeper implementation - items for sale
-    public IReadOnlyList<ShopItem> ShopStock { get; } = new List<ShopItem>
-    {
-        new() { Name = "Health Potion", BlueprintId = "Items/health_potion", Price = 25, Description = "Restores 50 HP" },
-        new() { Name = "Rusty Sword", BlueprintId = "Items/rusty_sword", Price = 15, Description = "A basic weapon" },
-        new() { Name = "Leather Vest", BlueprintId = "Items/leather_vest", Price = 30, Description = "Light armor" },
-        new() { Name = "Iron Helm", BlueprintId = "Items/iron_helm", Price = 45, Description = "Sturdy head protection" },
-    };
 
     // Prompt builder properties
     protected override string NpcNature =>
@@ -69,13 +60,63 @@ public sealed class Shopkeeper : NPCBase, ILlmNpc, IShopkeeper
             if (msg.Contains("stock") || msg.Contains("sell") || msg.Contains("buy") ||
                 msg.Contains("wares") || msg.Contains("have") || msg.Contains("inventory"))
             {
-                // Build explicit list of items for the LLM to mention
-                var items = string.Join(", ", ShopStock.Select(i => $"{i.Name} for {i.Price} gold"));
+                // Build item list from storage room
+                var items = GetStockDescription();
+                if (string.IsNullOrEmpty(items))
+                {
+                    return "IMPORTANT: The customer is asking about merchandise but your storage is empty. Apologize and say you're waiting for a new shipment. Reply with speech.";
+                }
                 return $"IMPORTANT: The customer is asking about your merchandise. You MUST list some items and prices in your response. Your stock: {items}. Reply with speech listing 2-3 items with prices.";
             }
             return "Someone spoke to you. Reply with friendly speech in quotes. Be warm and helpful.";
         }
         return base.GetLlmReactionInstructions(@event);
+    }
+
+    /// <summary>
+    /// Get a description of items in storage for LLM context.
+    /// </summary>
+    private string GetStockDescription()
+    {
+        if (Ctx is null)
+            return "";
+
+        // Find the storage room
+        IReadOnlyCollection<string>? storageContents = null;
+
+        foreach (var objId in Ctx.World.ListObjectIds())
+        {
+            if (objId.StartsWith("Rooms/shop_storage", StringComparison.OrdinalIgnoreCase))
+            {
+                storageContents = Ctx.World.GetRoomContents(objId);
+                if (storageContents.Count > 0)
+                    break;
+            }
+        }
+
+        if (storageContents is null || storageContents.Count == 0)
+            return "";
+
+        // Build item descriptions with prices (Value * 1.5 markup, rounded to nearest 5)
+        var items = new List<string>();
+        var seen = new HashSet<string>();
+
+        foreach (var objId in storageContents)
+        {
+            var item = Ctx.World.GetObject<IItem>(objId);
+            if (item is null)
+                continue;
+
+            var desc = item.ShortDescription;
+            if (seen.Contains(desc))
+                continue;
+
+            seen.Add(desc);
+            var price = ((int)(item.Value * 1.5) + 2) / 5 * 5;
+            items.Add($"{desc} for {price} gold");
+        }
+
+        return string.Join(", ", items);
     }
 
     public override void Heartbeat(IMudContext ctx)

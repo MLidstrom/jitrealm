@@ -4,7 +4,8 @@ using JitRealm.Mud;
 
 /// <summary>
 /// A cozy shop where the shopkeeper sells wares.
-/// Implements ISpawner to spawn the shopkeeper NPC.
+/// Implements ISpawner to spawn the shopkeeper NPC and a price sign.
+/// Stock is stored in the shop_storage room (hidden from players).
 /// </summary>
 public sealed class Shop : MudObjectBase, IRoom, IResettable, ISpawner
 {
@@ -13,7 +14,8 @@ public sealed class Shop : MudObjectBase, IRoom, IResettable, ISpawner
     public string Description =>
         "A cluttered but cozy shop filled with all manner of goods. " +
         "Dusty shelves line the walls, stacked with potions, weapons, and curious trinkets. " +
-        "A worn wooden counter separates the merchandise from a small backroom.";
+        "A worn wooden counter separates the merchandise from a small backroom. " +
+        "A wooden sign on the wall lists items for sale.";
 
     public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
@@ -23,11 +25,12 @@ public sealed class Shop : MudObjectBase, IRoom, IResettable, ISpawner
     public IReadOnlyList<string> Contents => Array.Empty<string>();
 
     /// <summary>
-    /// Spawn the shopkeeper in this room.
+    /// Spawn the shopkeeper and sign in this room.
     /// </summary>
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
-        ["npcs/shopkeeper.cs"] = 1
+        ["npcs/shopkeeper"] = 1,
+        ["Items/shop_sign"] = 1,
     };
 
     public void Respawn(IMudContext ctx)

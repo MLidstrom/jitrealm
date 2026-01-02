@@ -323,11 +323,6 @@ public sealed class MudContext : IMudContext
             ? llmNpc.Capabilities
             : NpcCapabilities.Humanoid;
 
-        // Get shop stock if NPC implements IShopkeeper
-        var shopStock = (npc is IShopkeeper shopkeeper)
-            ? shopkeeper.ShopStock
-            : null;
-
         return new NpcContext
         {
             NpcId = npcId,
@@ -345,8 +340,7 @@ public sealed class MudContext : IMudContext
             PlayersInRoom = players,
             NpcsInRoom = npcs,
             ItemsInRoom = items,
-            RecentEvents = recentEvents.ToList(),
-            ShopStock = shopStock
+            RecentEvents = recentEvents.ToList()
         };
     }
 

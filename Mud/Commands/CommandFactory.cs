@@ -57,6 +57,7 @@ public static class CommandFactory
         registry.Register(new HelpCommand(registry));
         registry.Register(new TimeCommand());
         registry.Register(new ScoreCommand());
+        registry.Register(new ReadCommand());
     }
 
     private static void RegisterWizardCommands(CommandRegistry registry)
