@@ -30,6 +30,8 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
 - **Object Details**: All objects support "look at X" for granular descriptions (e.g., "look at grass")
 - **Command Shortcuts**: `l` for look, `n/s/e/w/u/d` for directions
+- **Local Commands**: Context-sensitive commands from rooms/items (e.g., `buy`/`sell` in shops)
+- **Economy System**: Gold currency, shop buy/sell transactions
 
 ## Requirements
 
@@ -75,7 +77,8 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `drop <item>` — drop an item to the room
 - `inventory` / `inv` / `i` — list carried items with weights
 - `examine <item>` / `exam` / `x` — show item's detailed description
-- `score` — show player stats (HP, Level, XP)
+- `read <object>` — read signs, books, scrolls
+- `score` — show player stats (HP, Level, XP, Gold)
 
 ### Equipment
 - `equip <item>` / `wield` / `wear` — equip an item from inventory
@@ -154,7 +157,8 @@ Edit `appsettings.json` to customize driver settings:
     "CarryCapacity": 100,
     "RegenPerHeartbeat": 1,
     "XpMultiplier": 1.5,
-    "BaseXpPerLevel": 100
+    "BaseXpPerLevel": 100,
+    "StartingGold": 100
   }
 }
 ```

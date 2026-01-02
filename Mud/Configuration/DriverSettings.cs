@@ -246,6 +246,11 @@ public sealed class PlayerSettings
     /// Base XP required per level.
     /// </summary>
     public int BaseXpPerLevel { get; set; } = 100;
+
+    /// <summary>
+    /// Starting gold for new players.
+    /// </summary>
+    public int StartingGold { get; set; } = 100;
 }
 
 /// <summary>

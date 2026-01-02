@@ -324,3 +324,30 @@
   - Removed `IShopkeeper` interface (replaced by storage room)
   - Shopkeeper reads stock from storage room for LLM context
   - Dynamic price calculation matches sign display
+
+## Local Commands & Economy System ✅
+
+- **Local Commands Framework** ✅
+  - `IHasCommands` interface — rooms/items can provide context-sensitive commands
+  - `LocalCommandInfo` record — Name, Aliases, Usage, Description
+  - `LocalCommandDispatcher` — finds and executes local commands
+  - Dispatch order: room → inventory items → equipped items
+  - Commands appear in `help` output when available (grouped by source)
+
+- **Economy System** ✅
+  - Gold stored in player `IStateStore` as "gold" key
+  - `PlayerSettings.StartingGold` config (default: 100)
+  - Gold displayed in `score` command output
+  - `ISandboxedWorldAccess.GetStateStore()` — world code can access player state
+
+- **Shop Buy/Sell Commands** ✅
+  - `buy <item>` — purchase from storage room (price = Value × 1.5, rounded to 5)
+  - `sell <item>` — sell from inventory (price = Value / 2)
+  - Weight limit enforced on purchase
+  - Items move between player inventory and storage room
+
+- **Linked Rooms** ✅
+  - `IHasLinkedRooms` interface — rooms declare related rooms to auto-load
+  - Linked rooms have spawns processed when main room becomes active
+  - Works for both login (starting in room) and movement (entering room)
+  - Example: Shop declares `shop_storage.cs` as linked room

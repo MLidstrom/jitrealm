@@ -22,6 +22,7 @@ public sealed class GameServer
     private readonly DriverSettings _settings;
     private readonly PlayerAccountService _accounts;
     private readonly IClock _clock;
+    private readonly LocalCommandDispatcher _localCommands;
     private bool _running;
 
     /// <summary>
@@ -36,6 +37,7 @@ public sealed class GameServer
         _settings = settings;
         _clock = state.Clock;
         _accounts = new PlayerAccountService(settings);
+        _localCommands = new LocalCommandDispatcher(state);
         _telnet = new TelnetServer(settings.Server.Port);
 
         _telnet.OnClientConnected += OnClientConnected;
@@ -377,8 +379,8 @@ public sealed class GameServer
                 startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
             }
 
-            // Process spawns for the room
-            await _state.ProcessSpawnsAsync(startRoom.Id, _clock);
+            // Process spawns for the room (and any linked rooms)
+            await ProcessRoomAndLinkedSpawnsAsync(startRoom);
 
             // Clone player from blueprint
             var player = await _state.Objects.CloneAsync<IPlayer>(_settings.Paths.PlayerBlueprint, _state);
@@ -804,6 +806,26 @@ public sealed class GameServer
                 await session.WriteLineAsync("Combat:     kill/attack <target>, flee/retreat, consider/con <target>");
                 await session.WriteLineAsync("Social:     say <msg>, shout <msg>, whisper <player> <msg>, who");
                 await session.WriteLineAsync("Utility:    sc[ore], time, help/?, q[uit]");
+
+                // Show local commands from room/inventory/equipment
+                if (playerId != null)
+                {
+                    var localCmds = _localCommands.GetAvailableCommands(playerId)
+                        .GroupBy(x => x.Source)
+                        .ToList();
+
+                    foreach (var group in localCmds)
+                    {
+                        await session.WriteLineAsync("");
+                        await session.WriteLineAsync($"=== {group.Key} ===");
+                        foreach (var (_, localCmd) in group)
+                        {
+                            var aliases = localCmd.Aliases.Count > 0 ? $" ({string.Join("/", localCmd.Aliases)})" : "";
+                            await session.WriteLineAsync($"  {localCmd.Usage,-20}{aliases} - {localCmd.Description}");
+                        }
+                    }
+                }
+
                 if (session.IsWizard)
                 {
                     await session.WriteLineAsync("");
@@ -1005,8 +1027,39 @@ public sealed class GameServer
                 break;
 
             default:
+                // Try local commands from room/inventory/equipment before "Unknown command"
+                if (playerId != null)
+                {
+                    var handled = await _localCommands.TryExecuteAsync(
+                        playerId,
+                        cmd,
+                        parts.Skip(1).ToArray(),
+                        objId => CreateContextFor(objId));
+
+                    if (handled)
+                        break;
+                }
                 await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands.");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Process spawns for a room and any linked rooms it declares.
+    /// </summary>
+    private async Task ProcessRoomAndLinkedSpawnsAsync(IRoom room)
+    {
+        // Process spawns for the main room
+        await _state.ProcessSpawnsAsync(room.Id, _clock);
+
+        // Check if this room has linked rooms that also need loading
+        if (room is IHasLinkedRooms hasLinkedRooms)
+        {
+            foreach (var linkedRoomId in hasLinkedRooms.LinkedRooms)
+            {
+                var linkedRoom = await _state.Objects!.LoadAsync<IRoom>(linkedRoomId, _state);
+                await _state.ProcessSpawnsAsync(linkedRoom.Id, _clock);
+            }
         }
     }
 
@@ -1126,15 +1179,8 @@ public sealed class GameServer
         // Move to destination
         var destRoom = await _state.Objects.LoadAsync<IRoom>(destId, _state);
 
-        // Process spawns for the destination room
-        await _state.ProcessSpawnsAsync(destRoom.Id, _clock);
-
-        // Special case: If entering the shop, also load and spawn the storage room
-        if (destRoom.Id.StartsWith("Rooms/shop.cs", StringComparison.OrdinalIgnoreCase))
-        {
-            var storageRoom = await _state.Objects.LoadAsync<IRoom>("Rooms/shop_storage.cs", _state);
-            await _state.ProcessSpawnsAsync(storageRoom.Id, _clock);
-        }
+        // Process spawns for the destination room (and any linked rooms)
+        await ProcessRoomAndLinkedSpawnsAsync(destRoom);
 
         _state.Containers.Move(playerId, destRoom.Id);
 
@@ -1201,6 +1247,12 @@ public sealed class GameServer
         await session.WriteLineAsync(fmt.FormatXpProgress(player.Experience, xpForNextLevel));
         await session.WriteLineAsync(fmt.FormatCombatStats(player.TotalArmorClass, player.WeaponDamage.min, player.WeaponDamage.max));
         await session.WriteLineAsync(fmt.FormatCarryWeight(player.CarriedWeight, player.CarryCapacity));
+
+        // Get gold from player state
+        var playerState = _state.Objects.GetStateStore(playerId);
+        var gold = playerState?.Get<int>("gold") ?? 0;
+        await session.WriteLineAsync($"Gold: {gold}");
+
         await session.WriteLineAsync(fmt.FormatSessionTime(player.SessionTime));
     }
 

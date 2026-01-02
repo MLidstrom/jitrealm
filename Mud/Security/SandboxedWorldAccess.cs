@@ -59,4 +59,9 @@ public sealed class SandboxedWorldAccess : ISandboxedWorldAccess
     {
         return _state.Equipment.GetEquipped(livingId, slot);
     }
+
+    public IStateStore? GetStateStore(string objectId)
+    {
+        return _state.Objects?.GetStateStore(objectId);
+    }
 }

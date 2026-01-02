@@ -60,4 +60,12 @@ public interface ISandboxedWorldAccess
     /// <param name="slot">The equipment slot.</param>
     /// <returns>The item ID or null if nothing equipped.</returns>
     string? GetEquippedInSlot(string livingId, EquipmentSlot slot);
+
+    /// <summary>
+    /// Gets the state store for an object.
+    /// This allows reading and modifying persistent state of other objects.
+    /// </summary>
+    /// <param name="objectId">The object ID.</param>
+    /// <returns>The state store or null if object not found.</returns>
+    IStateStore? GetStateStore(string objectId);
 }
