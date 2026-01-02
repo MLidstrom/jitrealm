@@ -296,3 +296,31 @@
 - **Configuration** ✅
   - `Display.DefaultColorsEnabled` in appsettings.json
   - `colors on|off` command for runtime toggle
+
+## Readable Objects & Shop System ✅
+
+- **IReadable Interface** ✅
+  - `IReadable` interface — ReadableText, ReadableLabel properties
+  - `read <object>` command — reads signs, books, scrolls in room or inventory
+  - Checks room contents, room Details, and player inventory
+
+- **SignBase Standard Library** ✅
+  - `World/std/sign.cs` — base class for signs and readable fixtures
+  - `SignBase` — abstract base with Name, ReadableLabel, ReadableText, Aliases
+  - `SimpleSign` — quick static text signs
+
+- **Shop Storage System** ✅
+  - `shop_storage.cs` — hidden storage room (no exits)
+  - Uses `ISpawner` to stock items (health_potion x3, rusty_sword x2, etc.)
+  - Items are actual clones, not hardcoded lists
+
+- **Dynamic Shop Sign** ✅
+  - `shop_sign.cs` — reads from storage room, lists items with prices
+  - Price calculation: item.Value × 1.5 markup, rounded to nearest 5
+  - Groups identical items with counts (e.g., "3x a health potion")
+  - Shows "(Out of stock)" when storage is empty
+
+- **Shopkeeper Updates** ✅
+  - Removed `IShopkeeper` interface (replaced by storage room)
+  - Shopkeeper reads stock from storage room for LLM context
+  - Dynamic price calculation matches sign display
