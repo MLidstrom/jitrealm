@@ -1026,6 +1026,7 @@ public sealed class GameServer
             return;
         }
 
+        await session.WriteLineAsync(""); // Blank line before room name
         await session.WriteLineAsync(fmt.FormatRoomName(room.Name));
         await session.WriteLineAsync(fmt.FormatRoomDescription(room.Description));
 
@@ -1135,8 +1136,9 @@ public sealed class GameServer
         };
         await TriggerNpcRoomEventAsync(arrivalEvent, destRoom.Id);
 
-        // Show new room
+        // Show new room and update status bar with new location
         await ShowRoomAsync(session);
+        await UpdateSessionStatusBarAsync(session);
     }
 
     private async Task ShowWhoAsync(ISession session)
