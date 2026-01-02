@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using JitRealm.Mud;
 
 /// <summary>
@@ -32,11 +31,8 @@ public abstract class MonsterBase : LivingBase, IOnEnter, IOnDeath, IHasEquipmen
     /// </summary>
     public virtual int RespawnDelaySeconds => 60;
 
-    /// <summary>
-    /// Chance to wander to an adjacent room each heartbeat (0.0 to 1.0).
-    /// Set to 0 to disable wandering.
-    /// </summary>
-    public virtual double WanderChance => 0.0;
+    // WanderChance is now inherited from LivingBase (int 0-100)
+    // Override to enable wandering for specific monsters
 
     /// <summary>
     /// Natural armor class from tough skin, scales, etc.
@@ -122,45 +118,6 @@ public abstract class MonsterBase : LivingBase, IOnEnter, IOnDeath, IHasEquipmen
         ctx.Emote("emerges from the shadows!");
     }
 
-    /// <summary>
-    /// Heartbeat for AI behaviors like wandering.
-    /// </summary>
-    public override void Heartbeat(IMudContext ctx)
-    {
-        base.Heartbeat(ctx);
-
-        // Wandering behavior (if enabled and not in combat)
-        if (WanderChance > 0 && IsAlive)
-        {
-            if (Random.Shared.NextDouble() < WanderChance)
-            {
-                TryWander(ctx);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Attempt to wander to an adjacent room.
-    /// </summary>
-    protected virtual void TryWander(IMudContext ctx)
-    {
-        var roomId = ctx.World.GetObjectLocation(Id);
-        if (roomId is null)
-            return;
-
-        var room = ctx.World.GetObject<IRoom>(roomId);
-        if (room is null || room.Exits.Count == 0)
-            return;
-
-        // Pick a random exit
-        var exits = room.Exits.Keys.ToArray();
-        var randomExit = exits[Random.Shared.Next(exits.Length)];
-        var destination = room.Exits[randomExit];
-
-        // Announce departure
-        ctx.Emote($"wanders {randomExit}.");
-
-        // Note: Actual movement would require driver support for NPC movement
-        // For now, this is a placeholder for future implementation
-    }
+    // Wandering is now handled by LivingBase.TryWander() which actually moves the NPC
+    // Just override WanderChance in subclasses to enable (e.g., override int WanderChance => 10; for 10% chance)
 }

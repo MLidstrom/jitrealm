@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using JitRealm.Mud;
 using JitRealm.Mud.AI;
@@ -47,12 +49,70 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Heartbeat interval for regeneration.
     /// Override to customize regeneration rate.
     /// </summary>
-    public virtual TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(2);
+    public virtual TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// Amount healed per heartbeat tick. Override to customize.
     /// </summary>
     protected virtual int RegenAmount => 1;
+
+    /// <summary>
+    /// Chance to wander each heartbeat (0-100). Set > 0 to enable wandering.
+    /// Default is 0 (no wandering).
+    /// </summary>
+    public virtual int WanderChance => 0;
+
+    /// <summary>
+    /// The direction this living last came from.
+    /// Used to avoid immediately returning to the previous room.
+    /// </summary>
+    protected string? LastCameFrom => Ctx?.State.Get<string>("last_came_from");
+
+    /// <summary>
+    /// Set the direction this living came from (for wander logic).
+    /// </summary>
+    protected void SetLastCameFrom(string? direction, IMudContext ctx)
+    {
+        if (direction is not null)
+            ctx.State.Set("last_came_from", direction);
+        else if (ctx.State.Has("last_came_from"))
+            ctx.State.Remove("last_came_from");
+    }
+
+    /// <summary>
+    /// Map of directions to their opposites for wander logic.
+    /// </summary>
+    private static readonly Dictionary<string, string> OppositeDirections = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["north"] = "south",
+        ["south"] = "north",
+        ["east"] = "west",
+        ["west"] = "east",
+        ["up"] = "down",
+        ["down"] = "up",
+        ["northeast"] = "southwest",
+        ["northwest"] = "southeast",
+        ["southeast"] = "northwest",
+        ["southwest"] = "northeast",
+        ["n"] = "s",
+        ["s"] = "n",
+        ["e"] = "w",
+        ["w"] = "e",
+        ["ne"] = "sw",
+        ["nw"] = "se",
+        ["se"] = "nw",
+        ["sw"] = "ne",
+        ["u"] = "d",
+        ["d"] = "u"
+    };
+
+    /// <summary>
+    /// Get the opposite direction for wander logic.
+    /// </summary>
+    protected static string? GetOppositeDirection(string direction)
+    {
+        return OppositeDirections.TryGetValue(direction, out var opposite) ? opposite : null;
+    }
 
     /// <summary>
     /// Called when the living is loaded or created.
@@ -86,6 +146,89 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
         // Process pending LLM event (if this NPC implements ILlmNpc)
         ProcessPendingLlmEvent(ctx);
+
+        // Try to wander if enabled
+        TryWander(ctx);
+    }
+
+    /// <summary>
+    /// Attempt to wander to an adjacent room based on WanderChance.
+    /// Called each heartbeat. Direction least likely to go is where we came from.
+    /// </summary>
+    protected virtual async void TryWander(IMudContext ctx)
+    {
+        // Skip if wandering is disabled or we're dead
+        if (WanderChance <= 0 || !IsAlive)
+            return;
+
+        // Skip if there's a pending LLM event (let NPC react first)
+        if (HasPendingLlmEvent)
+            return;
+
+        // Roll against wander chance
+        if (Random.Shared.Next(100) >= WanderChance)
+            return;
+
+        // Get our current location
+        var myId = ctx.CurrentObjectId;
+        if (myId is null)
+            return;
+
+        var roomId = ctx.World.GetObjectLocation(myId);
+        if (roomId is null)
+            return;
+
+        var room = ctx.World.GetObject<IRoom>(roomId);
+        if (room is null || room.Exits.Count == 0)
+            return;
+
+        // Build list of possible exits, weighted against direction we came from
+        var exits = room.Exits.Keys.ToList();
+        if (exits.Count == 0)
+            return;
+
+        // If we came from a direction, reduce chance of going back that way
+        var lastFrom = LastCameFrom;
+        string chosenDirection;
+
+        if (lastFrom is not null && exits.Count > 1)
+        {
+            // 80% chance to pick a direction that's NOT where we came from
+            if (Random.Shared.NextDouble() < 0.8)
+            {
+                // Filter out the direction we came from
+                var otherExits = exits.Where(e => !e.Equals(lastFrom, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (otherExits.Count > 0)
+                {
+                    chosenDirection = otherExits[Random.Shared.Next(otherExits.Count)];
+                }
+                else
+                {
+                    // All exits lead back, just pick one
+                    chosenDirection = exits[Random.Shared.Next(exits.Count)];
+                }
+            }
+            else
+            {
+                // 20% chance to backtrack or pick any direction
+                chosenDirection = exits[Random.Shared.Next(exits.Count)];
+            }
+        }
+        else
+        {
+            // No prior direction, pick randomly
+            chosenDirection = exits[Random.Shared.Next(exits.Count)];
+        }
+
+        // Remember the opposite direction (where we'll be coming from after moving)
+        var opposite = GetOppositeDirection(chosenDirection);
+        if (opposite is not null)
+        {
+            SetLastCameFrom(opposite, ctx);
+        }
+
+        // Execute the move command
+        await ctx.ExecuteCommandAsync($"go {chosenDirection}");
     }
 
     /// <summary>
@@ -339,14 +482,15 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         sb.AppendLine("- NEVER use first person (I, me, my). Always use third person.");
         if (canEmote)
         {
-            sb.AppendLine("- For actions/emotes: wrap in asterisks and use third-person verbs");
-            sb.AppendLine("  CORRECT: *smiles warmly* or *nods thoughtfully*");
-            sb.AppendLine("  WRONG: I smile, I nod, *I smile*");
+            sb.AppendLine("- For actions/emotes: wrap in asterisks, START with a third-person VERB ending in 's'");
+            sb.AppendLine("  CORRECT: *smiles warmly* or *waves at the customer* or *looks around*");
+            sb.AppendLine("  WRONG: *nice greeting* or *friendly wave* or *I smile*");
+            sb.AppendLine("  The first word MUST be an action verb like: smiles, nods, waves, looks, gestures, points");
         }
         if (canSpeak)
         {
-            sb.AppendLine("- For speech: just write the dialogue in quotes");
-            sb.AppendLine("  CORRECT: \"Hello there!\"");
+            sb.AppendLine("- For speech: write the dialogue in quotes. You can speak multiple sentences.");
+            sb.AppendLine("  CORRECT: \"Hello there! Welcome to my shop.\"");
             sb.AppendLine("  WRONG: I say hello, *says hello*");
         }
         if (!canSpeak)

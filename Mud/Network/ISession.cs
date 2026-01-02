@@ -39,6 +39,21 @@ public interface ISession
     IMudFormatter Formatter { get; }
 
     /// <summary>
+    /// The terminal UI renderer for this session, if split-screen mode is enabled.
+    /// </summary>
+    ITerminalUI? TerminalUI { get; }
+
+    /// <summary>
+    /// Whether this session supports and has enabled split-screen terminal UI.
+    /// </summary>
+    bool SupportsSplitScreen { get; }
+
+    /// <summary>
+    /// Terminal dimensions (width, height). Default is (80, 24).
+    /// </summary>
+    (int Width, int Height) TerminalSize { get; set; }
+
+    /// <summary>
     /// Whether the session is still connected.
     /// </summary>
     bool IsConnected { get; }

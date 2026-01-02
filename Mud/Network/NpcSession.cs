@@ -26,6 +26,11 @@ public sealed class NpcSession : ISession
     public bool SupportsAnsi { get; set; } = false; // NPCs don't need colors
     public IMudFormatter Formatter { get; } = new PlainTextFormatter();
 
+    // NPCs don't use terminal UI
+    public ITerminalUI? TerminalUI => null;
+    public bool SupportsSplitScreen => false;
+    public (int Width, int Height) TerminalSize { get; set; } = (80, 24);
+
     /// <summary>
     /// Get all output that was written to this session.
     /// Useful for debugging NPC command execution.

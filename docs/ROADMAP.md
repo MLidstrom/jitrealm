@@ -120,7 +120,11 @@
   - ExperienceValue, IsAggressive, AggroDelaySeconds ✅
   - Auto-attack players on sight via OnEnter + CallOut ✅
   - Respawn after death via CallOut ✅
-  - Wander behavior via Heartbeat ✅
+- `LivingBase` wandering system ✅
+  - `WanderChance` property (0-100) — percentage chance per heartbeat
+  - `HeartbeatInterval` property — configurable tick rate (default 1 second)
+  - Smart direction selection — 80% chance to avoid returning the way they came
+  - Wandering skipped if NPC has pending LLM event (reacts first)
 - `NPCBase` standard library class — friendly NPCs ✅
   - High HP, fast regen, greetings via GetGreeting() ✅
   - NPCs don't die (full heal on damage) ✅

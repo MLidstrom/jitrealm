@@ -23,6 +23,7 @@ public sealed class Cat : MonsterBase, IOnDamage, ILlmNpc
 
     public override int TotalArmorClass => 0;
     public override (int min, int max) WeaponDamage => (1, 2);
+    public override int WanderChance => 10;
 
     // ILlmNpc implementation
     public NpcCapabilities Capabilities => NpcCapabilities.Animal;

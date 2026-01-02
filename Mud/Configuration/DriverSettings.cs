@@ -304,4 +304,25 @@ public sealed class DisplaySettings
     /// Enable ANSI color codes by default for new sessions.
     /// </summary>
     public bool DefaultColorsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Enable split-screen terminal UI for telnet clients.
+    /// When enabled, output appears in a scrolling region with fixed status bar and input line.
+    /// </summary>
+    public bool SplitScreenEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Default terminal width assumption (used when client doesn't report size).
+    /// </summary>
+    public int DefaultTerminalWidth { get; set; } = 80;
+
+    /// <summary>
+    /// Default terminal height assumption (used when client doesn't report size).
+    /// </summary>
+    public int DefaultTerminalHeight { get; set; } = 24;
+
+    /// <summary>
+    /// Refresh status bar every N game loop ticks (0 = only on state changes).
+    /// </summary>
+    public int StatusBarRefreshTicks { get; set; } = 10;
 }

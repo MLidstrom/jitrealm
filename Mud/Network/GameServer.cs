@@ -128,17 +128,21 @@ public sealed class GameServer
 
         try
         {
-            // Show welcome banner
-            await session.WriteLineAsync("");
-            await session.WriteLineAsync($"=== {_settings.Server.MudName} v{_settings.Server.Version} ===");
-            await session.WriteLineAsync("");
-            if (!_accounts.AnyPlayersExist())
-            {
-                await session.WriteLineAsync("No player accounts found yet. Choose (C) to create your first character.");
-                await session.WriteLineAsync("");
-            }
-            await session.WriteLineAsync("(L)ogin or (C)reate new player?");
-            await session.WriteAsync("> ");
+            // Show centered welcome banner with ASCII art
+            await WelcomeScreen.RenderAsync(
+                session.WriteRawAsync,
+                _settings.Server.Version,
+                session.TerminalSize.Width,
+                session.TerminalSize.Height,
+                session.SupportsAnsi
+            );
+
+            // Show login prompts below the banner
+            await WelcomeScreen.RenderLoginPromptAsync(
+                session.WriteAsync,
+                session.WriteLineAsync,
+                showCreateHint: !_accounts.AnyPlayersExist()
+            );
 
             // Wait for choice (blocking read for login flow)
             var choice = await session.ReadLineBlockingAsync();
@@ -417,7 +421,16 @@ public sealed class GameServer
             return;
         }
 
-        // Welcome message
+        // Enable split-screen terminal UI for gameplay
+        if (session.SupportsAnsi)
+        {
+            await session.EnableSplitScreenAsync();
+
+            // Initial status bar update
+            await UpdateSessionStatusBarAsync(session);
+        }
+
+        // Welcome message (now routed through split-screen output area)
         var welcomeMsg = _settings.Server.WelcomeMessage.Replace("{PlayerName}", playerName);
         await session.WriteLineAsync(welcomeMsg);
         await session.WriteLineAsync("Type 'help' for commands, 'quit' to disconnect.");
@@ -425,6 +438,64 @@ public sealed class GameServer
 
         // Show initial room
         await ShowRoomAsync(session);
+
+        // Show input prompt
+        if (session.TerminalUI?.SupportsSplitScreen == true)
+        {
+            await session.TerminalUI.RenderInputLineAsync("> ");
+        }
+    }
+
+    /// <summary>
+    /// Update the status bar for a session with current player state.
+    /// </summary>
+    private async Task UpdateSessionStatusBarAsync(ISession session)
+    {
+        if (session.TerminalUI?.SupportsSplitScreen != true)
+            return;
+
+        var playerId = session.PlayerId;
+        if (playerId is null) return;
+
+        var player = _state.Objects!.Get<IPlayer>(playerId);
+        if (player is null) return;
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        var room = roomId is not null ? _state.Objects.Get<IRoom>(roomId) : null;
+
+        // Get combat info if in combat
+        string? combatTarget = null;
+        int? targetHP = null, targetMaxHP = null;
+
+        if (_state.Combat.IsInCombat(playerId))
+        {
+            var targetId = _state.Combat.GetCombatTarget(playerId);
+            if (targetId is not null)
+            {
+                var target = _state.Objects.Get<ILiving>(targetId);
+                if (target is not null)
+                {
+                    combatTarget = target.Name;
+                    targetHP = target.HP;
+                    targetMaxHP = target.MaxHP;
+                }
+            }
+        }
+
+        var statusData = new StatusBarData
+        {
+            PlayerName = session.PlayerName ?? "Unknown",
+            Location = room?.Name ?? "Nowhere",
+            HP = player.HP,
+            MaxHP = player.MaxHP,
+            CombatTarget = combatTarget,
+            TargetHP = targetHP,
+            TargetMaxHP = targetMaxHP,
+            IsWizard = session.IsWizard,
+            Level = player.Level
+        };
+
+        await session.TerminalUI.UpdateStatusBarAsync(statusData);
     }
 
     private void RestorePlayerState(string playerId, PlayerAccountData accountData)
@@ -518,15 +589,31 @@ public sealed class GameServer
                 var input = await session.ReadLineAsync();
                 if (input is null) continue;
 
-                if (string.IsNullOrWhiteSpace(input)) continue;
+                if (string.IsNullOrWhiteSpace(input))
+                {
+                    // After Enter on an empty line, reset the split-screen input prompt.
+                    await RenderPromptAsync(session);
+                    continue;
+                }
 
                 await ProcessCommandAsync(session, input.Trim());
+
+                // After handling a command, reset the split-screen input prompt.
+                await RenderPromptAsync(session);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[{session.SessionId}] Error: {ex.Message}");
             }
         }
+    }
+
+    private static Task RenderPromptAsync(ISession session)
+    {
+        if (session.TerminalUI?.SupportsSplitScreen == true)
+            return session.TerminalUI.RenderInputLineAsync("> ");
+
+        return Task.CompletedTask;
     }
 
     private async Task ProcessCommandAsync(ISession session, string input)
@@ -2360,7 +2447,12 @@ public sealed class GameServer
                     table.AddRow("Formatter", session.Formatter.GetType().Name);
                     table.AddRow("SessionId", session.SessionId);
                     console.Write(table);
-                }, enableAnsi: session.SupportsAnsi);
+                }, new SpectreRenderOptions(
+                    EnableAnsi: session.SupportsAnsi,
+                    EnableUnicode: true,
+                    Width: session.TerminalSize.Width,
+                    Height: session.TerminalSize.Height,
+                    ColorSystem: ColorSystemSupport.Standard));
 
                 await session.WriteAsync(spectre);
                 await session.WriteLineAsync("");

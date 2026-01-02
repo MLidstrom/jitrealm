@@ -3,6 +3,9 @@ bin/
 obj/
 out/
 
+# Player data (user-specific)
+players/
+
 # Build Results
 [Dd]ebug/
 [Dd]ebugPublic/

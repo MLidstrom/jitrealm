@@ -64,6 +64,9 @@ public sealed class NpcContext
     // Recent events the NPC witnessed
     public required IReadOnlyList<string> RecentEvents { get; init; }
 
+    // Shop inventory (for merchants implementing IShopkeeper)
+    public IReadOnlyList<ShopItem>? ShopStock { get; init; }
+
     /// <summary>
     /// Check if this NPC has a specific capability.
     /// </summary>
@@ -130,6 +133,19 @@ public sealed class NpcContext
             {
                 lines.Add($"- {evt}");
             }
+        }
+
+        // Shop inventory (for merchants)
+        if (ShopStock is { Count: > 0 })
+        {
+            lines.Add($"\n[Your shop inventory - items for sale:]");
+            foreach (var item in ShopStock)
+            {
+                var stockInfo = item.Stock < 0 ? "" : $" ({item.Stock} in stock)";
+                var desc = string.IsNullOrEmpty(item.Description) ? "" : $" - {item.Description}";
+                lines.Add($"- {item.Name}: {item.Price} gold{stockInfo}{desc}");
+            }
+            lines.Add("\nWhen asked about stock, list these items with their prices!");
         }
 
         return string.Join("\n", lines);

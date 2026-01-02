@@ -1,13 +1,15 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using JitRealm.Mud;
 using JitRealm.Mud.AI;
 
 /// <summary>
 /// A friendly shopkeeper who greets visitors and responds to conversation.
-/// Can be extended to support buy/sell commands in the future.
+/// Implements IShopkeeper to list items for sale.
 /// </summary>
-public sealed class Shopkeeper : NPCBase, ILlmNpc
+public sealed class Shopkeeper : NPCBase, ILlmNpc, IShopkeeper
 {
     public override string Name => "the shopkeeper";
     public override string Description =>
@@ -19,6 +21,15 @@ public sealed class Shopkeeper : NPCBase, ILlmNpc
     // ILlmNpc implementation
     public NpcCapabilities Capabilities => NpcCapabilities.Merchant;
     public string SystemPrompt => BuildSystemPrompt();
+
+    // IShopkeeper implementation - items for sale
+    public IReadOnlyList<ShopItem> ShopStock { get; } = new List<ShopItem>
+    {
+        new() { Name = "Health Potion", BlueprintId = "Items/health_potion", Price = 25, Description = "Restores 50 HP" },
+        new() { Name = "Rusty Sword", BlueprintId = "Items/rusty_sword", Price = 15, Description = "A basic weapon" },
+        new() { Name = "Leather Vest", BlueprintId = "Items/leather_vest", Price = 30, Description = "Light armor" },
+        new() { Name = "Iron Helm", BlueprintId = "Items/iron_helm", Price = 45, Description = "Sturdy head protection" },
+    };
 
     // Prompt builder properties
     protected override string NpcNature =>
@@ -51,10 +62,20 @@ public sealed class Shopkeeper : NPCBase, ILlmNpc
     // Shopkeeper-specific reaction instructions
     protected override string GetLlmReactionInstructions(RoomEvent @event)
     {
-        var baseInstructions = base.GetLlmReactionInstructions(@event);
-        return @event.Type == RoomEventType.Speech
-            ? $"{baseInstructions} Be warm and friendly."
-            : baseInstructions;
+        if (@event.Type == RoomEventType.Speech)
+        {
+            var msg = @event.Message?.ToLowerInvariant() ?? "";
+            // Check if asking about stock/inventory
+            if (msg.Contains("stock") || msg.Contains("sell") || msg.Contains("buy") ||
+                msg.Contains("wares") || msg.Contains("have") || msg.Contains("inventory"))
+            {
+                // Build explicit list of items for the LLM to mention
+                var items = string.Join(", ", ShopStock.Select(i => $"{i.Name} for {i.Price} gold"));
+                return $"IMPORTANT: The customer is asking about your merchandise. You MUST list some items and prices in your response. Your stock: {items}. Reply with speech listing 2-3 items with prices.";
+            }
+            return "Someone spoke to you. Reply with friendly speech in quotes. Be warm and helpful.";
+        }
+        return base.GetLlmReactionInstructions(@event);
     }
 
     public override void Heartbeat(IMudContext ctx)

@@ -30,6 +30,11 @@ public sealed class ConsoleSession : ISession
     public IMudFormatter Formatter =>
         _formatter ??= _supportsAnsi ? new MudFormatter() : new PlainTextFormatter();
 
+    // Console mode does not use split-screen UI
+    public ITerminalUI? TerminalUI => null;
+    public bool SupportsSplitScreen => false;
+    public (int Width, int Height) TerminalSize { get; set; } = (80, 24);
+
     public Task WriteLineAsync(string text)
     {
         Console.WriteLine(text);

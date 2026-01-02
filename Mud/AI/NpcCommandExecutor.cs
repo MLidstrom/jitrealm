@@ -24,9 +24,10 @@ public sealed class NpcCommandExecutor
     }
 
     /// <summary>
-    /// Parse an LLM response and execute only ONE action (the first one found).
+    /// Parse an LLM response and execute actions.
     /// Emotes are wrapped in *asterisks*, everything else is speech.
-    /// Only executes the first action to prevent spam - one action per heartbeat.
+    /// Speech before an emote is combined with the emote (up to 2 actions).
+    /// Long speech responses are allowed up to a reasonable limit.
     /// </summary>
     /// <param name="npcId">The NPC executing the actions.</param>
     /// <param name="response">The LLM response to parse and execute.</param>
@@ -48,13 +49,12 @@ public sealed class NpcCommandExecutor
                 var speech = response.Substring(0, match.Index).Trim();
                 if (!string.IsNullOrWhiteSpace(speech))
                 {
-                    // Execute only the speech (first action), ignore the emote
-                    await ExecuteAsync(npcId, $"say {speech}");
-                    return;
+                    // Execute the speech
+                    await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
                 }
             }
 
-            // Execute only the first emote
+            // Also execute the emote (allows speech + emote combo)
             if (canEmote)
             {
                 // Groups[2] = text inside *asterisks*, Groups[3] = text inside [brackets]
@@ -64,23 +64,67 @@ public sealed class NpcCommandExecutor
                 if (!string.IsNullOrWhiteSpace(emoteText))
                 {
                     await ExecuteAsync(npcId, $"emote {emoteText}");
-                    return;
                 }
             }
+            return;
         }
 
-        // No emotes found - treat as speech (but only the first sentence)
+        // No emotes found - treat as speech (allow multiple sentences up to limit)
         if (canSpeak)
         {
-            var text = response.Trim();
-            // Take only the first sentence to prevent long monologues
-            var sentenceEnd = text.IndexOfAny(new[] { '.', '!', '?' });
-            if (sentenceEnd > 0 && sentenceEnd < text.Length - 1)
-            {
-                text = text.Substring(0, sentenceEnd + 1);
-            }
-            await ExecuteAsync(npcId, $"say {text}");
+            await ExecuteAsync(npcId, $"say {TruncateSpeech(response.Trim())}");
         }
+    }
+
+    /// <summary>
+    /// Truncate speech to a reasonable length (up to 3 sentences or 300 chars).
+    /// Handles ellipsis (...) as a single punctuation, not 3 sentences.
+    /// </summary>
+    private static string TruncateSpeech(string text)
+    {
+        const int MaxChars = 300;
+        const int MaxSentences = 3;
+
+        if (text.Length <= MaxChars)
+        {
+            // Count sentences, but handle ellipsis (...) as a single mark
+            var sentenceCount = 0;
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (text[i] is '.' or '!' or '?')
+                {
+                    // Skip additional dots in ellipsis (... or ..)
+                    while (i + 1 < text.Length && text[i + 1] == '.')
+                        i++;
+
+                    // Only count as sentence end if followed by space+capital or end of string
+                    var isEndOfText = i >= text.Length - 1;
+                    var followedByNewSentence = i + 2 < text.Length &&
+                        char.IsWhiteSpace(text[i + 1]) &&
+                        char.IsUpper(text[i + 2]);
+
+                    if (isEndOfText || followedByNewSentence)
+                    {
+                        sentenceCount++;
+                        if (sentenceCount >= MaxSentences)
+                        {
+                            return text.Substring(0, i + 1).Trim();
+                        }
+                    }
+                }
+            }
+            return text;
+        }
+
+        // Truncate at last sentence end before MaxChars, or at MaxChars
+        var truncated = text.Substring(0, MaxChars);
+        var lastSentenceEnd = truncated.LastIndexOfAny(new[] { '.', '!', '?' });
+        if (lastSentenceEnd > MaxChars / 2)
+        {
+            return truncated.Substring(0, lastSentenceEnd + 1).Trim();
+        }
+
+        return truncated.Trim() + "...";
     }
 
     /// <summary>

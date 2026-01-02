@@ -9,6 +9,16 @@ namespace JitRealm.Mud.Network;
 /// </summary>
 public sealed class TelnetSession : ISession, IDisposable
 {
+    // Telnet protocol bytes
+    private const byte Iac = 255;
+    private const byte Will = 251;
+    private const byte Wont = 252;
+    private const byte Do = 253;
+    private const byte Dont = 254;
+    private const byte Sb = 250;
+    private const byte Se = 240;
+    private const byte Naws = 31; // Negotiate About Window Size
+
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
     private readonly StreamWriter _writer;
@@ -18,11 +28,20 @@ public sealed class TelnetSession : ISession, IDisposable
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     private readonly char[] _charBuffer = new char[4096];
     private bool _sawCarriageReturn;
-    private int _telnetState; // 0=normal, 1=IAC, 2=IAC verb, 3=SB (subnegotiation)
+    // Telnet parsing state:
+    // 0=normal, 1=after IAC, 2=after IAC (WILL/WONT/DO/DONT) expecting option,
+    // 3=subnegotiation data, 4=subnegotiation expecting option, 5=subnegotiation after IAC.
+    private int _telnetState;
     private byte _telnetVerb;
+    private byte _sbOption;
+    private readonly byte[] _sbBuffer = new byte[64];
+    private int _sbLen;
     private bool _disposed;
     private bool _supportsAnsi = true;
     private IMudFormatter? _formatter;
+    private ITerminalUI? _terminalUI;
+    private bool _splitScreenEnabled;
+    private (int Width, int Height) _terminalSize = (80, 24);
 
     public string SessionId { get; }
     public string? PlayerId { get; set; }
@@ -44,6 +63,16 @@ public sealed class TelnetSession : ISession, IDisposable
     public IMudFormatter Formatter =>
         _formatter ??= _supportsAnsi ? new MudFormatter() : new PlainTextFormatter();
 
+    public ITerminalUI? TerminalUI => _terminalUI;
+
+    public bool SupportsSplitScreen => _splitScreenEnabled && _supportsAnsi;
+
+    public (int Width, int Height) TerminalSize
+    {
+        get => _terminalSize;
+        set => _terminalSize = value;
+    }
+
     public TelnetSession(TcpClient client, string sessionId)
     {
         _client = client;
@@ -53,6 +82,60 @@ public sealed class TelnetSession : ISession, IDisposable
         // Use UTF-8 so Unicode box drawing (used by Spectre.Console tables/panels) renders correctly.
         // Pure ANSI escape sequences are ASCII-compatible, so this is safe for color codes as well.
         _writer = new StreamWriter(_stream, Encoding.UTF8) { AutoFlush = true };
+
+        // Request NAWS so we can react to terminal resizes.
+        // Many clients will respond WILL NAWS + SB NAWS <w><h>.
+        SendTelnetCommand(Do, Naws);
+    }
+
+    /// <summary>
+    /// Enable split-screen terminal UI with fixed status bar and input line.
+    /// </summary>
+    public async Task EnableSplitScreenAsync()
+    {
+        if (!_supportsAnsi) return;
+
+        _splitScreenEnabled = true;
+        _terminalUI = new SplitScreenUI(
+            WriteRawAsync,
+            Formatter,
+            _terminalSize.Width,
+            _terminalSize.Height
+        );
+
+        await _terminalUI.InitializeAsync();
+    }
+
+    /// <summary>
+    /// Disable split-screen UI and return to simple scrolling mode.
+    /// </summary>
+    public async Task DisableSplitScreenAsync()
+    {
+        if (_terminalUI != null)
+        {
+            await _terminalUI.ResetTerminalAsync();
+        }
+
+        _splitScreenEnabled = false;
+        _terminalUI = null;
+    }
+
+    /// <summary>
+    /// Write raw text directly to the stream, bypassing terminal UI routing.
+    /// Used by the terminal UI itself and for ANSI sequences.
+    /// </summary>
+    public async Task WriteRawAsync(string text)
+    {
+        if (!IsConnected) return;
+
+        try
+        {
+            await _writer.WriteAsync(text);
+        }
+        catch (IOException)
+        {
+            // Connection lost
+        }
     }
 
     public async Task WriteLineAsync(string text)
@@ -61,8 +144,16 @@ public sealed class TelnetSession : ISession, IDisposable
 
         try
         {
-            // Telnet uses \r\n for line endings
-            await _writer.WriteAsync(text + "\r\n");
+            if (_terminalUI?.SupportsSplitScreen == true)
+            {
+                // Route through split-screen UI (handles scroll region)
+                await _terminalUI.WriteOutputAsync(text);
+            }
+            else
+            {
+                // Original behavior: telnet uses \r\n for line endings
+                await _writer.WriteAsync(text + "\r\n");
+            }
         }
         catch (IOException)
         {
@@ -133,7 +224,13 @@ public sealed class TelnetSession : ISession, IDisposable
 
         try
         {
-            await WriteLineAsync("Goodbye!");
+            // Reset terminal to normal mode if split-screen was active
+            if (_terminalUI != null)
+            {
+                await _terminalUI.ResetTerminalAsync();
+            }
+
+            await WriteRawAsync("Goodbye!\r\n");
         }
         catch
         {
@@ -176,7 +273,7 @@ public sealed class TelnetSession : ISession, IDisposable
                 switch (_telnetState)
                 {
                     case 0: // normal
-                        if (b == 255) // IAC
+                        if (b == Iac) // IAC
                         {
                             _telnetState = 1;
                             continue;
@@ -186,7 +283,7 @@ public sealed class TelnetSession : ISession, IDisposable
 
                     case 1: // after IAC
                         // Escaped 255 (IAC IAC) => literal 255 in stream
-                        if (b == 255)
+                        if (b == Iac)
                         {
                             _telnetState = 0;
                             filtered[filteredLen++] = 255;
@@ -194,14 +291,15 @@ public sealed class TelnetSession : ISession, IDisposable
                         }
 
                         // Subnegotiation start: IAC SB
-                        if (b == 250)
+                        if (b == Sb)
                         {
-                            _telnetState = 3;
+                            _telnetState = 4; // expecting subnegotiation option
+                            _sbLen = 0;
                             break;
                         }
 
                         // Negotiation verbs that take an option byte next: WILL/WONT/DO/DONT
-                        if (b is 251 or 252 or 253 or 254)
+                        if (b is Will or Wont or Do or Dont)
                         {
                             _telnetVerb = b;
                             _telnetState = 2;
@@ -213,14 +311,42 @@ public sealed class TelnetSession : ISession, IDisposable
                         break;
 
                     case 2: // expecting option byte after WILL/WONT/DO/DONT
+                        HandleTelnetNegotiation(_telnetVerb, b);
                         _telnetState = 0;
                         break;
 
-                    case 3: // subnegotiation: ignore until IAC SE
-                        if (b == 255)
+                    case 4: // subnegotiation: expecting option byte
+                        _sbOption = b;
+                        _telnetState = 3;
+                        break;
+
+                    case 3: // subnegotiation: read until IAC SE
+                        if (b == Iac)
                         {
-                            _telnetState = 1; // re-use "after IAC" handling (SE=240 will drop us back)
+                            _telnetState = 5;
+                            break;
                         }
+                        if (_sbLen < _sbBuffer.Length)
+                            _sbBuffer[_sbLen++] = b;
+                        break;
+
+                    case 5: // subnegotiation: after IAC
+                        if (b == Se)
+                        {
+                            HandleSubnegotiation(_sbOption, _sbBuffer, _sbLen);
+                            _telnetState = 0;
+                            break;
+                        }
+                        if (b == Iac)
+                        {
+                            // Escaped IAC within SB
+                            if (_sbLen < _sbBuffer.Length)
+                                _sbBuffer[_sbLen++] = Iac;
+                            _telnetState = 3;
+                            break;
+                        }
+                        // Unknown command within SB, continue consuming data.
+                        _telnetState = 3;
                         break;
                 }
             }
@@ -278,5 +404,71 @@ public sealed class TelnetSession : ISession, IDisposable
         var line = _currentLine.ToString();
         _currentLine.Clear();
         _completedLines.Enqueue(line);
+    }
+
+    private void SendTelnetCommand(byte verb, byte option)
+    {
+        if (!IsConnected) return;
+
+        try
+        {
+            // Avoid interleaving with UTF-8 output as much as possible.
+            _writer.Flush();
+            _stream.Write(new[] { Iac, verb, option }, 0, 3);
+        }
+        catch
+        {
+            // Ignore negotiation failures; client may not support it.
+        }
+    }
+
+    private void HandleTelnetNegotiation(byte verb, byte option)
+    {
+        // We only care about NAWS right now.
+        if (verb == Will && option == Naws)
+        {
+            // Client says it WILL send window size -> acknowledge.
+            SendTelnetCommand(Do, Naws);
+        }
+        else if (verb == Wont && option == Naws)
+        {
+            // Client refuses. Keep default size.
+        }
+        else if (verb == Do && option == Naws)
+        {
+            // Client asks us to perform NAWS (not applicable for server); refuse.
+            SendTelnetCommand(Wont, Naws);
+        }
+    }
+
+    private void HandleSubnegotiation(byte option, byte[] buffer, int len)
+    {
+        if (option != Naws)
+            return;
+
+        if (len < 4)
+            return;
+
+        var width = (buffer[0] << 8) | buffer[1];
+        var height = (buffer[2] << 8) | buffer[3];
+
+        // Some clients can send zeros during startup; ignore those.
+        if (width <= 0 || height <= 0)
+            return;
+
+        // Clamp to sane minimums to keep UI stable.
+        width = Math.Max(40, width);
+        height = Math.Max(10, height);
+
+        if (_terminalSize.Width == width && _terminalSize.Height == height)
+            return;
+
+        _terminalSize = (width, height);
+
+        // If split-screen is active, resize the UI immediately so the status bar fills the new width.
+        if (_terminalUI is SplitScreenUI ui && _splitScreenEnabled && _supportsAnsi)
+        {
+            _ = ui.ResizeAsync(width, height);
+        }
     }
 }
