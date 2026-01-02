@@ -25,10 +25,10 @@ public sealed class ShopStorage : MudObjectBase, IRoom, ISpawner
     /// </summary>
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
-        ["Items/health_potion"] = 3,
-        ["Items/rusty_sword"] = 2,
-        ["Items/leather_vest"] = 1,
-        ["Items/iron_helm"] = 1,
+        ["Items/health_potion.cs"] = 3,
+        ["Items/rusty_sword.cs"] = 2,
+        ["Items/leather_vest.cs"] = 1,
+        ["Items/iron_helm.cs"] = 1,
     };
 
     public void Respawn(IMudContext ctx)

@@ -785,12 +785,21 @@ public sealed class GameServer
                 await ExamineItemAsync(session, string.Join(" ", parts.Skip(1)));
                 break;
 
+            case "read":
+                if (parts.Length < 2)
+                {
+                    await session.WriteLineAsync("Usage: read <object>");
+                    break;
+                }
+                await ReadObjectAsync(session, string.Join(" ", parts.Skip(1)));
+                break;
+
             case "help":
             case "?":
                 await session.WriteLineAsync("=== Commands ===");
                 await session.WriteLineAsync("Navigation: l[ook] [at <detail>], go <exit>");
                 await session.WriteLineAsync("            n/north, s/south, e/east, w/west, u/up, d/down");
-                await session.WriteLineAsync("Items:      get/take <item>, drop <item>, i[nventory], x/examine <item>");
+                await session.WriteLineAsync("Items:      get/take <item>, drop <item>, i[nventory], x/examine <item>, read <object>");
                 await session.WriteLineAsync("Equipment:  equip/wield/wear <item>, unequip/remove <slot>, eq[uipment]");
                 await session.WriteLineAsync("Combat:     kill/attack <target>, flee/retreat, consider/con <target>");
                 await session.WriteLineAsync("Social:     say <msg>, shout <msg>, whisper <player> <msg>, who");
@@ -1700,6 +1709,106 @@ public sealed class GameServer
                 await session.WriteLineAsync("You examine it closely but see nothing special.");
             }
         }
+    }
+
+    private async Task ReadObjectAsync(ISession session, string target)
+    {
+        var playerId = session.PlayerId;
+        if (playerId is null)
+        {
+            await session.WriteLineAsync("No player.");
+            return;
+        }
+
+        var roomId = _state.Containers.GetContainer(playerId);
+        if (roomId is null)
+        {
+            await session.WriteLineAsync("You're not in a room.");
+            return;
+        }
+
+        var targetLower = target.ToLowerInvariant();
+
+        // Check room contents for IReadable objects
+        var roomContents = _state.Containers.GetContents(roomId);
+        foreach (var objId in roomContents)
+        {
+            var readable = _state.Objects!.Get<IReadable>(objId);
+            if (readable is null) continue;
+
+            // Check name, ReadableLabel, or item aliases
+            if (readable.Name.Contains(targetLower, StringComparison.OrdinalIgnoreCase) ||
+                readable.ReadableLabel.Contains(targetLower, StringComparison.OrdinalIgnoreCase))
+            {
+                await session.WriteLineAsync($"You read the {readable.ReadableLabel}:");
+                await session.WriteLineAsync("");
+                await session.WriteLineAsync(readable.ReadableText);
+                return;
+            }
+
+            // Check item aliases
+            if (readable is IItem item)
+            {
+                foreach (var alias in item.Aliases)
+                {
+                    if (alias.Contains(targetLower, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await session.WriteLineAsync($"You read the {readable.ReadableLabel}:");
+                        await session.WriteLineAsync("");
+                        await session.WriteLineAsync(readable.ReadableText);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Check room's Details dictionary
+        var room = _state.Objects!.Get<IRoom>(roomId);
+        if (room is IMudObject mudObj && mudObj.Details.Count > 0)
+        {
+            foreach (var (key, value) in mudObj.Details)
+            {
+                if (key.Contains(targetLower, StringComparison.OrdinalIgnoreCase))
+                {
+                    await session.WriteLineAsync($"You read the {key}:");
+                    await session.WriteLineAsync(value);
+                    return;
+                }
+            }
+        }
+
+        // Check player's inventory
+        var inventory = _state.Containers.GetContents(playerId);
+        foreach (var objId in inventory)
+        {
+            var readable = _state.Objects!.Get<IReadable>(objId);
+            if (readable is null) continue;
+
+            if (readable.Name.Contains(targetLower, StringComparison.OrdinalIgnoreCase) ||
+                readable.ReadableLabel.Contains(targetLower, StringComparison.OrdinalIgnoreCase))
+            {
+                await session.WriteLineAsync($"You read the {readable.ReadableLabel}:");
+                await session.WriteLineAsync("");
+                await session.WriteLineAsync(readable.ReadableText);
+                return;
+            }
+
+            if (readable is IItem item)
+            {
+                foreach (var alias in item.Aliases)
+                {
+                    if (alias.Contains(targetLower, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await session.WriteLineAsync($"You read the {readable.ReadableLabel}:");
+                        await session.WriteLineAsync("");
+                        await session.WriteLineAsync(readable.ReadableText);
+                        return;
+                    }
+                }
+            }
+        }
+
+        await session.WriteLineAsync($"You don't see anything called '{target}' that you can read.");
     }
 
     private async Task EquipItemAsync(ISession session, string itemName)

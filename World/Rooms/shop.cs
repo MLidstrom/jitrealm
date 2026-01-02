@@ -29,8 +29,8 @@ public sealed class Shop : MudObjectBase, IRoom, IResettable, ISpawner
     /// </summary>
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
-        ["npcs/shopkeeper"] = 1,
-        ["Items/shop_sign"] = 1,
+        ["npcs/shopkeeper.cs"] = 1,
+        ["Items/shop_sign.cs"] = 1,
     };
 
     public void Respawn(IMudContext ctx)
