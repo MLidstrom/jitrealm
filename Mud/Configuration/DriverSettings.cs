@@ -248,8 +248,11 @@ public sealed class PlayerSettings
     public int BaseXpPerLevel { get; set; } = 100;
 
     /// <summary>
-    /// Starting gold for new players.
+    /// [Obsolete] Starting gold for new players.
+    /// Coins are now created as objects via CoinHelper. New players receive 10 GC + 50 SC.
+    /// This property is retained for config file compatibility but is no longer used.
     /// </summary>
+    [Obsolete("Coins are now objects. New players receive starting coins via GameServer.CreateStartingCoinsAsync()")]
     public int StartingGold { get; set; } = 100;
 }
 

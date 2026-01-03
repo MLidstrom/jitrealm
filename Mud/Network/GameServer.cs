@@ -406,6 +406,12 @@ public sealed class GameServer
             // Restore inventory items
             await RestoreInventoryAsync(player.Id, accountData);
 
+            // Give starting coins to new players (no saved inventory)
+            if (accountData.Inventory.Count == 0)
+            {
+                await CreateStartingCoinsAsync(player.Id);
+            }
+
             // Restore equipment
             RestoreEquipment(player.Id, accountData);
 
@@ -548,6 +554,19 @@ public sealed class GameServer
                 Console.WriteLine($"[RestoreInventory] Failed to restore item {itemId}: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Create starting coins for a new player.
+    /// Default: 10 GC + 50 SC (configurable via settings).
+    /// </summary>
+    private async Task CreateStartingCoinsAsync(string playerId)
+    {
+        // Create gold coins (10 GC)
+        await CoinHelper.AddCoinsAsync(_state, playerId, 10, CoinMaterial.Gold);
+
+        // Create silver coins (50 SC)
+        await CoinHelper.AddCoinsAsync(_state, playerId, 50, CoinMaterial.Silver);
     }
 
     private void RestoreEquipment(string playerId, PlayerAccountData accountData)
@@ -1248,10 +1267,9 @@ public sealed class GameServer
         await session.WriteLineAsync(fmt.FormatCombatStats(player.TotalArmorClass, player.WeaponDamage.min, player.WeaponDamage.max));
         await session.WriteLineAsync(fmt.FormatCarryWeight(player.CarriedWeight, player.CarryCapacity));
 
-        // Get gold from player state
-        var playerState = _state.Objects.GetStateStore(playerId);
-        var gold = playerState?.Get<int>("gold") ?? 0;
-        await session.WriteLineAsync($"Gold: {gold}");
+        // Display coin breakdown
+        var wealth = CoinHelper.FormatWealth(_state, playerId);
+        await session.WriteLineAsync($"Wealth: {wealth}");
 
         await session.WriteLineAsync(fmt.FormatSessionTime(player.SessionTime));
     }
@@ -1415,6 +1433,26 @@ public sealed class GameServer
             return;
         }
 
+        // Check if this is a coin command (e.g., "50 gold", "all silver")
+        var coinParse = CoinHelper.ParseCoinCommand(itemName);
+        if (coinParse.HasValue)
+        {
+            await GetCoinsAsync(session, coinParse.Value.Amount, coinParse.Value.Material, roomId);
+            return;
+        }
+
+        // Check for "all <material>" pattern
+        if (itemName.StartsWith("all ", StringComparison.OrdinalIgnoreCase))
+        {
+            var materialStr = itemName[4..].Trim();
+            var material = CoinHelper.ParseMaterial(materialStr);
+            if (material.HasValue)
+            {
+                await GetAllCoinsAsync(session, material.Value, roomId);
+                return;
+            }
+        }
+
         // Find item in room
         var ctx = CreateContextFor(playerId);
         var itemId = ctx.FindItem(itemName, roomId);
@@ -1473,6 +1511,26 @@ public sealed class GameServer
             return;
         }
 
+        // Check if this is a coin command (e.g., "50 gold", "all silver")
+        var coinParse = CoinHelper.ParseCoinCommand(itemName);
+        if (coinParse.HasValue)
+        {
+            await DropCoinsAsync(session, coinParse.Value.Amount, coinParse.Value.Material, roomId);
+            return;
+        }
+
+        // Check for "all <material>" pattern
+        if (itemName.StartsWith("all ", StringComparison.OrdinalIgnoreCase))
+        {
+            var materialStr = itemName[4..].Trim();
+            var material = CoinHelper.ParseMaterial(materialStr);
+            if (material.HasValue)
+            {
+                await DropAllCoinsAsync(session, material.Value, roomId);
+                return;
+            }
+        }
+
         // Find item in inventory
         var ctx = CreateContextFor(playerId);
         var itemId = ctx.FindItem(itemName, playerId);
@@ -1504,6 +1562,150 @@ public sealed class GameServer
             Target = item.ShortDescription
         };
         await TriggerNpcRoomEventAsync(dropEvent, roomId);
+    }
+
+    /// <summary>
+    /// Pick up a specific amount of coins from the room.
+    /// </summary>
+    private async Task GetCoinsAsync(ISession session, int amount, CoinMaterial material, string roomId)
+    {
+        var playerId = session.PlayerId!;
+        var matName = material.ToString().ToLower();
+
+        // Find coin pile in room
+        var coinId = CoinHelper.FindCoinPile(_state, roomId, material);
+        if (coinId is null)
+        {
+            await session.WriteLineAsync($"There are no {matName} coins here.");
+            return;
+        }
+
+        var coin = _state.Objects!.Get<ICoin>(coinId);
+        if (coin is null || coin.Amount < amount)
+        {
+            await session.WriteLineAsync($"There aren't that many {matName} coins here. (Only {coin?.Amount ?? 0})");
+            return;
+        }
+
+        // Transfer coins
+        if (await CoinHelper.TransferCoinsAsync(_state, roomId, playerId, amount, material))
+        {
+            var desc = CoinHelper.FormatCoins(amount, material);
+            await session.WriteLineAsync($"You pick up {desc}.");
+            BroadcastToRoom(roomId, $"{session.PlayerName} picks up {desc}.", session);
+            _state.EventLog.Record(roomId, $"{session.PlayerName} picked up {desc}");
+        }
+        else
+        {
+            await session.WriteLineAsync("Failed to pick up coins.");
+        }
+    }
+
+    /// <summary>
+    /// Pick up all coins of a material from the room.
+    /// </summary>
+    private async Task GetAllCoinsAsync(ISession session, CoinMaterial material, string roomId)
+    {
+        var playerId = session.PlayerId!;
+        var matName = material.ToString().ToLower();
+
+        // Find coin pile in room
+        var coinId = CoinHelper.FindCoinPile(_state, roomId, material);
+        if (coinId is null)
+        {
+            await session.WriteLineAsync($"There are no {matName} coins here.");
+            return;
+        }
+
+        var coin = _state.Objects!.Get<ICoin>(coinId);
+        if (coin is null || coin.Amount <= 0)
+        {
+            await session.WriteLineAsync($"There are no {matName} coins here.");
+            return;
+        }
+
+        var amount = coin.Amount;
+        var ctx = CreateContextFor(playerId);
+
+        // Move the entire pile (will merge at destination via Move())
+        ctx.Move(coinId, playerId);
+
+        var desc = CoinHelper.FormatCoins(amount, material);
+        await session.WriteLineAsync($"You pick up {desc}.");
+        BroadcastToRoom(roomId, $"{session.PlayerName} picks up {desc}.", session);
+        _state.EventLog.Record(roomId, $"{session.PlayerName} picked up {desc}");
+    }
+
+    /// <summary>
+    /// Drop a specific amount of coins to the room.
+    /// </summary>
+    private async Task DropCoinsAsync(ISession session, int amount, CoinMaterial material, string roomId)
+    {
+        var playerId = session.PlayerId!;
+        var matName = material.ToString().ToLower();
+
+        // Find coin pile in player inventory
+        var coinId = CoinHelper.FindCoinPile(_state, playerId, material);
+        if (coinId is null)
+        {
+            await session.WriteLineAsync($"You don't have any {matName} coins.");
+            return;
+        }
+
+        var coin = _state.Objects!.Get<ICoin>(coinId);
+        if (coin is null || coin.Amount < amount)
+        {
+            await session.WriteLineAsync($"You don't have that many {matName} coins. (Only {coin?.Amount ?? 0})");
+            return;
+        }
+
+        // Transfer coins
+        if (await CoinHelper.TransferCoinsAsync(_state, playerId, roomId, amount, material))
+        {
+            var desc = CoinHelper.FormatCoins(amount, material);
+            await session.WriteLineAsync($"You drop {desc}.");
+            BroadcastToRoom(roomId, $"{session.PlayerName} drops {desc}.", session);
+            _state.EventLog.Record(roomId, $"{session.PlayerName} dropped {desc}");
+        }
+        else
+        {
+            await session.WriteLineAsync("Failed to drop coins.");
+        }
+    }
+
+    /// <summary>
+    /// Drop all coins of a material to the room.
+    /// </summary>
+    private async Task DropAllCoinsAsync(ISession session, CoinMaterial material, string roomId)
+    {
+        var playerId = session.PlayerId!;
+        var matName = material.ToString().ToLower();
+
+        // Find coin pile in player inventory
+        var coinId = CoinHelper.FindCoinPile(_state, playerId, material);
+        if (coinId is null)
+        {
+            await session.WriteLineAsync($"You don't have any {matName} coins.");
+            return;
+        }
+
+        var coin = _state.Objects!.Get<ICoin>(coinId);
+        if (coin is null || coin.Amount <= 0)
+        {
+            await session.WriteLineAsync($"You don't have any {matName} coins.");
+            return;
+        }
+
+        var amount = coin.Amount;
+        var ctx = CreateContextFor(playerId);
+
+        // Move the entire pile (will merge at destination via Move())
+        ctx.Move(coinId, roomId);
+
+        var desc = CoinHelper.FormatCoins(amount, material);
+        await session.WriteLineAsync($"You drop {desc}.");
+        BroadcastToRoom(roomId, $"{session.PlayerName} drops {desc}.", session);
+        _state.EventLog.Record(roomId, $"{session.PlayerName} dropped {desc}");
     }
 
     private async Task ShowInventoryAsync(ISession session)

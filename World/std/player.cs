@@ -68,11 +68,6 @@ public class PlayerBase : LivingBase, IPlayer, IOnLoad
     /// </summary>
     public int Level => Ctx?.State.Get<int>("level") ?? 1;
 
-    /// <summary>
-    /// Current gold (currency).
-    /// </summary>
-    public int Gold => Ctx?.State.Get<int>("gold") ?? 0;
-
     // IHasInventory implementation
 
     /// <summary>
@@ -190,11 +185,7 @@ public class PlayerBase : LivingBase, IPlayer, IOnLoad
             ctx.State.Set("experience", 0);
         }
 
-        // Initialize gold if not set (default 100)
-        if (!HasStateKey(ctx, "gold"))
-        {
-            ctx.State.Set("gold", 100);
-        }
+        // Note: Coins are now created as objects by GameServer.CreateStartingCoinsAsync()
     }
 
     /// <summary>

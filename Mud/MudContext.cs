@@ -148,6 +148,25 @@ public sealed class MudContext : IMudContext
             }
         }
 
+        // COIN MERGE: If moving a coin to a container that already has coins of same material, merge
+        if (obj is ICoin incomingCoin)
+        {
+            var existingCoinId = FindCoinPile(destinationId, incomingCoin.Material);
+            if (existingCoinId is not null && existingCoinId != objectId)
+            {
+                // Add amount to existing pile
+                var existingState = _internalWorld.Objects.GetStateStore(existingCoinId);
+                var existingAmount = existingState?.Get<int>("amount") ?? 0;
+                existingState?.Set("amount", existingAmount + incomingCoin.Amount);
+
+                // Remove incoming coin from container and destruct
+                _internalWorld.Containers.Remove(objectId);
+                _internalWorld.Objects.DestructAsync(objectId, _internalWorld).GetAwaiter().GetResult();
+
+                return true;  // Merged successfully
+            }
+        }
+
         // Move the object
         _internalWorld.Containers.Move(objectId, destinationId);
 
@@ -167,6 +186,21 @@ public sealed class MudContext : IMudContext
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Find a coin pile of specific material in a container.
+    /// </summary>
+    private string? FindCoinPile(string containerId, CoinMaterial material)
+    {
+        var contents = _internalWorld.Containers.GetContents(containerId);
+        foreach (var itemId in contents)
+        {
+            var coin = _internalWorld.Objects?.Get<ICoin>(itemId);
+            if (coin?.Material == material)
+                return itemId;
+        }
+        return null;
     }
 
     public int GetContainerWeight(string containerId)

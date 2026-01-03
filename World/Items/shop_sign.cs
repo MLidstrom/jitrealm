@@ -56,13 +56,13 @@ public sealed class ShopSign : SignBase
                 {
                     var first = group.First();
                     var count = group.Count();
-                    var price = CalculatePrice(first.Value);
+                    var priceCopper = CalculatePriceCopper(first.Value);
 
                     var name = count > 1
                         ? $"{count}x {first.ShortDescription}"
                         : first.ShortDescription;
 
-                    sb.AppendLine($"  {name,-30} {price,5} gold");
+                    sb.AppendLine($"  {name,-30} {FormatPrice(priceCopper)}");
                 }
             }
 
@@ -109,10 +109,37 @@ public sealed class ShopSign : SignBase
         return items;
     }
 
-    private static int CalculatePrice(int baseValue)
+    /// <summary>
+    /// Calculate buy price in copper. Item.Value is in silver units.
+    /// </summary>
+    private static int CalculatePriceCopper(int baseValueInSilver)
     {
-        // Apply markup and round to nearest 5
-        var price = (int)(baseValue * PriceMarkup);
-        return ((price + 2) / 5) * 5; // Round to nearest 5
+        // Convert from silver to copper (1 SC = 100 CC)
+        var baseCopper = baseValueInSilver * 100;
+        // Apply markup
+        var price = (int)(baseCopper * PriceMarkup);
+        // Round to nearest 50 copper (0.5 SC) for cleaner prices
+        return Math.Max(50, ((price + 25) / 50) * 50);
+    }
+
+    /// <summary>
+    /// Format a copper value as breakdown (e.g., "1 GC, 50 SC").
+    /// </summary>
+    private static string FormatPrice(int copperAmount)
+    {
+        if (copperAmount <= 0)
+            return "0 CC";
+
+        var gold = copperAmount / 10000;
+        var remaining = copperAmount % 10000;
+        var silver = remaining / 100;
+        var copper = remaining % 100;
+
+        var parts = new List<string>();
+        if (gold > 0) parts.Add($"{gold} GC");
+        if (silver > 0) parts.Add($"{silver} SC");
+        if (copper > 0) parts.Add($"{copper} CC");
+
+        return parts.Count > 0 ? string.Join(", ", parts) : "0 CC";
     }
 }

@@ -58,6 +58,7 @@ public static class CommandFactory
         registry.Register(new TimeCommand());
         registry.Register(new ScoreCommand());
         registry.Register(new ReadCommand());
+        registry.Register(new ExchangeCommand());
     }
 
     private static void RegisterWizardCommands(CommandRegistry registry)

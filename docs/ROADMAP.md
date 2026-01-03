@@ -334,15 +334,22 @@
   - Dispatch order: room → inventory items → equipped items
   - Commands appear in `help` output when available (grouped by source)
 
-- **Economy System** ✅
-  - Gold stored in player `IStateStore` as "gold" key
-  - `PlayerSettings.StartingGold` config (default: 100)
-  - Gold displayed in `score` command output
-  - `ISandboxedWorldAccess.GetStateStore()` — world code can access player state
+- **Coin System** ✅
+  - `ICoin` interface — Material (Gold/Silver/Copper), Amount (stackable)
+  - `CoinMaterial` enum with exchange rates: 1 GC = 100 SC = 10000 CC
+  - `CoinHelper` utility — parsing, formatting, add/deduct/transfer coins
+  - `coin.cs` blueprint — single blueprint with dynamic name/weight based on state
+  - Auto-merge: coins of same material merge when placed in same container
+  - `exchange` command — convert between denominations
+  - Starting coins: 10 GC + 50 SC for new players
+  - Wealth displayed in `score` as breakdown: "75 GC, 50 SC, 0 CC"
+  - Coin weight: 0.01 per coin (1000 coins = 10 weight)
 
 - **Shop Buy/Sell Commands** ✅
-  - `buy <item>` — purchase from storage room (price = Value × 1.5, rounded to 5)
+  - `buy <item>` — purchase from storage room (price = Value × 1.5, rounded to 5 SC)
   - `sell <item>` — sell from inventory (price = Value / 2)
+  - Prices displayed in coin breakdown format (e.g., "1 GC, 50 SC")
+  - Coins can't be sold (use `exchange` to convert)
   - Weight limit enforced on purchase
   - Items move between player inventory and storage room
 

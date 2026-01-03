@@ -31,7 +31,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Object Details**: All objects support "look at X" for granular descriptions (e.g., "look at grass")
 - **Command Shortcuts**: `l` for look, `n/s/e/w/u/d` for directions
 - **Local Commands**: Context-sensitive commands from rooms/items (e.g., `buy`/`sell` in shops)
-- **Economy System**: Gold currency, shop buy/sell transactions
+- **Coin System**: Stackable coin objects (GC/SC/CC) with auto-merge, shop transactions, `exchange` command
 
 ## Requirements
 
@@ -78,7 +78,7 @@ To connect as a player, use telnet: `telnet localhost 4000`
 - `inventory` / `inv` / `i` — list carried items with weights
 - `examine <item>` / `exam` / `x` — show item's detailed description
 - `read <object>` — read signs, books, scrolls
-- `score` — show player stats (HP, Level, XP, Gold)
+- `score` — show player stats (HP, Level, XP, Wealth)
 
 ### Equipment
 - `equip <item>` / `wield` / `wear` — equip an item from inventory
@@ -100,9 +100,16 @@ To connect as a player, use telnet: `telnet localhost 4000`
 
 ### Utility
 - `help` / `?` — show command help (wizard commands shown only for wizards)
-- `score` / `sc` — show detailed player stats (HP bar, XP, level, wizard status)
+- `score` / `sc` — show detailed player stats (HP bar, XP, level, wealth)
 - `time` — show server time and playtime
 - `colors on|off` — toggle ANSI color codes for terminal output
+- `exchange <amount> <coin> to <coin>` — convert between coin types (e.g., `exchange 1 gold to silver`)
+
+### Coins & Economy
+- `get 50 gold` / `get all copper` — pick up specific coin amounts
+- `drop 25 silver` — drop specific coin amounts
+- Coins auto-merge when placed in same container
+- Exchange rates: 1 GC = 100 SC = 10000 CC
 
 ### Wizard Commands
 These commands are visible in `help` and executable only for wizard users:
@@ -157,8 +164,7 @@ Edit `appsettings.json` to customize driver settings:
     "CarryCapacity": 100,
     "RegenPerHeartbeat": 1,
     "XpMultiplier": 1.5,
-    "BaseXpPerLevel": 100,
-    "StartingGold": 100
+    "BaseXpPerLevel": 100
   }
 }
 ```
