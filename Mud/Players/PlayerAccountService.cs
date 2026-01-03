@@ -201,14 +201,25 @@ public sealed class PlayerAccountService
     }
 
     /// <summary>
+    /// Get the directory path for a player's data.
+    /// Format: players/{first_letter}/{name}/
+    /// This directory contains the player's save file and any wizard files (home.cs, etc).
+    /// </summary>
+    public string GetPlayerDirectory(string name)
+    {
+        var normalizedName = name.ToLowerInvariant();
+        var firstLetter = normalizedName[0].ToString();
+        return Path.Combine(_playersDirectory, firstLetter, normalizedName);
+    }
+
+    /// <summary>
     /// Get the file path for a player's save file.
-    /// Format: players/{first_letter}/{name}.json
+    /// Format: players/{first_letter}/{name}/{name}.json
     /// </summary>
     public string GetPlayerFilePath(string name)
     {
         var normalizedName = name.ToLowerInvariant();
-        var firstLetter = normalizedName[0].ToString();
-        return Path.Combine(_playersDirectory, firstLetter, $"{normalizedName}.json");
+        return Path.Combine(GetPlayerDirectory(name), $"{normalizedName}.json");
     }
 
     /// <summary>

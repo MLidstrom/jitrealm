@@ -22,8 +22,12 @@
     <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- Exclude test project sources from the main executable build -->
+  <!-- Exclude world room files and test sources from compile (room code is JIT compiled at runtime) -->
+  <!-- Note: World/std/*.cs base classes must remain compiled as driver references them -->
   <ItemGroup>
+    <Compile Remove="World/Rooms/**/*.cs" />
+    <Compile Remove="World/npcs/**/*.cs" />
+    <Compile Remove="World/Items/**/*.cs" />
     <Compile Remove="JitRealm.Tests/**/*.cs" />
   </ItemGroup>
 </Project>

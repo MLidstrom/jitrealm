@@ -25,6 +25,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Mudlib Polish** (v0.14): Command registry, social commands (shout/whisper/emotes), help system, RoomBase class
 - **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
 - **Player Accounts** (v0.16): Login/registration with SHA256 passwords, persistent player data (state, inventory, equipment, location)
+- **Wizard Tools** (v0.17): Filesystem navigation (pwd, ls, cd, cat, more), teleportation (goto), wizard homes
 - **LLM-Powered NPCs**: AI-driven NPC behavior via OpenAI-compatible APIs (configurable), context-aware reactions to room events
 - **Rich Terminal Output**: ANSI colors via Spectre.Console, toggleable per-session with `colors on|off`
 - **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
@@ -122,8 +123,23 @@ These commands are visible in `help` and executable only for wizard users:
 - `reload <blueprintId>` — recompile and update all instances (preserves state)
 - `unload <blueprintId>` — unload blueprint and all its instances
 - `patch <objectId> [key] [value]` — view or modify object state at runtime
+- `goto <home|room-id>` — teleport to home room or any room by ID
+- `pwd` — print current working directory (within World/)
+- `ls [path]` — list directory contents
+- `cd <path>` — change working directory
 - `save` — save world state to `save/world.json`
 - `load` — restore world state from save file
+
+### Wizard Filesystem
+Wizards can navigate the `World/` directory using Unix-like commands:
+- Root `/` = `World/`
+- Paths support `.` (current) and `..` (parent)
+- Wizards cannot navigate outside `World/`
+
+### Wizard Homes
+Wizards can have personal home rooms at `World/Rooms/Homes/{letter}/{name}/home.cs`:
+- `goto home` teleports the wizard to their home room
+- Example: Wizard "Mats" has home at `World/Rooms/Homes/m/mats/home.cs`
 
 ## Configuration
 
@@ -136,7 +152,7 @@ Edit `appsettings.json` to customize driver settings:
     "MaxConnections": 0,
     "WelcomeMessage": "Welcome to JitRealm, {PlayerName}!",
     "MudName": "JitRealm",
-    "Version": "0.16"
+    "Version": "0.17"
   },
   "Paths": {
     "WorldDirectory": "World",

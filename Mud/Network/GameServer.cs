@@ -996,6 +996,22 @@ public sealed class GameServer
                 await HandlePatchAsync(session, parts);
                 break;
 
+            case "pwd":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                await session.WriteLineAsync(Commands.Wizard.WizardFilesystem.GetWorkingDir(session.SessionId));
+                break;
+
+            case "ls":
+            case "dir":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                await HandleLsAsync(session, parts.Skip(1).ToArray());
+                break;
+
+            case "cd":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                await HandleCdAsync(session, parts.Skip(1).ToArray());
+                break;
+
             case "save":
                 if (!session.IsWizard)
                 {
@@ -1729,7 +1745,8 @@ public sealed class GameServer
         await session.WriteLineAsync(fmt.FormatInventoryHeader());
         int totalWeight = 0;
 
-        // Group items by description with their weights
+        // Group coins by material (summing amounts only), regular items by description
+        var coinTotals = new Dictionary<CoinMaterial, int>();  // material -> total amount
         var itemGroups = new Dictionary<string, (int count, int totalWeight)>(StringComparer.OrdinalIgnoreCase);
         var nonItems = new List<string>();
 
@@ -1738,16 +1755,32 @@ public sealed class GameServer
             var item = _state.Objects!.Get<IItem>(itemId);
             if (item is not null)
             {
-                var desc = item.ShortDescription;
-                if (itemGroups.TryGetValue(desc, out var existing))
+                // Handle coins specially - group by material and sum amounts only
+                if (item is ICoin coin)
                 {
-                    itemGroups[desc] = (existing.count + 1, existing.totalWeight + item.Weight);
+                    if (coinTotals.TryGetValue(coin.Material, out var existing))
+                    {
+                        coinTotals[coin.Material] = existing + coin.Amount;
+                    }
+                    else
+                    {
+                        coinTotals[coin.Material] = coin.Amount;
+                    }
+                    // Don't add to totalWeight here - we'll calculate correct weight later
                 }
                 else
                 {
-                    itemGroups[desc] = (1, item.Weight);
+                    var desc = item.ShortDescription;
+                    if (itemGroups.TryGetValue(desc, out var existing))
+                    {
+                        itemGroups[desc] = (existing.count + 1, existing.totalWeight + item.Weight);
+                    }
+                    else
+                    {
+                        itemGroups[desc] = (1, item.Weight);
+                    }
+                    totalWeight += item.Weight;
                 }
-                totalWeight += item.Weight;
             }
             else
             {
@@ -1756,7 +1789,26 @@ public sealed class GameServer
             }
         }
 
-        // Display grouped items
+        // Add correct coin weights to total (0.01 per coin, min 1 lb per material)
+        foreach (var (_, amount) in coinTotals)
+        {
+            totalWeight += Math.Max(1, (int)Math.Ceiling(amount * 0.01));
+        }
+
+        // Display coins first (ordered: Gold, Silver, Copper)
+        foreach (var material in new[] { CoinMaterial.Gold, CoinMaterial.Silver, CoinMaterial.Copper })
+        {
+            if (coinTotals.TryGetValue(material, out var amount))
+            {
+                var matName = material.ToString().ToLower();
+                var desc = amount == 1 ? $"1 {matName} coin" : $"{amount} {matName} coins";
+                // Weight = 0.01 per coin, minimum 1 lb (matches coin.cs formula)
+                var weight = Math.Max(1, (int)Math.Ceiling(amount * 0.01));
+                await session.WriteLineAsync(fmt.FormatInventoryItem(desc, weight, 1));
+            }
+        }
+
+        // Display grouped regular items
         foreach (var (desc, (count, weight)) in itemGroups.OrderBy(kv => kv.Key))
         {
             var displayDesc = count == 1
@@ -2754,6 +2806,100 @@ public sealed class GameServer
         }
 
         await session.WriteLineAsync($"Set {stateKey} = {newValue}");
+    }
+
+    private async Task HandleLsAsync(ISession session, string[] args)
+    {
+        var worldRoot = _state.Objects?.WorldRoot ?? "World";
+        worldRoot = Path.GetFullPath(worldRoot);
+        var sessionId = session.SessionId;
+
+        // Determine target path
+        var targetVirtualPath = args.Length > 0
+            ? Commands.Wizard.WizardFilesystem.ResolvePath(sessionId, string.Join(" ", args), worldRoot)
+            : Commands.Wizard.WizardFilesystem.GetWorkingDir(sessionId);
+
+        if (targetVirtualPath is null)
+        {
+            await session.WriteLineAsync("Invalid path.");
+            return;
+        }
+
+        var targetFsPath = Commands.Wizard.WizardFilesystem.ToFilesystemPath(targetVirtualPath, worldRoot);
+
+        if (!Directory.Exists(targetFsPath))
+        {
+            if (File.Exists(targetFsPath))
+            {
+                await session.WriteLineAsync(Path.GetFileName(targetFsPath));
+                return;
+            }
+            await session.WriteLineAsync($"Directory not found: {targetVirtualPath}");
+            return;
+        }
+
+        await session.WriteLineAsync($"Contents of {targetVirtualPath}:");
+
+        // List directories first
+        var dirs = Directory.GetDirectories(targetFsPath)
+            .Select(Path.GetFileName)
+            .Where(n => n is not null)
+            .OrderBy(n => n);
+
+        foreach (var dir in dirs)
+        {
+            await session.WriteLineAsync($"  {dir}/");
+        }
+
+        // Then list files
+        var files = Directory.GetFiles(targetFsPath)
+            .Select(Path.GetFileName)
+            .Where(n => n is not null)
+            .OrderBy(n => n);
+
+        foreach (var file in files)
+        {
+            await session.WriteLineAsync($"  {file}");
+        }
+
+        if (!dirs.Any() && !files.Any())
+        {
+            await session.WriteLineAsync("  (empty)");
+        }
+    }
+
+    private async Task HandleCdAsync(ISession session, string[] args)
+    {
+        var worldRoot = _state.Objects?.WorldRoot ?? "World";
+        worldRoot = Path.GetFullPath(worldRoot);
+        var sessionId = session.SessionId;
+
+        if (args.Length == 0)
+        {
+            Commands.Wizard.WizardFilesystem.SetWorkingDir(sessionId, "/");
+            await session.WriteLineAsync("/");
+            return;
+        }
+
+        var targetPath = string.Join(" ", args);
+        var resolvedPath = Commands.Wizard.WizardFilesystem.ResolvePath(sessionId, targetPath, worldRoot);
+
+        if (resolvedPath is null)
+        {
+            await session.WriteLineAsync("Invalid path - cannot leave World directory.");
+            return;
+        }
+
+        var fsPath = Commands.Wizard.WizardFilesystem.ToFilesystemPath(resolvedPath, worldRoot);
+
+        if (!Directory.Exists(fsPath))
+        {
+            await session.WriteLineAsync($"Directory not found: {resolvedPath}");
+            return;
+        }
+
+        Commands.Wizard.WizardFilesystem.SetWorkingDir(sessionId, resolvedPath);
+        await session.WriteLineAsync(resolvedPath);
     }
 
     private async Task ToggleColorsAsync(ISession session, string? argument)

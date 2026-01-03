@@ -73,5 +73,11 @@ public static class CommandFactory
         registry.Register(new ResetCommand());
         registry.Register(new PatchCommand());
         registry.Register(new PerfCommand());
+        registry.Register(new GotoCommand());
+        registry.Register(new PwdCommand());
+        registry.Register(new LsCommand());
+        registry.Register(new CdCommand());
+        registry.Register(new CatCommand());
+        registry.Register(new MoreCommand());
     }
 }

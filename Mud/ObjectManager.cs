@@ -36,6 +36,11 @@ public sealed class ObjectManager
         _forceGcEveryNUnloads = forceGcEveryNUnloads <= 0 ? 25 : forceGcEveryNUnloads;
     }
 
+    /// <summary>
+    /// The root directory for world files.
+    /// </summary>
+    public string WorldRoot => _worldRoot;
+
     // === Public API ===
 
     public IEnumerable<string> ListBlueprintIds() => _blueprints.Keys.OrderBy(x => x);
