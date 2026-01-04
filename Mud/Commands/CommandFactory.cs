@@ -79,5 +79,7 @@ public static class CommandFactory
         registry.Register(new CdCommand());
         registry.Register(new CatCommand());
         registry.Register(new MoreCommand());
+        registry.Register(new EditCommand());
+        registry.Register(new LeditCommand());
     }
 }

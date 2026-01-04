@@ -17,13 +17,16 @@ public sealed class TelnetSession : ISession, IDisposable
     private const byte Dont = 254;
     private const byte Sb = 250;
     private const byte Se = 240;
-    private const byte Naws = 31; // Negotiate About Window Size
+    private const byte Naws = 31;  // Negotiate About Window Size
+    private const byte Echo = 1;   // Echo option
+    private const byte Sga = 3;    // Suppress Go Ahead
 
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
     private readonly StreamWriter _writer;
     private readonly StringBuilder _currentLine = new();
     private readonly Queue<string> _completedLines = new();
+    private readonly Queue<char> _pendingChars = new();
     private readonly byte[] _readBuffer = new byte[4096];
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     private readonly char[] _charBuffer = new char[4096];
@@ -38,6 +41,9 @@ public sealed class TelnetSession : ISession, IDisposable
     private int _sbLen;
     private bool _disposed;
     private bool _supportsAnsi = true;
+    private bool _characterMode;  // True when in character-at-a-time mode (for editors)
+    private bool _lineEditMode;   // True when using line editor with history
+    private readonly LineEditor _lineEditor = new();
     private IMudFormatter? _formatter;
     private ITerminalUI? _terminalUI;
     private bool _splitScreenEnabled;
@@ -66,6 +72,11 @@ public sealed class TelnetSession : ISession, IDisposable
     public ITerminalUI? TerminalUI => _terminalUI;
 
     public bool SupportsSplitScreen => _splitScreenEnabled && _supportsAnsi;
+
+    /// <summary>
+    /// Whether line edit mode (with command history) is currently enabled.
+    /// </summary>
+    public bool IsLineEditModeEnabled => _lineEditMode;
 
     public (int Width, int Height) TerminalSize
     {
@@ -118,6 +129,58 @@ public sealed class TelnetSession : ISession, IDisposable
 
         _splitScreenEnabled = false;
         _terminalUI = null;
+    }
+
+    /// <summary>
+    /// Enable character-at-a-time mode for interactive editors.
+    /// This negotiates telnet options to disable local echo and line buffering.
+    /// </summary>
+    public void EnableCharacterMode()
+    {
+        if (_characterMode) return;
+        _characterMode = true;
+
+        // WILL ECHO: Server will echo, client should not
+        SendTelnetCommand(Will, Echo);
+        // WILL SGA: Suppress go-ahead (full duplex mode)
+        SendTelnetCommand(Will, Sga);
+        // DO SGA: Ask client to also suppress go-ahead
+        SendTelnetCommand(Do, Sga);
+    }
+
+    /// <summary>
+    /// Disable character-at-a-time mode and return to line mode.
+    /// </summary>
+    public void DisableCharacterMode()
+    {
+        if (!_characterMode) return;
+        _characterMode = false;
+
+        // WONT ECHO: Server won't echo, client can echo locally
+        SendTelnetCommand(Wont, Echo);
+        // Note: We keep SGA enabled as it doesn't hurt normal operation
+    }
+
+    /// <summary>
+    /// Enable line edit mode with command history.
+    /// This enables character mode and uses the LineEditor for input processing.
+    /// </summary>
+    public void EnableLineEditMode()
+    {
+        if (_lineEditMode) return;
+        _lineEditMode = true;
+        EnableCharacterMode();
+    }
+
+    /// <summary>
+    /// Disable line edit mode and return to client-side line editing.
+    /// </summary>
+    public void DisableLineEditMode()
+    {
+        if (!_lineEditMode) return;
+        _lineEditMode = false;
+        _lineEditor.Reset();
+        DisableCharacterMode();
     }
 
     /// <summary>
@@ -216,6 +279,29 @@ public sealed class TelnetSession : ISession, IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Non-blocking read of a single character.
+    /// Used by interactive editors for character-by-character input.
+    /// </summary>
+    public Task<char?> ReadCharAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsConnected) return Task.FromResult<char?>(null);
+
+        try
+        {
+            PumpAvailableChars();
+
+            if (_pendingChars.Count > 0)
+                return Task.FromResult<char?>(_pendingChars.Dequeue());
+
+            return Task.FromResult<char?>(null);
+        }
+        catch (IOException)
+        {
+            return Task.FromResult<char?>(null);
+        }
     }
 
     public async Task CloseAsync()
@@ -359,6 +445,15 @@ public sealed class TelnetSession : ISession, IDisposable
             {
                 var ch = _charBuffer[c];
 
+                // Line edit mode: route all characters through the LineEditor
+                if (_lineEditMode)
+                {
+                    ProcessLineEditChar(ch);
+                    continue;
+                }
+
+                // Normal mode: simple line accumulation
+
                 // Handle CRLF, LF, or CR.
                 if (ch == '\r')
                 {
@@ -399,11 +494,176 @@ public sealed class TelnetSession : ISession, IDisposable
         }
     }
 
+    /// <summary>
+    /// Process a character through the line editor (when in line edit mode).
+    /// </summary>
+    private void ProcessLineEditChar(char ch)
+    {
+        // Handle CR/LF: convert to single newline for the editor
+        if (ch == '\r')
+        {
+            _sawCarriageReturn = true;
+            var result = _lineEditor.ProcessChar('\n');
+            HandleLineEditResult(result);
+            return;
+        }
+
+        if (ch == '\n')
+        {
+            if (_sawCarriageReturn)
+            {
+                _sawCarriageReturn = false;
+                return; // swallow LF after CR
+            }
+            var result = _lineEditor.ProcessChar('\n');
+            HandleLineEditResult(result);
+            return;
+        }
+
+        // CR NUL handling
+        if (_sawCarriageReturn && ch == '\0')
+        {
+            _sawCarriageReturn = false;
+            return;
+        }
+        _sawCarriageReturn = false;
+
+        // Process all other characters through the editor
+        var editResult = _lineEditor.ProcessChar(ch);
+        HandleLineEditResult(editResult);
+    }
+
+    private void HandleLineEditResult(LineEditResult result)
+    {
+        // Echo feedback to the terminal
+        if (!string.IsNullOrEmpty(result.Echo))
+        {
+            try
+            {
+                _writer.Write(result.Echo);
+            }
+            catch (IOException)
+            {
+                // Connection lost
+            }
+        }
+
+        // If a line was completed, queue it
+        if (result.CompletedLine is not null)
+        {
+            _completedLines.Enqueue(result.CompletedLine);
+        }
+    }
+
     private void CompleteLine()
     {
         var line = _currentLine.ToString();
         _currentLine.Clear();
         _completedLines.Enqueue(line);
+    }
+
+    /// <summary>
+    /// Pump available bytes into the character queue (for ReadCharAsync).
+    /// Similar to PumpAvailableBytes but does not build lines.
+    /// </summary>
+    private void PumpAvailableChars()
+    {
+        while (IsConnected && _client.Available > 0)
+        {
+            var toRead = Math.Min(_client.Available, _readBuffer.Length);
+            var bytesRead = _stream.Read(_readBuffer, 0, toRead);
+            if (bytesRead <= 0)
+                return;
+
+            // Filter telnet negotiation bytes
+            var filtered = new byte[bytesRead];
+            var filteredLen = 0;
+
+            for (var i = 0; i < bytesRead; i++)
+            {
+                var b = _readBuffer[i];
+
+                switch (_telnetState)
+                {
+                    case 0: // normal
+                        if (b == Iac)
+                        {
+                            _telnetState = 1;
+                            continue;
+                        }
+                        filtered[filteredLen++] = b;
+                        break;
+
+                    case 1: // after IAC
+                        if (b == Iac)
+                        {
+                            _telnetState = 0;
+                            filtered[filteredLen++] = 255;
+                            break;
+                        }
+                        if (b == Sb)
+                        {
+                            _telnetState = 4;
+                            _sbLen = 0;
+                            break;
+                        }
+                        if (b is Will or Wont or Do or Dont)
+                        {
+                            _telnetVerb = b;
+                            _telnetState = 2;
+                            break;
+                        }
+                        _telnetState = 0;
+                        break;
+
+                    case 2: // expecting option byte
+                        HandleTelnetNegotiation(_telnetVerb, b);
+                        _telnetState = 0;
+                        break;
+
+                    case 4: // subnegotiation: expecting option
+                        _sbOption = b;
+                        _telnetState = 3;
+                        break;
+
+                    case 3: // subnegotiation data
+                        if (b == Iac)
+                        {
+                            _telnetState = 5;
+                            break;
+                        }
+                        if (_sbLen < _sbBuffer.Length)
+                            _sbBuffer[_sbLen++] = b;
+                        break;
+
+                    case 5: // subnegotiation: after IAC
+                        if (b == Se)
+                        {
+                            HandleSubnegotiation(_sbOption, _sbBuffer, _sbLen);
+                            _telnetState = 0;
+                            break;
+                        }
+                        if (b == Iac)
+                        {
+                            if (_sbLen < _sbBuffer.Length)
+                                _sbBuffer[_sbLen++] = Iac;
+                            _telnetState = 3;
+                            break;
+                        }
+                        _telnetState = 3;
+                        break;
+                }
+            }
+
+            if (filteredLen == 0)
+                continue;
+
+            var charsDecoded = _decoder.GetChars(filtered, 0, filteredLen, _charBuffer, 0, flush: false);
+            for (var c = 0; c < charsDecoded; c++)
+            {
+                _pendingChars.Enqueue(_charBuffer[c]);
+            }
+        }
     }
 
     private void SendTelnetCommand(byte verb, byte option)

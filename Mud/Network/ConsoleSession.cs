@@ -54,6 +54,16 @@ public sealed class ConsoleSession : ISession
         return Task.FromResult(line);
     }
 
+    public Task<char?> ReadCharAsync(CancellationToken cancellationToken = default)
+    {
+        if (Console.KeyAvailable)
+        {
+            var key = Console.ReadKey(intercept: true);
+            return Task.FromResult<char?>(key.KeyChar);
+        }
+        return Task.FromResult<char?>(null);
+    }
+
     public Task CloseAsync()
     {
         // Nothing to close for console

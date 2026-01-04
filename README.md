@@ -25,11 +25,12 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Mudlib Polish** (v0.14): Command registry, social commands (shout/whisper/emotes), help system, RoomBase class
 - **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
 - **Player Accounts** (v0.16): Login/registration with SHA256 passwords, persistent player data (state, inventory, equipment, location)
-- **Wizard Tools** (v0.17): Filesystem navigation (pwd, ls, cd, cat, more), teleportation (goto), wizard homes
+- **Wizard Tools** (v0.17): Filesystem navigation (pwd, ls, cd, cat, more, edit), teleportation (goto), wizard homes, performance diagnostics (perf)
 - **LLM-Powered NPCs**: AI-driven NPC behavior via OpenAI-compatible APIs (configurable), context-aware reactions to room events
 - **Rich Terminal Output**: ANSI colors via Spectre.Console, toggleable per-session with `colors on|off`
+- **Command History**: Up/down arrows navigate command history, with full line editing (left/right, home/end, Ctrl+K/U)
 - **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
-- **Object Details**: All objects support "look at X" for granular descriptions (e.g., "look at grass")
+- **Object Details**: All livings (players, NPCs, monsters) and items support "look at X" with descriptions and HP
 - **Command Shortcuts**: `l` for look, `n/s/e/w/u/d` for directions
 - **Local Commands**: Context-sensitive commands from rooms/items (e.g., `buy`/`sell` in shops)
 - **Coin System**: Stackable coin objects (GC/SC/CC) with auto-merge, shop transactions, `exchange` command
@@ -68,7 +69,7 @@ To connect as a player, use telnet: `telnet localhost 4000`
 
 ### Navigation
 - `look` / `l` — show current room
-- `look at <detail>` / `l <detail>` — examine room detail (grass, walls, etc.)
+- `look at <target>` / `l <target>` — examine room details, items, NPCs, or players
 - `go <exit>` — move via an exit (triggers IOnLeave/IOnEnter hooks)
 - `n` / `s` / `e` / `w` / `u` / `d` — direction shortcuts (north/south/east/west/up/down)
 - `quit` / `q` — disconnect and save player data
@@ -127,6 +128,11 @@ These commands are visible in `help` and executable only for wizard users:
 - `pwd` — print current working directory (within World/)
 - `ls [path]` — list directory contents
 - `cd <path>` — change working directory
+- `cat <file>` — display file with line numbers
+- `more <file> [start] [lines]` — display file with paging
+- `edit <file>` — nano-style in-game file editor (Ctrl+O save, Ctrl+X exit)
+- `ledit <file> [line# [text]]` — line-based editor (no ANSI required, see below)
+- `perf` — show driver loop timings and performance stats
 - `save` — save world state to `save/world.json`
 - `load` — restore world state from save file
 
@@ -136,10 +142,38 @@ Wizards can navigate the `World/` directory using Unix-like commands:
 - Paths support `.` (current) and `..` (parent)
 - Wizards cannot navigate outside `World/`
 
+### Line Editor (ledit)
+The `ledit` command provides line-based file editing for terminals without full ANSI support:
+- `ledit <file>` — display file with line numbers
+- `ledit <file> <line#>` — show specific line
+- `ledit <file> <line#> <text>` — replace line with text
+- `ledit <file> +<line#> <text>` — insert text after line (use +0 for beginning)
+- `ledit <file> -<line#>` — delete line
+- `ledit <file> append <text>` — append line at end (creates file if needed)
+
+**Examples:**
+```
+ledit start.cs              # Show start.cs with line numbers
+ledit start.cs 5            # Show line 5
+ledit start.cs 5 // comment # Replace line 5 with "// comment"
+ledit start.cs +5 new line  # Insert "new line" after line 5
+ledit start.cs -5           # Delete line 5
+ledit start.cs append }     # Append "}" at end
+```
+
 ### Wizard Homes
 Wizards can have personal home rooms at `World/Rooms/Homes/{letter}/{name}/home.cs`:
 - `goto home` teleports the wizard to their home room
 - Example: Wizard "Mats" has home at `World/Rooms/Homes/m/mats/home.cs`
+
+### Terminal Line Editing
+For ANSI-capable clients, the server provides readline-style line editing:
+- **Up/Down arrows**: Navigate command history
+- **Left/Right arrows**: Move cursor within line
+- **Home/End** or **Ctrl+A/Ctrl+E**: Jump to start/end of line
+- **Ctrl+K**: Delete from cursor to end of line
+- **Ctrl+U**: Clear entire line
+- **Backspace**: Delete character before cursor
 
 ## Configuration
 

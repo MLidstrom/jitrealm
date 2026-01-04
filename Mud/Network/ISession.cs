@@ -75,6 +75,13 @@ public interface ISession
     Task<string?> ReadLineAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Read a single character from the session.
+    /// Returns null if no input is available or the session is disconnected.
+    /// Used by interactive editors that need character-by-character input.
+    /// </summary>
+    Task<char?> ReadCharAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Check if input is available without blocking.
     /// </summary>
     bool HasPendingInput { get; }

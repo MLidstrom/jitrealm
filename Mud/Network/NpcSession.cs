@@ -68,6 +68,12 @@ public sealed class NpcSession : ISession
         return Task.FromResult<string?>(null);
     }
 
+    public Task<char?> ReadCharAsync(CancellationToken cancellationToken = default)
+    {
+        // NPCs don't read character input
+        return Task.FromResult<char?>(null);
+    }
+
     public Task CloseAsync()
     {
         // Nothing to close for NPC sessions

@@ -24,6 +24,7 @@ public sealed class GameServer
     private readonly IClock _clock;
     private readonly LocalCommandDispatcher _localCommands;
     private bool _running;
+    private CancellationToken _cancellationToken;
 
     /// <summary>
     /// Track logged-in player names to prevent duplicate logins.
@@ -49,6 +50,7 @@ public sealed class GameServer
     {
         _telnet.Start();
         _running = true;
+        _cancellationToken = cancellationToken;
 
         Console.WriteLine($"{_settings.Server.MudName} v{_settings.Server.Version} - Multi-user server");
         Console.WriteLine($"Listening on port {_telnet.Port}...");
@@ -433,6 +435,9 @@ public sealed class GameServer
         if (session.SupportsAnsi)
         {
             await session.EnableSplitScreenAsync();
+
+            // Enable line editor with command history (up/down arrows)
+            session.EnableLineEditMode();
 
             // Initial status bar update
             await UpdateSessionStatusBarAsync(session);
@@ -852,6 +857,9 @@ public sealed class GameServer
                     await session.WriteLineAsync("Objects:    blueprints, objects, clone <id>, destruct <id>");
                     await session.WriteLineAsync("            stat <id>, reset <id>, reload <id>, unload <id>");
                     await session.WriteLineAsync("State:      patch <id> [key] [value]");
+                    await session.WriteLineAsync("Filesystem: pwd, ls/dir [path], cd <path>, cat <file>, more <file> [start] [lines]");
+                    await session.WriteLineAsync("            edit <file>  (ANSI editor)");
+                    await session.WriteLineAsync("Movement:   goto/go home, goto/go <room-id>");
                     await session.WriteLineAsync("World:      save, load");
                 }
                 break;
@@ -1010,6 +1018,21 @@ public sealed class GameServer
             case "cd":
                 if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
                 await HandleCdAsync(session, parts.Skip(1).ToArray());
+                break;
+
+            case "cat":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                await HandleCatAsync(session, parts.Skip(1).ToArray());
+                break;
+
+            case "more":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                await HandleMoreAsync(session, parts.Skip(1).ToArray());
+                break;
+
+            case "edit":
+                if (!session.IsWizard) { await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands."); break; }
+                await HandleEditAsync(session, parts.Skip(1).ToArray());
                 break;
 
             case "save":
@@ -1220,8 +1243,9 @@ public sealed class GameServer
         _state.Containers.Move(playerId, destRoom.Id);
 
         // Notify others in new room
-        BroadcastToRoom(destRoom.Id, $"{playerName} has arrived.", session);
-        _state.EventLog.Record(destRoom.Id, $"{playerName} arrived");
+        var fromDirection = GetOppositeDirection(exit);
+        BroadcastToRoom(destRoom.Id, $"{playerName} arrives from the {fromDirection}.", session);
+        _state.EventLog.Record(destRoom.Id, $"{playerName} arrived from the {fromDirection}");
 
         // Trigger NPC reactions to arrival
         var arrivalEvent = new RoomEvent
@@ -1229,7 +1253,7 @@ public sealed class GameServer
             Type = RoomEventType.Arrival,
             ActorId = playerId,
             ActorName = playerName,
-            Direction = GetOppositeDirection(exit)
+            Direction = fromDirection
         };
         await TriggerNpcRoomEventAsync(arrivalEvent, destRoom.Id);
 
@@ -1966,6 +1990,36 @@ public sealed class GameServer
                     return;
                 }
                 await session.WriteLineAsync($"You see {obj.Name}.");
+                return;
+            }
+        }
+
+        // 5. Check other players in the room (players are ILiving)
+        var allSessions = _state.Sessions.GetAll();
+        foreach (var otherSession in allSessions)
+        {
+            if (otherSession.PlayerId is null || otherSession.PlayerId == playerId)
+                continue;
+
+            var otherRoomId = _state.Containers.GetContainer(otherSession.PlayerId);
+            if (otherRoomId != roomId)
+                continue;
+
+            var otherName = otherSession.PlayerName ?? "someone";
+            if (otherName.ToLowerInvariant().Contains(normalizedTarget) ||
+                normalizedTarget.Contains(otherName.ToLowerInvariant()))
+            {
+                // Players are ILiving - display same as other livings
+                var otherLiving = _state.Objects!.Get<ILiving>(otherSession.PlayerId);
+                if (otherLiving is not null)
+                {
+                    await session.WriteLineAsync(otherLiving.Description);
+                    await session.WriteLineAsync($"  HP: {otherLiving.HP}/{otherLiving.MaxHP}");
+                }
+                else
+                {
+                    await session.WriteLineAsync($"You see {otherName} here.");
+                }
                 return;
             }
         }
@@ -2900,6 +2954,176 @@ public sealed class GameServer
 
         Commands.Wizard.WizardFilesystem.SetWorkingDir(sessionId, resolvedPath);
         await session.WriteLineAsync(resolvedPath);
+    }
+
+    private async Task HandleCatAsync(ISession session, string[] args)
+    {
+        if (args.Length == 0)
+        {
+            await session.WriteLineAsync("Usage: cat <file>");
+            return;
+        }
+
+        var worldRoot = _state.Objects?.WorldRoot ?? "World";
+        worldRoot = Path.GetFullPath(worldRoot);
+        var sessionId = session.SessionId;
+
+        var filePath = string.Join(" ", args);
+        var resolvedPath = Commands.Wizard.WizardFilesystem.ResolvePath(sessionId, filePath, worldRoot);
+
+        if (resolvedPath is null)
+        {
+            await session.WriteLineAsync("Invalid path.");
+            return;
+        }
+
+        var fsPath = Commands.Wizard.WizardFilesystem.ToFilesystemPath(resolvedPath, worldRoot);
+
+        if (!File.Exists(fsPath))
+        {
+            await session.WriteLineAsync($"File not found: {resolvedPath}");
+            return;
+        }
+
+        var lines = await File.ReadAllLinesAsync(fsPath);
+        await session.WriteLineAsync($"=== {resolvedPath} ({lines.Length} lines) ===");
+
+        var lineNum = 1;
+        foreach (var line in lines)
+        {
+            await session.WriteLineAsync($"{lineNum,4}: {line}");
+            lineNum++;
+        }
+
+        await session.WriteLineAsync($"=== End of {resolvedPath} ===");
+    }
+
+    private async Task HandleMoreAsync(ISession session, string[] args)
+    {
+        if (args.Length == 0)
+        {
+            await session.WriteLineAsync("Usage: more <file> [start_line] [num_lines]");
+            await session.WriteLineAsync("  start_line: Line to start from (default: 1)");
+            await session.WriteLineAsync("  num_lines: Number of lines to show (default: 20)");
+            return;
+        }
+
+        var worldRoot = _state.Objects?.WorldRoot ?? "World";
+        worldRoot = Path.GetFullPath(worldRoot);
+        var sessionId = session.SessionId;
+
+        var filePath = args[0];
+        var startLine = 1;
+        var numLines = 20;
+
+        if (args.Length >= 2 && int.TryParse(args[1], out var parsedStart))
+        {
+            startLine = Math.Max(1, parsedStart);
+        }
+
+        if (args.Length >= 3 && int.TryParse(args[2], out var parsedNum))
+        {
+            numLines = Math.Max(1, Math.Min(100, parsedNum));
+        }
+
+        var resolvedPath = Commands.Wizard.WizardFilesystem.ResolvePath(sessionId, filePath, worldRoot);
+
+        if (resolvedPath is null)
+        {
+            await session.WriteLineAsync("Invalid path.");
+            return;
+        }
+
+        var fsPath = Commands.Wizard.WizardFilesystem.ToFilesystemPath(resolvedPath, worldRoot);
+
+        if (!File.Exists(fsPath))
+        {
+            await session.WriteLineAsync($"File not found: {resolvedPath}");
+            return;
+        }
+
+        var lines = await File.ReadAllLinesAsync(fsPath);
+        var totalLines = lines.Length;
+        var endLine = Math.Min(startLine + numLines - 1, totalLines);
+
+        await session.WriteLineAsync($"=== {resolvedPath} (lines {startLine}-{endLine} of {totalLines}) ===");
+
+        for (var i = startLine - 1; i < endLine && i < lines.Length; i++)
+        {
+            await session.WriteLineAsync($"{i + 1,4}: {lines[i]}");
+        }
+
+        if (endLine < totalLines)
+        {
+            await session.WriteLineAsync($"=== More: 'more {filePath} {endLine + 1}' for next page ===");
+        }
+        else
+        {
+            await session.WriteLineAsync($"=== End of {resolvedPath} ===");
+        }
+    }
+
+    private async Task HandleEditAsync(ISession session, string[] args)
+    {
+        if (args.Length == 0)
+        {
+            await session.WriteLineAsync("Usage: edit <file>");
+            return;
+        }
+
+        if (!session.SupportsAnsi)
+        {
+            await session.WriteLineAsync("The editor requires ANSI terminal support.");
+            return;
+        }
+
+        var worldRoot = _state.Objects?.WorldRoot ?? "World";
+        worldRoot = Path.GetFullPath(worldRoot);
+        var sessionId = session.SessionId;
+
+        var filePath = string.Join(" ", args);
+        var resolvedPath = Commands.Wizard.WizardFilesystem.ResolvePath(sessionId, filePath, worldRoot);
+
+        if (resolvedPath is null)
+        {
+            await session.WriteLineAsync("Invalid path.");
+            return;
+        }
+
+        var fsPath = Commands.Wizard.WizardFilesystem.ToFilesystemPath(resolvedPath, worldRoot);
+
+        // Load existing content or start with empty file
+        string[] content;
+        if (File.Exists(fsPath))
+        {
+            content = await File.ReadAllLinesAsync(fsPath);
+        }
+        else
+        {
+            var dir = Path.GetDirectoryName(fsPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                await session.WriteLineAsync($"Directory does not exist: {Path.GetDirectoryName(resolvedPath)}");
+                return;
+            }
+            content = Array.Empty<string>();
+        }
+
+        await session.WriteLineAsync($"Opening {resolvedPath}...");
+
+        var editor = new Commands.Wizard.TextEditor(session, fsPath, resolvedPath, content);
+        Func<Task<char?>> readChar = () => session.ReadCharAsync();
+
+        var saved = await editor.RunAsync(readChar, _cancellationToken);
+
+        if (saved)
+        {
+            await session.WriteLineAsync($"Saved {resolvedPath}");
+        }
+        else
+        {
+            await session.WriteLineAsync("Editor closed.");
+        }
     }
 
     private async Task ToggleColorsAsync(ISession session, string? argument)

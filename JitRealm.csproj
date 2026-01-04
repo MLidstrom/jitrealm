@@ -29,5 +29,6 @@
     <Compile Remove="World/npcs/**/*.cs" />
     <Compile Remove="World/Items/**/*.cs" />
     <Compile Remove="JitRealm.Tests/**/*.cs" />
+    <Compile Remove="tools/**/*.cs" />
   </ItemGroup>
 </Project>

@@ -21,6 +21,8 @@ public class PlayerBase : LivingBase, IPlayer, IOnLoad
 
     public override string Name => PlayerName;
 
+    public override string Description => $"{PlayerName} the level {Level} adventurer is here.";
+
     public override int MaxHP => 100 + (Level * 10);
 
     public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(2);

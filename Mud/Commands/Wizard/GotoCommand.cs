@@ -10,7 +10,7 @@ namespace JitRealm.Mud.Commands.Wizard;
 public class GotoCommand : WizardCommandBase
 {
     public override string Name => "goto";
-    public override IReadOnlyList<string> Aliases => new[] { "teleport", "tp" };
+    public override IReadOnlyList<string> Aliases => new[] { "go", "teleport", "tp" };
     public override string Usage => "goto <home|room-id>";
     public override string Description => "Teleport to a location (home or room ID)";
 

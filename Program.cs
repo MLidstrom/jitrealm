@@ -69,13 +69,27 @@ if (serverMode)
     // Multi-player server mode
     var server = new GameServer(state, persistence, settings);
 
-    // Handle Ctrl+C gracefully
+    // Handle Ctrl+C gracefully with force-quit on second press
     using var cts = new CancellationTokenSource();
+    var ctrlCCount = 0;
+
     Console.CancelKeyPress += (_, e) =>
     {
-        e.Cancel = true;
-        server.Stop();
-        cts.Cancel();
+        ctrlCCount++;
+        if (ctrlCCount == 1)
+        {
+            // First Ctrl+C: try graceful shutdown
+            Console.WriteLine("\nShutting down... (press Ctrl+C again to force quit)");
+            e.Cancel = true;
+            server.Stop();
+            cts.Cancel();
+        }
+        else
+        {
+            // Second Ctrl+C: force quit
+            Console.WriteLine("\nForce quitting...");
+            e.Cancel = false; // Allow default termination
+        }
     };
 
     await server.RunAsync(cts.Token);
