@@ -17,6 +17,16 @@ public sealed class NpcCommandExecutor
     // Regex to detect and fix first-person emotes (I smile → smiles)
     private static readonly Regex FirstPersonPattern = new(@"^I\s+(\w+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // Regex to match command markup: [cmd:command args] or {cmd:command args}
+    private static readonly Regex CommandMarkupPattern = new(@"[\[{]cmd:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Commands that NPCs are forbidden from using
+    private static readonly HashSet<string> ForbiddenCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "quit", "logout", "exit", "password", "save", "delete", "suicide",
+        "patch", "stat", "destruct", "reset", "goto", "pwd", "ls", "cd", "cat", "more", "edit", "ledit", "perf"
+    };
+
     public NpcCommandExecutor(WorldState state, IClock clock)
     {
         _state = state;
@@ -25,6 +35,7 @@ public sealed class NpcCommandExecutor
 
     /// <summary>
     /// Parse an LLM response and execute actions.
+    /// Command markups [cmd:...] are executed first, then emotes/speech.
     /// Emotes are wrapped in *asterisks*, everything else is speech.
     /// Speech before an emote is combined with the emote (up to 2 actions).
     /// Long speech responses are allowed up to a reasonable limit.
@@ -38,16 +49,46 @@ public sealed class NpcCommandExecutor
         if (string.IsNullOrWhiteSpace(response))
             return;
 
+        // First, extract and execute any command markups [cmd:command args]
+        var commandMatches = CommandMarkupPattern.Matches(response);
+        var commandsExecuted = 0;
+        const int maxCommands = 2; // Limit commands per response to prevent spam
+
+        foreach (Match cmdMatch in commandMatches)
+        {
+            if (commandsExecuted >= maxCommands) break;
+
+            var command = cmdMatch.Groups[1].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(command))
+            {
+                // Check if command is forbidden
+                var cmdName = command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant();
+                if (cmdName is not null && !ForbiddenCommands.Contains(cmdName))
+                {
+                    if (await ExecuteAsync(npcId, command))
+                    {
+                        commandsExecuted++;
+                    }
+                }
+            }
+        }
+
+        // Remove command markups from response for further parsing
+        var cleanResponse = CommandMarkupPattern.Replace(response, "").Trim();
+        if (string.IsNullOrWhiteSpace(cleanResponse))
+            return;
+
         // Find the first emote match
-        var match = EmotePattern.Match(response);
+        var match = EmotePattern.Match(cleanResponse);
 
         if (match.Success)
         {
             // Check if there's speech BEFORE the first emote
             if (match.Index > 0 && canSpeak)
             {
-                var speech = response.Substring(0, match.Index).Trim();
-                if (!string.IsNullOrWhiteSpace(speech))
+                var rawSpeech = cleanResponse.Substring(0, match.Index).Trim();
+                var speech = CleanSpeech(rawSpeech);
+                if (!string.IsNullOrEmpty(speech))
                 {
                     // Execute the speech
                     await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
@@ -61,6 +102,9 @@ public sealed class NpcCommandExecutor
                 var emoteText = match.Groups[2].Success
                     ? match.Groups[2].Value.Trim()
                     : match.Groups[3].Value.Trim();
+
+                // Clean emote text - remove any inner asterisks or brackets the LLM may have added
+                emoteText = CleanEmote(emoteText);
                 if (!string.IsNullOrWhiteSpace(emoteText))
                 {
                     await ExecuteAsync(npcId, $"emote {emoteText}");
@@ -72,8 +116,66 @@ public sealed class NpcCommandExecutor
         // No emotes found - treat as speech (allow multiple sentences up to limit)
         if (canSpeak)
         {
-            await ExecuteAsync(npcId, $"say {TruncateSpeech(response.Trim())}");
+            var speech = CleanSpeech(cleanResponse.Trim());
+            if (!string.IsNullOrEmpty(speech))
+            {
+                await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
+            }
         }
+    }
+
+    /// <summary>
+    /// Clean and prepare speech text for the say command.
+    /// Strips surrounding quotes and handles common LLM formatting issues.
+    /// </summary>
+    private static string CleanSpeech(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        // Remove leading/trailing quotes that LLMs often add
+        var cleaned = text.Trim();
+
+        // Strip surrounding double quotes
+        if (cleaned.StartsWith('"') && cleaned.EndsWith('"') && cleaned.Length > 2)
+        {
+            cleaned = cleaned[1..^1].Trim();
+        }
+        else if (cleaned.StartsWith('"'))
+        {
+            cleaned = cleaned[1..].Trim();
+        }
+        else if (cleaned.EndsWith('"'))
+        {
+            cleaned = cleaned[..^1].Trim();
+        }
+
+        // Also handle smart quotes
+        cleaned = cleaned.TrimStart('"', '"').TrimEnd('"', '"').Trim();
+
+        // If it's just punctuation or empty, return empty
+        if (string.IsNullOrWhiteSpace(cleaned) || cleaned.All(c => !char.IsLetterOrDigit(c)))
+            return string.Empty;
+
+        return cleaned;
+    }
+
+    /// <summary>
+    /// Clean emote text - remove any inner asterisks or brackets the LLM may have added.
+    /// </summary>
+    private static string CleanEmote(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        // Remove asterisks and brackets that might be nested
+        var cleaned = text.Replace("*", "").Replace("[", "").Replace("]", "").Trim();
+
+        // If it's just punctuation or empty, return empty
+        if (string.IsNullOrWhiteSpace(cleaned) || cleaned.All(c => !char.IsLetterOrDigit(c)))
+            return string.Empty;
+
+        return cleaned;
     }
 
     /// <summary>
@@ -162,8 +264,11 @@ public sealed class NpcCommandExecutor
 
         return cmd switch
         {
+            // Communication
             "say" => ExecuteSay(npcId, npcName, roomId, args, capabilities),
             "emote" or "me" => ExecuteEmote(npcId, npcName, roomId, args, capabilities),
+
+            // Movement
             "go" => await ExecuteGoAsync(npcId, npcName, roomId, args, capabilities),
             "n" or "north" => await ExecuteGoAsync(npcId, npcName, roomId, new[] { "north" }, capabilities),
             "s" or "south" => await ExecuteGoAsync(npcId, npcName, roomId, new[] { "south" }, capabilities),
@@ -171,10 +276,23 @@ public sealed class NpcCommandExecutor
             "w" or "west" => await ExecuteGoAsync(npcId, npcName, roomId, new[] { "west" }, capabilities),
             "u" or "up" => await ExecuteGoAsync(npcId, npcName, roomId, new[] { "up" }, capabilities),
             "d" or "down" => await ExecuteGoAsync(npcId, npcName, roomId, new[] { "down" }, capabilities),
+
+            // Item manipulation
             "get" or "take" => ExecuteGet(npcId, npcName, roomId, args, capabilities),
             "drop" => ExecuteDrop(npcId, npcName, roomId, args, capabilities),
+            "give" => ExecuteGive(npcId, npcName, roomId, args, capabilities),
+
+            // Equipment
+            "equip" or "wear" or "wield" => ExecuteEquip(npcId, npcName, roomId, args, capabilities),
+            "unequip" or "remove" => ExecuteUnequip(npcId, npcName, roomId, args, capabilities),
+
+            // Combat
             "kill" or "attack" => ExecuteAttack(npcId, npcName, roomId, args, capabilities),
             "flee" or "retreat" => ExecuteFlee(npcId, npcName, roomId, capabilities),
+
+            // Items
+            "use" or "drink" or "eat" => ExecuteUse(npcId, npcName, roomId, args, capabilities),
+
             _ => false
         };
     }
@@ -444,6 +562,238 @@ public sealed class NpcCommandExecutor
         _state.Containers.Move(npcId, exit.Value);
 
         return true;
+    }
+
+    private bool ExecuteGive(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
+    {
+        if (!capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
+            return false;
+
+        // Parse "give <item> to <target>" or "give <target> <item>"
+        if (args.Length < 2)
+            return false;
+
+        string itemName;
+        string targetName;
+
+        // Check for "to" separator
+        var toIndex = Array.FindIndex(args, a => a.Equals("to", StringComparison.OrdinalIgnoreCase));
+        if (toIndex > 0 && toIndex < args.Length - 1)
+        {
+            // "give <item> to <target>"
+            itemName = string.Join(" ", args.Take(toIndex));
+            targetName = string.Join(" ", args.Skip(toIndex + 1));
+        }
+        else
+        {
+            // "give <target> <item>" - last word is item, rest is target
+            targetName = args[0];
+            itemName = string.Join(" ", args.Skip(1));
+        }
+
+        // Find item in NPC inventory
+        var itemId = FindItemInContainer(itemName, npcId);
+        if (itemId is null)
+            return false;
+
+        var item = _state.Objects?.Get<IItem>(itemId);
+        if (item is null)
+            return false;
+
+        // Find target in room
+        var targetId = FindLivingInRoom(targetName.ToLowerInvariant(), roomId, npcId);
+        if (targetId is null)
+            return false;
+
+        var target = _state.Objects?.Get<IMudObject>(targetId);
+        if (target is null)
+            return false;
+
+        // Move item to target's inventory
+        _state.Containers.Move(itemId, targetId);
+
+        // Record event
+        var itemDisplayName = item.ShortDescription;
+        _state.EventLog.Record(roomId, $"{npcName} gives {itemDisplayName} to {target.Name}.");
+
+        // Send message to room
+        _state.Messages.Enqueue(new MudMessage(npcId, null, MessageType.Emote, $"gives {itemDisplayName} to {target.Name}.", roomId));
+
+        return true;
+    }
+
+    private bool ExecuteEquip(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
+    {
+        if (!capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
+            return false;
+
+        if (args.Length == 0)
+            return false;
+
+        var itemName = string.Join(" ", args);
+
+        // Find item in NPC inventory
+        var itemId = FindItemInContainer(itemName, npcId);
+        if (itemId is null)
+            return false;
+
+        var item = _state.Objects?.Get<IEquippable>(itemId);
+        if (item is null)
+            return false; // Not equippable
+
+        // Check if something is already equipped in that slot
+        var existingItemId = _state.Equipment.GetEquipped(npcId, item.Slot);
+        if (existingItemId is not null)
+        {
+            var existingItem = _state.Objects?.Get<IEquippable>(existingItemId);
+            if (existingItem is not null)
+            {
+                // Unequip existing item first
+                var existingCtx = _state.CreateContext(existingItemId, _clock);
+                existingItem.OnUnequip(npcId, existingCtx);
+            }
+        }
+
+        // Equip the new item
+        _state.Equipment.Equip(npcId, item.Slot, itemId);
+
+        // Call OnEquip hook
+        var itemCtx = _state.CreateContext(itemId, _clock);
+        item.OnEquip(npcId, itemCtx);
+
+        // Record event
+        var itemDisplayName = item.ShortDescription;
+        _state.EventLog.Record(roomId, $"{npcName} equips {itemDisplayName}.");
+
+        // Send message to room
+        _state.Messages.Enqueue(new MudMessage(npcId, null, MessageType.Emote, $"equips {itemDisplayName}.", roomId));
+
+        return true;
+    }
+
+    private bool ExecuteUnequip(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
+    {
+        if (!capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
+            return false;
+
+        if (args.Length == 0)
+            return false;
+
+        var slotOrItemName = string.Join(" ", args).ToLowerInvariant();
+
+        // Try to parse as slot name
+        if (Enum.TryParse<EquipmentSlot>(slotOrItemName, ignoreCase: true, out var slot))
+        {
+            var itemId = _state.Equipment.GetEquipped(npcId, slot);
+            if (itemId is null)
+                return false;
+
+            var item = _state.Objects?.Get<IEquippable>(itemId);
+            if (item is not null)
+            {
+                var itemCtx = _state.CreateContext(itemId, _clock);
+                item.OnUnequip(npcId, itemCtx);
+            }
+
+            _state.Equipment.Unequip(npcId, slot);
+
+            var itemDisplayName = item?.ShortDescription ?? itemId;
+            _state.EventLog.Record(roomId, $"{npcName} removes {itemDisplayName}.");
+            _state.Messages.Enqueue(new MudMessage(npcId, null, MessageType.Emote, $"removes {itemDisplayName}.", roomId));
+
+            return true;
+        }
+
+        // Try to find by item name in equipped items
+        foreach (var s in Enum.GetValues<EquipmentSlot>())
+        {
+            var equippedId = _state.Equipment.GetEquipped(npcId, s);
+            if (equippedId is null) continue;
+
+            var equippedItem = _state.Objects?.Get<IEquippable>(equippedId);
+            if (equippedItem is null) continue;
+
+            if (equippedItem.Name.ToLowerInvariant().Contains(slotOrItemName) ||
+                equippedItem.ShortDescription.ToLowerInvariant().Contains(slotOrItemName))
+            {
+                var itemCtx = _state.CreateContext(equippedId, _clock);
+                equippedItem.OnUnequip(npcId, itemCtx);
+                _state.Equipment.Unequip(npcId, s);
+
+                var itemDisplayName = equippedItem.ShortDescription;
+                _state.EventLog.Record(roomId, $"{npcName} removes {itemDisplayName}.");
+                _state.Messages.Enqueue(new MudMessage(npcId, null, MessageType.Emote, $"removes {itemDisplayName}.", roomId));
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool ExecuteUse(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
+    {
+        if (!capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
+            return false;
+
+        if (args.Length == 0)
+            return false;
+
+        var itemName = string.Join(" ", args);
+
+        // Find item in NPC inventory
+        var itemId = FindItemInContainer(itemName, npcId);
+        if (itemId is null)
+            return false;
+
+        var item = _state.Objects?.Get<IItem>(itemId);
+        if (item is null)
+            return false;
+
+        // Check if item is usable (has IUsable interface)
+        if (item is not IUsable usable)
+            return false;
+
+        // Create context and use the item
+        var itemCtx = _state.CreateContext(itemId, _clock);
+        usable.OnUse(npcId, itemCtx);
+
+        // Record event
+        var itemDisplayName = item.ShortDescription;
+        _state.EventLog.Record(roomId, $"{npcName} uses {itemDisplayName}.");
+
+        // Send message to room
+        _state.Messages.Enqueue(new MudMessage(npcId, null, MessageType.Emote, $"uses {itemDisplayName}.", roomId));
+
+        return true;
+    }
+
+    private string? FindLivingInRoom(string name, string roomId, string excludeId)
+    {
+        var contents = _state.Containers.GetContents(roomId);
+        foreach (var objId in contents)
+        {
+            if (objId == excludeId) continue;
+
+            var obj = _state.Objects?.Get<IMudObject>(objId);
+            if (obj is null) continue;
+
+            // Check if it's a living entity
+            if (obj is not ILiving) continue;
+
+            if (obj.Name.ToLowerInvariant().Contains(name))
+                return objId;
+
+            // Check for player names in session format
+            if (objId.StartsWith("session:"))
+            {
+                var playerPart = objId.Split(':').LastOrDefault()?.ToLowerInvariant();
+                if (playerPart is not null && playerPart.Contains(name))
+                    return objId;
+            }
+        }
+
+        return null;
     }
 
     private string? FindItemInContainer(string name, string containerId)

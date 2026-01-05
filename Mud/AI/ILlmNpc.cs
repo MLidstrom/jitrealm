@@ -97,6 +97,8 @@ public enum RoomEventType
     ItemTaken,
     /// <summary>Item was dropped.</summary>
     ItemDropped,
+    /// <summary>Item was given to someone.</summary>
+    ItemGiven,
     /// <summary>Someone died.</summary>
     Death,
     /// <summary>Other/miscellaneous event.</summary>
@@ -140,6 +142,7 @@ public sealed class RoomEvent
         RoomEventType.Combat => $"{ActorName} attacks {Target}!",
         RoomEventType.ItemTaken => $"{ActorName} picks up {Target}.",
         RoomEventType.ItemDropped => $"{ActorName} drops {Target}.",
+        RoomEventType.ItemGiven => $"{ActorName} gives {Message} to {Target}.",
         RoomEventType.Death => $"{ActorName} has died!",
         _ => Message ?? $"{ActorName} does something."
     };

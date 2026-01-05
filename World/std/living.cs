@@ -93,10 +93,17 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     public virtual int WanderChance => 0;
 
     /// <summary>
-    /// Minimum time between LLM responses to prevent spam (in seconds).
+    /// Minimum time between LLM responses for non-speech events (in seconds).
     /// Override to customize. Default is 3 seconds.
     /// </summary>
     protected virtual double LlmCooldownSeconds => 3.0;
+
+    /// <summary>
+    /// Minimum time between speech responses (in seconds).
+    /// Much shorter than general cooldown for responsive conversation.
+    /// Override to customize. Default is 0.5 seconds.
+    /// </summary>
+    protected virtual double SpeechCooldownSeconds => 0.5;
 
     /// <summary>
     /// The direction this living last came from.
@@ -393,12 +400,16 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         // Don't react to own actions
         if (@event.ActorId == ctx.CurrentObjectId) return;
 
-        // Check if we're on cooldown
-        var timeSinceLastResponse = (DateTime.UtcNow - _lastLlmResponseTime).TotalSeconds;
-        var isOnCooldown = timeSinceLastResponse < LlmCooldownSeconds;
+        // Check if this event is directed at us (speech, combat target, given item, etc.)
+        var isDirectedAtUs = IsEventDirectedAtNpc(@event, ctx);
 
-        // Speech events get immediate processing if not on cooldown and not already processing
-        if (@event.Type == RoomEventType.Speech && !isOnCooldown && !_isProcessingLlm)
+        // Check if we're on cooldown (directed events have shorter cooldown for responsive interaction)
+        var timeSinceLastResponse = (DateTime.UtcNow - _lastLlmResponseTime).TotalSeconds;
+        var cooldown = isDirectedAtUs ? SpeechCooldownSeconds : LlmCooldownSeconds;
+        var isOnCooldown = timeSinceLastResponse < cooldown;
+
+        // Directed events get immediate processing if not on cooldown and not already processing
+        if (isDirectedAtUs && !isOnCooldown && !_isProcessingLlm)
         {
             // Process immediately for faster response
             await ProcessLlmEventNow(@event, ctx);
@@ -409,6 +420,38 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             _pendingLlmEvent = @event;
         }
         // If on cooldown, silently ignore the event
+    }
+
+    /// <summary>
+    /// Check if a room event is directed at this NPC (speech, combat, item given, etc.)
+    /// These events warrant immediate response with shorter cooldown.
+    /// </summary>
+    private bool IsEventDirectedAtNpc(RoomEvent @event, IMudContext ctx)
+    {
+        // Speech is always considered "directed" - we should respond quickly
+        if (@event.Type == RoomEventType.Speech)
+            return true;
+
+        // Check if we're the target of the event
+        if (!string.IsNullOrEmpty(@event.Target))
+        {
+            var myId = ctx.CurrentObjectId ?? "";
+            var myName = Name.ToLowerInvariant();
+            var target = @event.Target.ToLowerInvariant();
+
+            // Direct ID match or name match
+            if (target.Contains(myName) || myId.Equals(@event.Target, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        // Combat and ItemGiven events with us as target are definitely directed
+        if (@event.Type == RoomEventType.Combat || @event.Type == RoomEventType.ItemGiven)
+        {
+            // Already checked Target above, but these event types are inherently directed
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -599,11 +642,59 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             sb.AppendLine();
         }
 
+        // Command markup section (if NPC can take actions)
+        var canManipulate = capabilities.HasFlag(NpcCapabilities.CanManipulateItems);
+        var canWander = capabilities.HasFlag(NpcCapabilities.CanWander);
+        var canAttack = capabilities.HasFlag(NpcCapabilities.CanAttack);
+        var canFlee = capabilities.HasFlag(NpcCapabilities.CanFlee);
+
+        // Always show command markup section for NPCs with any action capability
+        if (canSpeak || canEmote || canManipulate || canWander || canAttack)
+        {
+            sb.AppendLine("Command Actions:");
+            sb.AppendLine("- You can perform actions using [cmd:command] markup in your response");
+            sb.AppendLine("- Commands are executed in addition to regular speech/emotes");
+            sb.AppendLine("- Example: \"Let me help you.\" [cmd:give sword to player] [cmd:emote smiles warmly]");
+            sb.AppendLine();
+            sb.AppendLine("Available commands:");
+            if (canSpeak)
+            {
+                sb.AppendLine("  [cmd:say <message>] - speak aloud");
+            }
+            if (canEmote)
+            {
+                sb.AppendLine("  [cmd:emote <action>] - perform an action (e.g., [cmd:emote waves warmly])");
+            }
+            if (canManipulate)
+            {
+                sb.AppendLine("  [cmd:get <item>] - pick up an item from the room");
+                sb.AppendLine("  [cmd:drop <item>] - drop an item");
+                sb.AppendLine("  [cmd:give <item> to <person>] - give item to someone");
+                sb.AppendLine("  [cmd:equip <item>] - equip/wield an item");
+                sb.AppendLine("  [cmd:unequip <item or slot>] - remove equipped item");
+                sb.AppendLine("  [cmd:use <item>] - use/consume an item");
+            }
+            if (canWander)
+            {
+                sb.AppendLine("  [cmd:go <direction>] - move to another room");
+            }
+            if (canAttack)
+            {
+                sb.AppendLine("  [cmd:attack <target>] - attack someone");
+            }
+            if (canFlee)
+            {
+                sb.AppendLine("  [cmd:flee] - flee from combat");
+            }
+            sb.AppendLine();
+        }
+
         // Core rules (always included)
         sb.AppendLine("Rules:");
         sb.AppendLine("- NEVER break character");
         sb.AppendLine("- Respond with exactly ONE short action per event - one emote OR one sentence");
         sb.AppendLine("- Do NOT chain multiple actions together");
+        sb.AppendLine("- Use [cmd:...] sparingly - only when it makes sense for the character");
         if (!string.IsNullOrWhiteSpace(NpcExtraRules))
         {
             sb.AppendLine($"- {NpcExtraRules}");

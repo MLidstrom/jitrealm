@@ -104,3 +104,16 @@ public interface IHasInventory
     /// </summary>
     bool CanCarry(int weight);
 }
+
+/// <summary>
+/// Interface for items that can be used/consumed (potions, scrolls, food, etc.).
+/// </summary>
+public interface IUsable : IItem
+{
+    /// <summary>
+    /// Called when the item is used.
+    /// </summary>
+    /// <param name="userId">ID of who is using the item.</param>
+    /// <param name="ctx">The MUD context.</param>
+    void OnUse(string userId, IMudContext ctx);
+}

@@ -1,13 +1,13 @@
 namespace JitRealm.Mud.Commands.Equipment;
 
 /// <summary>
-/// Unequip an item from an equipment slot.
+/// Unequip an item from an equipment slot or by item name.
 /// </summary>
 public class UnequipCommand : CommandBase
 {
     public override string Name => "unequip";
     public override IReadOnlyList<string> Aliases => new[] { "remove" };
-    public override string Usage => "unequip <slot>";
+    public override string Usage => "unequip <item or slot>";
     public override string Description => "Remove equipped item";
     public override string Category => "Equipment";
 
@@ -15,33 +15,69 @@ public class UnequipCommand : CommandBase
     {
         if (!RequireArgs(context, args, 1)) return Task.CompletedTask;
 
-        var slotName = JoinArgs(args);
+        var input = JoinArgs(args).ToLowerInvariant();
 
-        // Try to parse slot name
-        if (!Enum.TryParse<EquipmentSlot>(slotName, ignoreCase: true, out var slot))
+        // First, try to find equipped item by name/alias
+        foreach (var slot in Enum.GetValues<EquipmentSlot>())
         {
-            // Try partial match
-            var matchingSlots = Enum.GetValues<EquipmentSlot>()
-                .Where(s => s.ToString().StartsWith(slotName, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            var equippedId = context.State.Equipment.GetEquipped(context.PlayerId, slot);
+            if (equippedId is null) continue;
 
-            if (matchingSlots.Count == 1)
+            var equippedItem = context.State.Objects!.Get<IEquippable>(equippedId);
+            if (equippedItem is null) continue;
+
+            // Check name, short description, and aliases
+            var matches = equippedItem.Name.ToLowerInvariant().Contains(input) ||
+                          equippedItem.ShortDescription.ToLowerInvariant().Contains(input);
+
+            if (!matches && equippedItem is IItem item)
             {
-                slot = matchingSlots[0];
+                matches = item.Aliases.Any(a => a.ToLowerInvariant().Contains(input) ||
+                                                 input.Contains(a.ToLowerInvariant()));
             }
-            else if (matchingSlots.Count > 1)
+
+            if (matches)
             {
-                context.Output($"Ambiguous slot '{slotName}'. Did you mean: {string.Join(", ", matchingSlots)}?");
-                return Task.CompletedTask;
-            }
-            else
-            {
-                context.Output($"Unknown slot '{slotName}'. Valid slots: {string.Join(", ", Enum.GetNames<EquipmentSlot>())}");
+                // Call OnUnequip hook
+                var itemCtx = context.CreateContext(equippedId);
+                equippedItem.OnUnequip(context.PlayerId, itemCtx);
+
+                // Unequip the item
+                context.State.Equipment.Unequip(context.PlayerId, slot);
+
+                context.Output($"You unequip {equippedItem.ShortDescription}.");
                 return Task.CompletedTask;
             }
         }
 
-        // Check if something is equipped in that slot
+        // Fall back to slot name parsing
+        if (Enum.TryParse<EquipmentSlot>(input, ignoreCase: true, out var parsedSlot))
+        {
+            return UnequipBySlot(context, parsedSlot);
+        }
+
+        // Try partial slot match
+        var matchingSlots = Enum.GetValues<EquipmentSlot>()
+            .Where(s => s.ToString().StartsWith(input, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matchingSlots.Count == 1)
+        {
+            return UnequipBySlot(context, matchingSlots[0]);
+        }
+
+        if (matchingSlots.Count > 1)
+        {
+            context.Output($"Ambiguous: '{input}'. Did you mean: {string.Join(", ", matchingSlots)}?");
+            return Task.CompletedTask;
+        }
+
+        context.Output($"You don't have '{JoinArgs(args)}' equipped.");
+        return Task.CompletedTask;
+    }
+
+    private static Task UnequipBySlot(CommandContext context, EquipmentSlot slot)
+    {
         var itemId = context.State.Equipment.GetEquipped(context.PlayerId, slot);
         if (itemId is null)
         {
@@ -52,14 +88,11 @@ public class UnequipCommand : CommandBase
         var item = context.State.Objects!.Get<IEquippable>(itemId);
         if (item is not null)
         {
-            // Call OnUnequip hook
             var itemCtx = context.CreateContext(itemId);
             item.OnUnequip(context.PlayerId, itemCtx);
         }
 
-        // Unequip the item
         context.State.Equipment.Unequip(context.PlayerId, slot);
-
         context.Output($"You unequip {item?.ShortDescription ?? itemId}.");
         return Task.CompletedTask;
     }

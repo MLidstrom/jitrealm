@@ -163,6 +163,51 @@ public sealed class NpcContext
         var lines = new List<string> { "[Available actions:]" };
         lines.AddRange(actions.Select(a => $"- {a}"));
 
+        // Add command markup section if NPC has any action capabilities
+        var hasActionCapabilities = Can(NpcCapabilities.CanEmote) || Can(NpcCapabilities.CanSpeak) ||
+                                     Can(NpcCapabilities.CanManipulateItems) || Can(NpcCapabilities.CanWander) ||
+                                     Can(NpcCapabilities.CanAttack);
+        if (hasActionCapabilities)
+        {
+            lines.Add("");
+            lines.Add("[Command Actions - use [cmd:command] markup:]");
+
+            if (Can(NpcCapabilities.CanSpeak))
+            {
+                lines.Add("- [cmd:say <message>] - speak aloud");
+            }
+
+            if (Can(NpcCapabilities.CanEmote))
+            {
+                lines.Add("- [cmd:emote <action>] - perform an action (e.g., [cmd:emote waves warmly])");
+            }
+
+            if (Can(NpcCapabilities.CanManipulateItems))
+            {
+                lines.Add("- [cmd:get <item>] - pick up an item");
+                lines.Add("- [cmd:drop <item>] - drop an item");
+                lines.Add("- [cmd:give <item> to <person>] - give item to someone");
+                lines.Add("- [cmd:equip <item>] - equip/wear an item");
+                lines.Add("- [cmd:unequip <item or slot>] - remove equipped item");
+                lines.Add("- [cmd:use <item>] - use/consume an item");
+            }
+
+            if (Can(NpcCapabilities.CanWander) && RoomExits.Count > 0)
+            {
+                lines.Add($"- [cmd:go <direction>] - move to adjacent room");
+            }
+
+            if (Can(NpcCapabilities.CanAttack))
+            {
+                lines.Add("- [cmd:attack <target>] - attack someone");
+            }
+
+            if (Can(NpcCapabilities.CanFlee))
+            {
+                lines.Add("- [cmd:flee] - flee from combat");
+            }
+        }
+
         return string.Join("\n", lines);
     }
 }

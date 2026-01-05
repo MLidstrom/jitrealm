@@ -54,6 +54,7 @@ public static class CommandFactory
     {
         registry.Register(new GetCommand());
         registry.Register(new DropCommand());
+        registry.Register(new GiveCommand());
         registry.Register(new InventoryCommand());
         registry.Register(new ExamineCommand());
     }
