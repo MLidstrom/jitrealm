@@ -522,10 +522,11 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                 // Update cooldown timestamp
                 _lastLlmResponseTime = DateTime.UtcNow;
 
-                // Parse and execute the response
+                // Parse and execute the response, passing the event actor as interactor
                 await ctx.ExecuteLlmResponseAsync(response,
                     canSpeak: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanSpeak),
-                    canEmote: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanEmote));
+                    canEmote: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanEmote),
+                    interactorId: eventToProcess.ActorId);
             }
         }
         finally

@@ -160,5 +160,6 @@ public interface IMudContext
     /// <param name="response">The LLM response to parse and execute.</param>
     /// <param name="canSpeak">Whether the NPC can speak.</param>
     /// <param name="canEmote">Whether the NPC can emote.</param>
-    Task ExecuteLlmResponseAsync(string response, bool canSpeak, bool canEmote);
+    /// <param name="interactorId">Optional ID of who the NPC is responding to (for "player" resolution).</param>
+    Task ExecuteLlmResponseAsync(string response, bool canSpeak, bool canEmote, string? interactorId = null);
 }

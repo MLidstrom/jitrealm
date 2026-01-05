@@ -11,6 +11,9 @@ public sealed class NpcCommandExecutor
     private readonly WorldState _state;
     private readonly IClock _clock;
 
+    // Track the current interactor during command execution (who the NPC is responding to)
+    private string? _currentInteractorId;
+
     // Regex to match *emote* or [emote] patterns (LLMs use both)
     private static readonly Regex EmotePattern = new(@"(\*([^*]+)\*|\[([^\]]+)\])", RegexOptions.Compiled);
 
@@ -44,83 +47,95 @@ public sealed class NpcCommandExecutor
     /// <param name="response">The LLM response to parse and execute.</param>
     /// <param name="canSpeak">Whether the NPC can speak.</param>
     /// <param name="canEmote">Whether the NPC can emote.</param>
-    public async Task ExecuteLlmResponseAsync(string npcId, string response, bool canSpeak, bool canEmote)
+    /// <param name="interactorId">Optional ID of who the NPC is responding to (for "player" resolution).</param>
+    public async Task ExecuteLlmResponseAsync(string npcId, string response, bool canSpeak, bool canEmote, string? interactorId = null)
     {
         if (string.IsNullOrWhiteSpace(response))
             return;
 
-        // First, extract and execute any command markups [cmd:command args]
-        var commandMatches = CommandMarkupPattern.Matches(response);
-        var commandsExecuted = 0;
-        const int maxCommands = 2; // Limit commands per response to prevent spam
+        // Store the interactor so give/other commands can use it for "player" resolution
+        _currentInteractorId = interactorId;
 
-        foreach (Match cmdMatch in commandMatches)
+        try
         {
-            if (commandsExecuted >= maxCommands) break;
+            // First, extract and execute any command markups [cmd:command args]
+            var commandMatches = CommandMarkupPattern.Matches(response);
+            var commandsExecuted = 0;
+            const int maxCommands = 2; // Limit commands per response to prevent spam
 
-            var command = cmdMatch.Groups[1].Value.Trim();
-            if (!string.IsNullOrWhiteSpace(command))
+            foreach (Match cmdMatch in commandMatches)
             {
-                // Check if command is forbidden
-                var cmdName = command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant();
-                if (cmdName is not null && !ForbiddenCommands.Contains(cmdName))
+                if (commandsExecuted >= maxCommands) break;
+
+                var command = cmdMatch.Groups[1].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(command))
                 {
-                    if (await ExecuteAsync(npcId, command))
+                    // Check if command is forbidden
+                    var cmdName = command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant();
+                    if (cmdName is not null && !ForbiddenCommands.Contains(cmdName))
                     {
-                        commandsExecuted++;
+                        if (await ExecuteAsync(npcId, command))
+                        {
+                            commandsExecuted++;
+                        }
                     }
                 }
             }
-        }
 
-        // Remove command markups from response for further parsing
-        var cleanResponse = CommandMarkupPattern.Replace(response, "").Trim();
-        if (string.IsNullOrWhiteSpace(cleanResponse))
-            return;
+            // Remove command markups from response for further parsing
+            var cleanResponse = CommandMarkupPattern.Replace(response, "").Trim();
+            if (string.IsNullOrWhiteSpace(cleanResponse))
+                return;
 
-        // Find the first emote match
-        var match = EmotePattern.Match(cleanResponse);
+            // Find the first emote match
+            var match = EmotePattern.Match(cleanResponse);
 
-        if (match.Success)
-        {
-            // Check if there's speech BEFORE the first emote
-            if (match.Index > 0 && canSpeak)
+            if (match.Success)
             {
-                var rawSpeech = cleanResponse.Substring(0, match.Index).Trim();
-                var speech = CleanSpeech(rawSpeech);
+                // Check if there's speech BEFORE the first emote
+                if (match.Index > 0 && canSpeak)
+                {
+                    var rawSpeech = cleanResponse.Substring(0, match.Index).Trim();
+                    var speech = CleanSpeech(rawSpeech);
+                    if (!string.IsNullOrEmpty(speech))
+                    {
+                        // Execute the speech
+                        await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
+                    }
+                }
+
+                // Also execute the emote (allows speech + emote combo)
+                if (canEmote)
+                {
+                    // Groups[2] = text inside *asterisks*, Groups[3] = text inside [brackets]
+                    var emoteText = match.Groups[2].Success
+                        ? match.Groups[2].Value.Trim()
+                        : match.Groups[3].Value.Trim();
+
+                    // Clean emote text - remove any inner asterisks or brackets the LLM may have added
+                    emoteText = CleanEmote(emoteText);
+                    if (!string.IsNullOrWhiteSpace(emoteText))
+                    {
+                        await ExecuteAsync(npcId, $"emote {emoteText}");
+                    }
+                }
+                return;
+            }
+
+            // No emotes found - treat as speech (allow multiple sentences up to limit)
+            if (canSpeak)
+            {
+                var speech = CleanSpeech(cleanResponse.Trim());
                 if (!string.IsNullOrEmpty(speech))
                 {
-                    // Execute the speech
                     await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
                 }
             }
-
-            // Also execute the emote (allows speech + emote combo)
-            if (canEmote)
-            {
-                // Groups[2] = text inside *asterisks*, Groups[3] = text inside [brackets]
-                var emoteText = match.Groups[2].Success
-                    ? match.Groups[2].Value.Trim()
-                    : match.Groups[3].Value.Trim();
-
-                // Clean emote text - remove any inner asterisks or brackets the LLM may have added
-                emoteText = CleanEmote(emoteText);
-                if (!string.IsNullOrWhiteSpace(emoteText))
-                {
-                    await ExecuteAsync(npcId, $"emote {emoteText}");
-                }
-            }
-            return;
         }
-
-        // No emotes found - treat as speech (allow multiple sentences up to limit)
-        if (canSpeak)
+        finally
         {
-            var speech = CleanSpeech(cleanResponse.Trim());
-            if (!string.IsNullOrEmpty(speech))
-            {
-                await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
-            }
+            // Clear the interactor context
+            _currentInteractorId = null;
         }
     }
 
@@ -771,6 +786,7 @@ public sealed class NpcCommandExecutor
     private string? FindLivingInRoom(string name, string roomId, string excludeId)
     {
         var contents = _state.Containers.GetContents(roomId);
+
         foreach (var objId in contents)
         {
             if (objId == excludeId) continue;
@@ -791,6 +807,15 @@ public sealed class NpcCommandExecutor
                 if (playerPart is not null && playerPart.Contains(name))
                     return objId;
             }
+        }
+
+        // Fallback: if searching for "player" and we have a current interactor, use them
+        // This handles LLM output like "give sword to player" when they mean the person they're responding to
+        if (name == "player" && _currentInteractorId is not null)
+        {
+            // Verify the interactor is in the room
+            if (contents.Contains(_currentInteractorId))
+                return _currentInteractorId;
         }
 
         return null;

@@ -412,11 +412,11 @@ public sealed class MudContext : IMudContext
         return await _internalWorld.NpcCommands.ExecuteAsync(CurrentObjectId, command);
     }
 
-    public async Task ExecuteLlmResponseAsync(string response, bool canSpeak, bool canEmote)
+    public async Task ExecuteLlmResponseAsync(string response, bool canSpeak, bool canEmote, string? interactorId = null)
     {
         if (CurrentObjectId is null)
             return;
 
-        await _internalWorld.NpcCommands.ExecuteLlmResponseAsync(CurrentObjectId, response, canSpeak, canEmote);
+        await _internalWorld.NpcCommands.ExecuteLlmResponseAsync(CurrentObjectId, response, canSpeak, canEmote, interactorId);
     }
 }
