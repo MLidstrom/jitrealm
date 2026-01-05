@@ -8,7 +8,15 @@ public interface IMudObject
     /// </summary>
     string Id { get; }
 
+    /// <summary>
+    /// Short name of the object (e.g., "a rusty sword", "The Starting Room").
+    /// </summary>
     string Name { get; }
+
+    /// <summary>
+    /// Long description shown when examining the object.
+    /// </summary>
+    string Description { get; }
 
     /// <summary>
     /// Detailed descriptions for parts of this object.

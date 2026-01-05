@@ -398,19 +398,23 @@ public sealed class CommandLoop
                 }
             }
 
-            // Update inventory (save all items, including equipped)
+            // Update inventory (save blueprint IDs, not instance IDs)
             accountData.Inventory.Clear();
             foreach (var itemId in _state.Containers.GetContents(_playerId))
             {
-                accountData.Inventory.Add(itemId);
+                // Extract blueprint ID from instance ID (e.g., "Items/sword.cs#000001" -> "Items/sword.cs")
+                var blueprintId = itemId.Contains('#') ? itemId.Split('#')[0] : itemId;
+                accountData.Inventory.Add(blueprintId);
             }
 
-            // Update equipment
+            // Update equipment (save blueprint IDs, not instance IDs)
             accountData.Equipment.Clear();
             var equipped = _state.Equipment.GetAllEquipped(_playerId);
             foreach (var (slot, itemId) in equipped)
             {
-                accountData.Equipment[slot.ToString()] = itemId;
+                // Extract blueprint ID from instance ID
+                var blueprintId = itemId.Contains('#') ? itemId.Split('#')[0] : itemId;
+                accountData.Equipment[slot.ToString()] = blueprintId;
             }
 
             // Save to file

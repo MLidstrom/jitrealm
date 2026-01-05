@@ -77,16 +77,94 @@ public class CommandContext
 
     /// <summary>
     /// Resolve special object references like "here" to actual object IDs.
+    /// Also searches by name in inventory, equipment, and room.
     /// </summary>
-    /// <param name="reference">The reference to resolve (e.g., "here" or an actual object ID)</param>
+    /// <param name="reference">The reference to resolve (e.g., "here", "me", item name, or object ID)</param>
     /// <returns>The resolved object ID, or null if the reference couldn't be resolved</returns>
     public string? ResolveObjectId(string reference)
     {
+        // Special keywords
         if (string.Equals(reference, "here", StringComparison.OrdinalIgnoreCase))
         {
             return GetPlayerLocation();
         }
 
-        return reference;
+        if (string.Equals(reference, "me", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(reference, "self", StringComparison.OrdinalIgnoreCase))
+        {
+            return PlayerId;
+        }
+
+        // If it looks like an object ID (contains # or .cs), return as-is
+        if (reference.Contains('#') || reference.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return reference;
+        }
+
+        // Search by name in inventory, equipment, and room
+        return FindObjectByName(reference);
+    }
+
+    /// <summary>
+    /// Find an object by name in inventory, equipment, or room.
+    /// </summary>
+    private string? FindObjectByName(string name)
+    {
+        if (State.Objects is null) return null;
+
+        var normalizedName = name.ToLowerInvariant();
+
+        // Search inventory
+        foreach (var itemId in State.Containers.GetContents(PlayerId))
+        {
+            var obj = State.Objects.Get<IMudObject>(itemId);
+            if (obj is not null && MatchesName(obj, normalizedName))
+                return itemId;
+        }
+
+        // Search equipment
+        foreach (var (_, itemId) in State.Equipment.GetAllEquipped(PlayerId))
+        {
+            var obj = State.Objects.Get<IMudObject>(itemId);
+            if (obj is not null && MatchesName(obj, normalizedName))
+                return itemId;
+        }
+
+        // Search room contents
+        var roomId = GetPlayerLocation();
+        if (roomId is not null)
+        {
+            foreach (var objId in State.Containers.GetContents(roomId))
+            {
+                if (objId == PlayerId) continue;
+                var obj = State.Objects.Get<IMudObject>(objId);
+                if (obj is not null && MatchesName(obj, normalizedName))
+                    return objId;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Check if an object's name or aliases match the search term.
+    /// </summary>
+    private static bool MatchesName(IMudObject obj, string normalizedName)
+    {
+        // Check main name
+        if (obj.Name.ToLowerInvariant().Contains(normalizedName))
+            return true;
+
+        // Check aliases if available
+        if (obj is IItem item)
+        {
+            foreach (var alias in item.Aliases)
+            {
+                if (alias.ToLowerInvariant().Contains(normalizedName))
+                    return true;
+            }
+        }
+
+        return false;
     }
 }

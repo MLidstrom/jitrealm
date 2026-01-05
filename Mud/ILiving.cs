@@ -9,7 +9,7 @@ public interface ILiving : IMudObject
     /// <summary>
     /// Detailed description shown when examining this living being.
     /// </summary>
-    string Description { get; }
+    new string Description { get; }
 
     /// <summary>
     /// Current hit points.

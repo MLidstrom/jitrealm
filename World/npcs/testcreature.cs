@@ -8,6 +8,7 @@ using JitRealm.Mud;
 public sealed class TestCreature : LivingBase, IOnDamage, IOnDeath, IOnHeal
 {
     public override string Name => "Test Creature";
+    public override string Description => "A small, translucent creature that shimmers with an otherworldly glow. It seems to exist for the sole purpose of being poked, damaged, and healed.";
     public override int MaxHP => 50;
     public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(3);
     protected override int RegenAmount => 2;

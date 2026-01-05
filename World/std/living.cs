@@ -38,7 +38,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Detailed description shown when examining this living being.
     /// Override in derived classes to provide a custom description.
     /// </summary>
-    public virtual string Description => $"You see {Name}.";
+    public override string Description => $"You see {Name}.";
 
     /// <summary>
     /// Whether this living is alive (HP > 0).

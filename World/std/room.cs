@@ -20,7 +20,7 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     /// <summary>
     /// The room's description when looked at.
     /// </summary>
-    public abstract string Description { get; }
+    public abstract override string Description { get; }
 
     /// <summary>
     /// Exits from this room. Keys are direction names, values are destination IDs.

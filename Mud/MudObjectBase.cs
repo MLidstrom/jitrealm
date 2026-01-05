@@ -14,6 +14,13 @@ public abstract class MudObjectBase : IMudObject
     public abstract string Name { get; }
 
     /// <summary>
+    /// Long description shown when examining the object.
+    /// Override in subclasses to provide a detailed description.
+    /// Default returns an empty string (subclasses should provide meaningful text).
+    /// </summary>
+    public virtual string Description => "";
+
+    /// <summary>
     /// Detailed descriptions for parts of this object.
     /// Override in subclasses to provide "look at X" descriptions.
     /// Default returns an empty dictionary.
