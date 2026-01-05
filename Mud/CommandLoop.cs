@@ -315,11 +315,13 @@ public sealed class CommandLoop
         // Restore inventory
         if (accountData.Inventory is not null)
         {
-            foreach (var itemBlueprintId in accountData.Inventory)
+            foreach (var savedId in accountData.Inventory)
             {
                 try
                 {
-                    var item = await _state.Objects.CloneAsync<IItem>(itemBlueprintId, _state);
+                    // Handle both old instance IDs and new blueprint IDs
+                    var blueprintId = savedId.Contains('#') ? savedId.Split('#')[0] : savedId;
+                    var item = await _state.Objects.CloneAsync<IItem>(blueprintId, _state);
                     _state.Containers.Add(_playerId, item.Id);
                 }
                 catch
@@ -338,7 +340,9 @@ public sealed class CommandLoop
                 {
                     try
                     {
-                        var item = await _state.Objects.CloneAsync<IEquippable>(kvp.Value, _state);
+                        // Handle both old instance IDs and new blueprint IDs
+                        var blueprintId = kvp.Value.Contains('#') ? kvp.Value.Split('#')[0] : kvp.Value;
+                        var item = await _state.Objects.CloneAsync<IEquippable>(blueprintId, _state);
                         _state.Containers.Add(_playerId, item.Id);
                         _state.Equipment.Equip(_playerId, slot, item.Id);
                     }
