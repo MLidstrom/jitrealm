@@ -7,20 +7,38 @@ using JitRealm.Mud;
 /// Provides common room functionality and sensible defaults.
 ///
 /// State stored in IStateStore:
+/// - name: Room name (can be patched)
+/// - description: Room description (can be patched)
 /// - visited_by: List of player IDs who have visited
 /// - last_reset: When the room was last reset
 /// </summary>
 public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
 {
     /// <summary>
-    /// The room's display name. Override to customize.
+    /// Cached context for property access.
+    /// Set during OnLoad.
     /// </summary>
-    public abstract override string Name { get; }
+    protected IMudContext? Ctx { get; private set; }
 
     /// <summary>
-    /// The room's description when looked at.
+    /// The room's display name. Can be patched via state.
     /// </summary>
-    public abstract override string Description { get; }
+    public override string Name => Ctx?.State.Get<string>("name") ?? GetDefaultName();
+
+    /// <summary>
+    /// Default name when not overridden in state. Override in subclasses.
+    /// </summary>
+    protected abstract string GetDefaultName();
+
+    /// <summary>
+    /// The room's description when looked at. Can be patched via state.
+    /// </summary>
+    public override string Description => Ctx?.State.Get<string>("description") ?? GetDefaultDescription();
+
+    /// <summary>
+    /// Default description when not overridden in state. Override in subclasses.
+    /// </summary>
+    protected abstract string GetDefaultDescription();
 
     /// <summary>
     /// Exits from this room. Keys are direction names, values are destination IDs.
@@ -47,7 +65,17 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     /// </summary>
     public virtual void OnLoad(IMudContext ctx)
     {
-        // Base implementation does nothing
+        Ctx = ctx;
+
+        // Initialize patchable state properties
+        if (!ctx.State.Has("name"))
+        {
+            ctx.State.Set("name", GetDefaultName());
+        }
+        if (!ctx.State.Has("description"))
+        {
+            ctx.State.Set("description", GetDefaultDescription());
+        }
     }
 
     /// <summary>
@@ -102,14 +130,11 @@ public abstract class DarkRoomBase : RoomBase
 {
     public override bool IsLit => false;
 
-    public override string Description
+    protected override string GetDefaultDescription()
     {
-        get
-        {
-            // In the future, check if player has light source
-            // For now, just return dark description
-            return DarkDescription;
-        }
+        // In the future, check if player has light source
+        // For now, just return dark description
+        return DarkDescription;
     }
 
     /// <summary>

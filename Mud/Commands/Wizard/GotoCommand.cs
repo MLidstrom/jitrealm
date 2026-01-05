@@ -85,6 +85,16 @@ public class GotoCommand : WizardCommandBase
         // Process spawns for the destination room
         await context.State.ProcessSpawnsAsync(destRoom.Id, new SystemClock());
 
+        // Process spawns for any linked rooms
+        if (destRoom is IHasLinkedRooms hasLinkedRooms)
+        {
+            foreach (var linkedRoomId in hasLinkedRooms.LinkedRooms)
+            {
+                var linkedRoom = await context.State.Objects!.LoadAsync<IRoom>(linkedRoomId, context.State);
+                await context.State.ProcessSpawnsAsync(linkedRoom.Id, new SystemClock());
+            }
+        }
+
         // Move player to destination
         context.State.Containers.Move(playerId, destRoom.Id);
 

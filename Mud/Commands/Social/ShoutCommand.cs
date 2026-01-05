@@ -1,4 +1,5 @@
 using JitRealm.Mud;
+using JitRealm.Mud.AI;
 
 namespace JitRealm.Mud.Commands.Social;
 
@@ -13,18 +14,18 @@ public class ShoutCommand : CommandBase
     public override string Description => "Shout a message to adjacent rooms";
     public override string Category => "Social";
 
-    public override Task ExecuteAsync(CommandContext context, string[] args)
+    public override async Task ExecuteAsync(CommandContext context, string[] args)
     {
-        if (!RequireArgs(context, args, 1)) return Task.CompletedTask;
+        if (!RequireArgs(context, args, 1)) return;
 
         var message = JoinArgs(args);
-        var playerName = context.GetPlayer()?.Name ?? "Someone";
+        var playerName = context.Session.PlayerName ?? "Someone";
         var roomId = context.GetPlayerLocation();
 
         if (roomId is null)
         {
             context.Output("You're not in a room.");
-            return Task.CompletedTask;
+            return;
         }
 
         // Message to the player
@@ -34,10 +35,19 @@ public class ShoutCommand : CommandBase
         context.State.Messages.Enqueue(new MudMessage(
             context.PlayerId,
             null,
-            MessageType.Say,
+            MessageType.Emote,
             $"shouts: {message}",
             roomId
         ));
+
+        // Trigger room event for NPC reactions (use Speech type since shouting is speech)
+        await context.TriggerRoomEventAsync(new RoomEvent
+        {
+            Type = RoomEventType.Speech,
+            ActorId = context.PlayerId,
+            ActorName = playerName,
+            Message = message
+        }, roomId);
 
         // Get adjacent rooms and send messages there too
         var currentRoom = context.GetCurrentRoom();
@@ -55,7 +65,5 @@ public class ShoutCommand : CommandBase
                 ));
             }
         }
-
-        return Task.CompletedTask;
     }
 }

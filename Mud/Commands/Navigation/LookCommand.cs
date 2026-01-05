@@ -113,8 +113,8 @@ public class LookCommand : CommandBase
                         return Task.CompletedTask;
                     }
                 }
-                // Fall back to item long description
-                context.Output(item.LongDescription);
+                // Fall back to item description
+                context.Output(item.Description);
                 return Task.CompletedTask;
             }
         }
@@ -161,10 +161,10 @@ public class LookCommand : CommandBase
                         return Task.CompletedTask;
                     }
                 }
-                // For items, show long description
+                // For items, show description
                 if (obj is IItem item)
                 {
-                    context.Output(item.LongDescription);
+                    context.Output(item.Description);
                     return Task.CompletedTask;
                 }
                 // For livings, show their description and HP

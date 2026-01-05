@@ -7,18 +7,16 @@ using JitRealm.Mud;
 /// Items are spawned here via ISpawner and are available for purchase.
 /// This room is not accessible to players directly.
 /// </summary>
-public sealed class ShopStorage : MudObjectBase, IRoom, ISpawner
+public sealed class ShopStorage : IndoorRoomBase, ISpawner
 {
-    public override string Name => "Shop Storage";
+    protected override string GetDefaultName() => "Shop Storage";
 
-    public string Description =>
+    protected override string GetDefaultDescription() =>
         "A cramped backroom filled with crates and shelves. " +
         "Various goods are stacked neatly, ready to be moved to the shop floor.";
 
     // No exits - players shouldn't be able to enter this room
-    public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>();
-
-    public IReadOnlyList<string> Contents => Array.Empty<string>();
+    public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>();
 
     /// <summary>
     /// Items to spawn in storage. The driver handles the actual spawning.

@@ -18,8 +18,11 @@ public sealed class CommandLoop
     private string? _playerId;
     private readonly ConsoleSession _session;
     private readonly CommandRegistry _commandRegistry;
+    private readonly string? _autoPlayer;
+    private readonly string? _autoPassword;
 
-    public CommandLoop(WorldState state, WorldStatePersistence persistence, DriverSettings settings)
+    public CommandLoop(WorldState state, WorldStatePersistence persistence, DriverSettings settings,
+        string? autoPlayer = null, string? autoPassword = null)
     {
         _state = state;
         _persistence = persistence;
@@ -28,6 +31,8 @@ public sealed class CommandLoop
         _accounts = new PlayerAccountService(settings);
         _session = new ConsoleSession();
         _commandRegistry = CommandFactory.CreateRegistry();
+        _autoPlayer = autoPlayer;
+        _autoPassword = autoPassword;
     }
 
     public async Task RunAsync()
@@ -35,21 +40,31 @@ public sealed class CommandLoop
         Console.WriteLine($"{_settings.Server.MudName} v{_settings.Server.Version}");
         Console.WriteLine();
 
-        // Login or register
-        var loggedIn = await LoginOrRegisterAsync();
+        // Check for command-line auto-login
+        bool loggedIn;
+        if (_autoPlayer is not null && _autoPassword is not null)
+        {
+            loggedIn = await AutoLoginAsync(_autoPlayer, _autoPassword);
+            if (!loggedIn)
+            {
+                Console.WriteLine("Auto-login failed. Falling back to interactive login.");
+                loggedIn = await LoginOrRegisterAsync();
+            }
+        }
+        else
+        {
+            // Interactive login or register
+            loggedIn = await LoginOrRegisterAsync();
+        }
+
         if (!loggedIn)
         {
             Console.WriteLine("Goodbye!");
             return;
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Commands: look, go <exit>, get <item>, drop <item>, inventory, examine <item>,");
-        Console.WriteLine("          equip <item>, unequip <slot>, equipment, score,");
-        Console.WriteLine("          kill <target>, flee, consider <target>,");
-        Console.WriteLine("          shout <msg>, whisper <player> <msg>, who, help [cmd],");
-        Console.WriteLine("          objects, blueprints, clone <bp>, destruct <id>, stat <id>,");
-        Console.WriteLine("          reload <bp>, unload <bp>, reset <id>, save, load, quit");
+        // Display MOTD if exists
+        DisplayMotd();
 
         while (true)
         {
@@ -126,6 +141,17 @@ public sealed class CommandLoop
         }
     }
 
+    private void DisplayMotd()
+    {
+        var motdPath = Path.Combine(AppContext.BaseDirectory, _settings.Paths.WorldDirectory, "motd.txt");
+        if (File.Exists(motdPath))
+        {
+            Console.WriteLine();
+            Console.WriteLine(File.ReadAllText(motdPath));
+            Console.WriteLine();
+        }
+    }
+
     private async Task<bool> LoginOrRegisterAsync()
     {
         Console.WriteLine("1. Login");
@@ -141,6 +167,38 @@ public sealed class CommandLoop
         {
             return await HandleLoginAsync();
         }
+    }
+
+    private async Task<bool> AutoLoginAsync(string name, string password)
+    {
+        if (!await _accounts.PlayerExistsAsync(name))
+        {
+            Console.WriteLine($"Player '{name}' not found.");
+            return false;
+        }
+
+        if (!await _accounts.ValidateCredentialsAsync(name, password))
+        {
+            Console.WriteLine("Invalid password.");
+            return false;
+        }
+
+        // Load player data
+        var accountData = await _accounts.LoadPlayerDataAsync(name);
+        if (accountData is null)
+        {
+            Console.WriteLine("Error loading player data.");
+            return false;
+        }
+
+        Console.WriteLine($"Auto-login: {name}");
+
+        // Update last login time
+        await _accounts.UpdateLastLoginAsync(name);
+
+        // Create player in world
+        await SetupPlayerInWorldAsync(accountData);
+        return true;
     }
 
     private async Task<bool> HandleLoginAsync()
@@ -263,6 +321,16 @@ public sealed class CommandLoop
 
         // Process spawns for the start room
         await _state.ProcessSpawnsAsync(startRoom.Id, _clock);
+
+        // Process spawns for any linked rooms
+        if (startRoom is IHasLinkedRooms hasLinkedRooms)
+        {
+            foreach (var linkedRoomId in hasLinkedRooms.LinkedRooms)
+            {
+                var linkedRoom = await _state.Objects.LoadAsync<IRoom>(linkedRoomId, _state);
+                await _state.ProcessSpawnsAsync(linkedRoom.Id, _clock);
+            }
+        }
 
         // Clone a player from the player blueprint
         var player = await _state.Objects.CloneAsync<IPlayer>(_settings.Paths.PlayerBlueprint, _state);
@@ -483,8 +551,8 @@ public sealed class CommandLoop
             var shouldDisplay = msg.Type switch
             {
                 MessageType.Tell => msg.ToId == _playerId,
-                MessageType.Say => msg.RoomId == playerRoomId,
-                MessageType.Emote => msg.RoomId == playerRoomId,
+                MessageType.Say => msg.RoomId == playerRoomId && msg.FromId != _playerId,
+                MessageType.Emote => msg.RoomId == playerRoomId && msg.FromId != _playerId,
                 _ => false
             };
 

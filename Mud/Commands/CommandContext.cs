@@ -1,3 +1,4 @@
+using JitRealm.Mud.AI;
 using JitRealm.Mud.Network;
 
 namespace JitRealm.Mud.Commands;
@@ -166,5 +167,43 @@ public class CommandContext
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Trigger a room event to notify all ILlmNpc objects in the room.
+    /// This allows NPCs to react to player actions like speech, emotes, arrivals, etc.
+    /// </summary>
+    /// <param name="roomEvent">The event that occurred.</param>
+    /// <param name="roomId">The room where the event occurred.</param>
+    public async Task TriggerRoomEventAsync(RoomEvent roomEvent, string roomId)
+    {
+        if (State.Objects is null) return;
+
+        var contents = State.Containers.GetContents(roomId);
+        foreach (var objId in contents)
+        {
+            // Don't notify the actor about their own action
+            if (objId == roomEvent.ActorId) continue;
+
+            var obj = State.Objects.Get<IMudObject>(objId);
+            if (obj is ILlmNpc llmNpc)
+            {
+                var ctx = CreateContext(objId);
+                await llmNpc.OnRoomEventAsync(roomEvent, ctx);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Trigger a room event in the player's current room.
+    /// </summary>
+    /// <param name="roomEvent">The event that occurred.</param>
+    public async Task TriggerRoomEventAsync(RoomEvent roomEvent)
+    {
+        var roomId = GetPlayerLocation();
+        if (roomId is not null)
+        {
+            await TriggerRoomEventAsync(roomEvent, roomId);
+        }
     }
 }

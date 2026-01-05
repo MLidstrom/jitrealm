@@ -1,3 +1,4 @@
+using JitRealm.Mud.AI;
 using JitRealm.Mud.Security;
 
 namespace JitRealm.Mud.Commands.Navigation;
@@ -66,6 +67,8 @@ public class GoCommand : CommandBase
             return;
         }
 
+        var playerName = context.Session.PlayerName ?? "Someone";
+
         // Call IOnLeave hook on current room
         if (currentRoom is IOnLeave onLeave)
         {
@@ -73,10 +76,29 @@ public class GoCommand : CommandBase
             SafeInvoker.TryInvokeHook(() => onLeave.OnLeave(ctx, context.PlayerId), $"OnLeave in {currentRoom.Id}");
         }
 
+        // Trigger departure event for NPCs in the old room
+        await context.TriggerRoomEventAsync(new RoomEvent
+        {
+            Type = RoomEventType.Departure,
+            ActorId = context.PlayerId,
+            ActorName = playerName,
+            Direction = direction
+        }, currentRoom.Id);
+
         var dest = await context.State.Objects!.LoadAsync<IRoom>(destId, context.State);
 
         // Process spawns for the destination room
         await context.State.ProcessSpawnsAsync(dest.Id, context.State.Clock);
+
+        // Process spawns for any linked rooms (e.g., shop storage)
+        if (dest is IHasLinkedRooms hasLinkedRooms)
+        {
+            foreach (var linkedRoomId in hasLinkedRooms.LinkedRooms)
+            {
+                var linkedRoom = await context.State.Objects.LoadAsync<IRoom>(linkedRoomId, context.State);
+                await context.State.ProcessSpawnsAsync(linkedRoom.Id, context.State.Clock);
+            }
+        }
 
         // Move player to new room
         context.State.Containers.Move(context.PlayerId, dest.Id);
@@ -87,6 +109,16 @@ public class GoCommand : CommandBase
             var ctx = context.CreateContext(dest.Id);
             SafeInvoker.TryInvokeHook(() => onEnter.OnEnter(ctx, context.PlayerId), $"OnEnter in {dest.Id}");
         }
+
+        // Trigger arrival event for NPCs in the new room
+        var oppositeDir = GetOppositeDirection(direction);
+        await context.TriggerRoomEventAsync(new RoomEvent
+        {
+            Type = RoomEventType.Arrival,
+            ActorId = context.PlayerId,
+            ActorName = playerName,
+            Direction = oppositeDir
+        }, dest.Id);
 
         // Look at the new room
         await new LookCommand().ExecuteAsync(context, Array.Empty<string>());
@@ -106,6 +138,28 @@ public class GoCommand : CommandBase
             "nw" => "northwest",
             "se" => "southeast",
             "sw" => "southwest",
+            _ => dir
+        };
+    }
+
+    private static string GetOppositeDirection(string dir)
+    {
+        return dir switch
+        {
+            "north" => "south",
+            "south" => "north",
+            "east" => "west",
+            "west" => "east",
+            "up" => "below",
+            "down" => "above",
+            "northeast" => "southwest",
+            "northwest" => "southeast",
+            "southeast" => "northwest",
+            "southwest" => "northeast",
+            "in" => "outside",
+            "out" => "inside",
+            "enter" => "outside",
+            "leave" => "inside",
             _ => dir
         };
     }

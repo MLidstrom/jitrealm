@@ -36,9 +36,29 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
     /// <summary>
     /// Detailed description shown when examining this living being.
-    /// Override in derived classes to provide a custom description.
+    /// Can be overridden via state store with "description" key, or override in derived classes.
     /// </summary>
-    public override string Description => $"You see {Name}.";
+    public override string Description => GetDescription();
+
+    /// <summary>
+    /// Get the description, checking state store for override first.
+    /// </summary>
+    protected virtual string GetDescription()
+    {
+        // Check for state override first
+        var stateDesc = Ctx?.State.Get<string>("description");
+        if (!string.IsNullOrEmpty(stateDesc))
+            return stateDesc;
+
+        // Return default or class-defined description
+        return GetDefaultDescription();
+    }
+
+    /// <summary>
+    /// Default description when not overridden in state.
+    /// Override this in derived classes instead of Description.
+    /// </summary>
+    protected virtual string GetDefaultDescription() => $"You see {Name}.";
 
     /// <summary>
     /// Whether this living is alive (HP > 0).
@@ -126,6 +146,12 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         if (!HasStateKey(ctx, "hp"))
         {
             ctx.State.Set("hp", MaxHP);
+        }
+
+        // Initialize description if not set (for patchability)
+        if (!HasStateKey(ctx, "description"))
+        {
+            ctx.State.Set("description", GetDefaultDescription());
         }
     }
 

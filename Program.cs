@@ -21,12 +21,22 @@ configuration.Bind(settings);
 // Parse command-line arguments (override settings)
 var serverMode = args.Contains("--server") || args.Contains("-s");
 var perfBenchMode = args.Contains("--perfbench");
+string? autoPlayer = null;
+string? autoPassword = null;
+
 for (int i = 0; i < args.Length - 1; i++)
 {
     if (args[i] is "--port" or "-p" && int.TryParse(args[i + 1], out var p))
     {
         settings.Server.Port = p;
-        break;
+    }
+    else if (args[i] is "--player" or "-u")
+    {
+        autoPlayer = args[i + 1];
+    }
+    else if (args[i] is "--password" or "-pw")
+    {
+        autoPassword = args[i + 1];
     }
 }
 
@@ -98,6 +108,6 @@ else
 {
     // Single-player console mode
     // CommandLoop now handles player creation as a world object
-    var loop = new CommandLoop(state, persistence, settings);
+    var loop = new CommandLoop(state, persistence, settings, autoPlayer, autoPassword);
     await loop.RunAsync();
 }

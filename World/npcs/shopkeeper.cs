@@ -12,7 +12,7 @@ using JitRealm.Mud.AI;
 public sealed class Shopkeeper : NPCBase, ILlmNpc
 {
     public override string Name => "the shopkeeper";
-    public override string Description =>
+    protected override string GetDefaultDescription() =>
         "A warm, welcoming merchant with kind eyes and weathered hands. Years of trade have given him a shrewd but friendly demeanor.";
     public override int MaxHP => 500;
 

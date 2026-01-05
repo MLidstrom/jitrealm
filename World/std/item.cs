@@ -10,13 +10,31 @@ public class ItemBase : MudObjectBase, ICarryable, IOnLoad
 {
     protected IMudContext? Ctx { get; private set; }
 
-    public override string Name => Ctx?.State.Get<string>("name") ?? "item";
+    public override string Name => Ctx?.State.Get<string>("name") ?? GetDefaultName();
 
-    public virtual int Weight => Ctx?.State.Get<int>("weight") ?? 1;
-    public virtual int Value => Ctx?.State.Get<int>("value") ?? 0;
+    /// <summary>
+    /// Default name when not overridden in state. Override in subclasses.
+    /// </summary>
+    protected virtual string GetDefaultName() => "item";
 
-    public virtual string ShortDescription => Ctx?.State.Get<string>("short_desc") ?? Name;
-    public virtual string LongDescription => Ctx?.State.Get<string>("long_desc") ?? "A nondescript item.";
+    /// <summary>
+    /// Description shown when examining. Can be patched via state.
+    /// </summary>
+    public override string Description => Ctx?.State.Get<string>("description") ?? GetDefaultDescription();
+
+    /// <summary>
+    /// Default description when not overridden in state. Override in subclasses.
+    /// </summary>
+    protected virtual string GetDefaultDescription() => "A nondescript item.";
+
+    public virtual int Weight => Ctx?.State.Get<int>("weight") ?? GetDefaultWeight();
+    protected virtual int GetDefaultWeight() => 1;
+
+    public virtual int Value => Ctx?.State.Get<int>("value") ?? GetDefaultValue();
+    protected virtual int GetDefaultValue() => 0;
+
+    public virtual string ShortDescription => Ctx?.State.Get<string>("short_desc") ?? GetDefaultShortDescription();
+    protected virtual string GetDefaultShortDescription() => Name;
 
     /// <summary>
     /// Alternative names/keywords for looking up this item.
@@ -44,11 +62,11 @@ public class ItemBase : MudObjectBase, ICarryable, IOnLoad
         }
         if (!ctx.State.Has("short_desc"))
         {
-            ctx.State.Set("short_desc", "an item");
+            ctx.State.Set("short_desc", GetDefaultShortDescription());
         }
-        if (!ctx.State.Has("long_desc"))
+        if (!ctx.State.Has("description"))
         {
-            ctx.State.Set("long_desc", "A nondescript item.");
+            ctx.State.Set("description", GetDefaultDescription());
         }
     }
 
@@ -100,11 +118,11 @@ public class ItemBase : MudObjectBase, ICarryable, IOnLoad
     }
 
     /// <summary>
-    /// Set the item's long description.
+    /// Set the item's description.
     /// </summary>
-    public void SetLongDescription(string desc, IMudContext ctx)
+    public void SetDescription(string desc, IMudContext ctx)
     {
-        ctx.State.Set("long_desc", desc);
+        ctx.State.Set("description", desc);
     }
 
     /// <summary>

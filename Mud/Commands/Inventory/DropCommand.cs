@@ -1,3 +1,5 @@
+using JitRealm.Mud.AI;
+
 namespace JitRealm.Mud.Commands.Inventory;
 
 /// <summary>
@@ -11,16 +13,16 @@ public class DropCommand : CommandBase
     public override string Description => "Drop an item";
     public override string Category => "Inventory";
 
-    public override Task ExecuteAsync(CommandContext context, string[] args)
+    public override async Task ExecuteAsync(CommandContext context, string[] args)
     {
-        if (!RequireArgs(context, args, 1)) return Task.CompletedTask;
+        if (!RequireArgs(context, args, 1)) return;
 
         var itemName = JoinArgs(args);
         var roomId = context.GetPlayerLocation();
         if (roomId is null)
         {
             context.Output("You're not in a room.");
-            return Task.CompletedTask;
+            return;
         }
 
         // Find item in inventory
@@ -29,19 +31,29 @@ public class DropCommand : CommandBase
         if (itemId is null)
         {
             context.Output($"You're not carrying '{itemName}'.");
-            return Task.CompletedTask;
+            return;
         }
 
         var item = context.State.Objects!.Get<IItem>(itemId);
         if (item is null)
         {
             context.Output("That's not an item.");
-            return Task.CompletedTask;
+            return;
         }
+
+        var playerName = context.Session.PlayerName ?? "Someone";
 
         // Move item to room
         ctx.Move(itemId, roomId);
         context.Output($"You drop {item.ShortDescription}.");
-        return Task.CompletedTask;
+
+        // Trigger room event for NPC reactions
+        await context.TriggerRoomEventAsync(new RoomEvent
+        {
+            Type = RoomEventType.ItemDropped,
+            ActorId = context.PlayerId,
+            ActorName = playerName,
+            Target = item.ShortDescription
+        }, roomId);
     }
 }

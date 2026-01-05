@@ -8,9 +8,9 @@ using JitRealm.Mud;
 /// </summary>
 public sealed class Home : IndoorRoomBase
 {
-    public override string Name => "Wizard's Home";
+    protected override string GetDefaultName() => "Wizard's Home";
 
-    public override string Description =>
+    protected override string GetDefaultDescription() =>
         "A personal sanctuary for a wizard. " +
         "The room is sparsely furnished but comfortable, with a simple desk and chair. " +
         "Shelves await books and artifacts yet to be collected.";

@@ -40,15 +40,12 @@ public sealed class Coin : JitRealm.World.Std.ItemBase, ICoin
     /// <summary>
     /// Detailed description when examining the coins.
     /// </summary>
-    public override string LongDescription
+    protected override string GetDefaultDescription()
     {
-        get
-        {
-            var mat = Material.ToString().ToLower();
-            return Amount == 1
-                ? $"A single shiny {mat} coin with intricate engravings."
-                : $"A pile of {Amount} {mat} coins, glinting in the light.";
-        }
+        var mat = Material.ToString().ToLower();
+        return Amount == 1
+            ? $"A single shiny {mat} coin with intricate engravings."
+            : $"A pile of {Amount} {mat} coins, glinting in the light.";
     }
 
     /// <summary>

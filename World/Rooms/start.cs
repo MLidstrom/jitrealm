@@ -2,13 +2,11 @@ using System;
 using System.Collections.Generic;
 using JitRealm.Mud;
 
-public sealed class StartRoom : MudObjectBase, IRoom, IResettable, ISpawner
+public sealed class StartRoom : IndoorRoomBase, ISpawner
 {
-    // Id is assigned by the driver via MudObjectBase
+    protected override string GetDefaultName() => "The Starting Room";
 
-    public override string Name => "The Starting Room";
-
-    public string Description => "A bare room with stone walls. A flickering terminal cursor seems to watch you. A cat lounges in the corner.";
+    protected override string GetDefaultDescription() => "A bare room with stone walls. A flickering terminal cursor seems to watch you. A cat lounges in the corner.";
 
     public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
     {
@@ -30,13 +28,11 @@ public sealed class StartRoom : MudObjectBase, IRoom, IResettable, ISpawner
                   "its tail flicking lazily back and forth."
     };
 
-    public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
+    public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
         ["north"] = "Rooms/meadow.cs",
         ["east"] = "Rooms/shop.cs"
     };
-
-    public IReadOnlyList<string> Contents => Array.Empty<string>();
 
     // ISpawner implementation - spawn the rusty sword and a cat
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
@@ -50,7 +46,7 @@ public sealed class StartRoom : MudObjectBase, IRoom, IResettable, ISpawner
         // Called by the driver to replenish spawns
     }
 
-    public void Reset(IMudContext ctx)
+    public override void Reset(IMudContext ctx)
     {
         // Room reset
         ctx.Say("The room shimmers briefly.");

@@ -11,7 +11,7 @@ using JitRealm.Mud.AI;
 public sealed class Goblin : MonsterBase, IOnDamage, ILlmNpc
 {
     public override string Name => "a goblin";
-    public override string Description =>
+    protected override string GetDefaultDescription() =>
         "A small, green-skinned creature with pointed ears, yellow eyes, and sharp teeth. It watches you with cunning hostility.";
     public override int MaxHP => 30;
     public override int ExperienceValue => 30;

@@ -40,7 +40,7 @@ public class ExamineCommand : CommandBase
         var item = context.State.Objects!.Get<IItem>(itemId);
         if (item is not null)
         {
-            context.Output(item.LongDescription);
+            context.Output(item.Description);
             context.Output($"  Weight: {item.Weight} lbs");
             context.Output($"  Value: {item.Value} coins");
         }

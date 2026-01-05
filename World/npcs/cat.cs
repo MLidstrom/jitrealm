@@ -10,7 +10,7 @@ using JitRealm.Mud.AI;
 public sealed class Cat : MonsterBase, IOnDamage, ILlmNpc
 {
     public override string Name => "a cat";
-    public override string Description =>
+    protected override string GetDefaultDescription() =>
         "A small domestic cat with soft fur. It watches you with keen, intelligent eyes, its tail flicking lazily back and forth.";
     public override int MaxHP => 10;
     public override int ExperienceValue => 5;

@@ -2,13 +2,11 @@ using System;
 using System.Collections.Generic;
 using JitRealm.Mud;
 
-public sealed class Meadow : MudObjectBase, IRoom, IResettable, ISpawner
+public sealed class Meadow : OutdoorRoomBase, ISpawner
 {
-    // Id is assigned by the driver via MudObjectBase
+    protected override string GetDefaultName() => "A Quiet Meadow";
 
-    public override string Name => "A Quiet Meadow";
-
-    public string Description => "Soft grass sways in a gentle breeze. The sky is a perfect ASCII-blue. " +
+    protected override string GetDefaultDescription() => "Soft grass sways in a gentle breeze. The sky is a perfect ASCII-blue. " +
                                   "Wildflowers dot the meadow in patches of color. A goblin lurks nearby, eyeing you warily.";
 
     public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
@@ -27,12 +25,10 @@ public sealed class Meadow : MudObjectBase, IRoom, IResettable, ISpawner
                      "It feels refreshing against your skin."
     };
 
-    public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
+    public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
         ["south"] = "Rooms/start.cs"
     };
-
-    public IReadOnlyList<string> Contents => Array.Empty<string>();
 
     // ISpawner implementation - spawn one goblin in this room
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
@@ -40,7 +36,7 @@ public sealed class Meadow : MudObjectBase, IRoom, IResettable, ISpawner
         ["npcs/goblin.cs"] = 1
     };
 
-    public void Reset(IMudContext ctx)
+    public override void Reset(IMudContext ctx)
     {
         ctx.Say("The meadow rustles as creatures stir.");
     }

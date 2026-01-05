@@ -75,6 +75,8 @@ public static class CommandFactory
     private static void RegisterSocialCommands(CommandRegistry registry)
     {
         // Basic social
+        registry.Register(new SayCommand());
+        registry.Register(new EmoteCommand());
         registry.Register(new ShoutCommand());
         registry.Register(new WhisperCommand());
         registry.Register(new WhoCommand());
@@ -103,6 +105,7 @@ public static class CommandFactory
         registry.Register(new ScoreCommand());
         registry.Register(new ReadCommand());
         registry.Register(new ExchangeCommand());
+        registry.Register(new ColorsCommand());
     }
 
     private static void RegisterWizardCommands(CommandRegistry registry)

@@ -13,9 +13,9 @@ public class RustySword : JitRealm.World.Std.WeaponBase
     public override int MaxDamage => 6;
     public override string WeaponType => "sword";
 
-    public override string ShortDescription => "a rusty sword";
+    protected override string GetDefaultShortDescription() => "a rusty sword";
     public override IReadOnlyList<string> Aliases => new[] { "sword", "rusty sword", "blade", "weapon" };
-    public override string LongDescription =>
+    protected override string GetDefaultDescription() =>
         "An old sword, covered in rust and nicks. Despite its poor condition, " +
         "it could still be useful in a fight. The hilt is wrapped in faded leather.";
 

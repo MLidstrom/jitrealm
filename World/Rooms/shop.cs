@@ -10,22 +10,20 @@ using JitRealm.Mud;
 /// Implements IHasLinkedRooms to load the storage room.
 /// Stock is stored in the shop_storage room (hidden from players).
 /// </summary>
-public sealed class Shop : MudObjectBase, IRoom, IResettable, ISpawner, IHasCommands, IHasLinkedRooms
+public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRooms
 {
-    public override string Name => "The General Store";
+    protected override string GetDefaultName() => "The General Store";
 
-    public string Description =>
+    protected override string GetDefaultDescription() =>
         "A cluttered but cozy shop filled with all manner of goods. " +
         "Dusty shelves line the walls, stacked with potions, weapons, and curious trinkets. " +
         "A worn wooden counter separates the merchandise from a small backroom. " +
         "A wooden sign on the wall lists items for sale.";
 
-    public IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
+    public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
         ["west"] = "Rooms/start.cs"
     };
-
-    public IReadOnlyList<string> Contents => Array.Empty<string>();
 
     /// <summary>
     /// Spawn the shopkeeper and sign in this room.
@@ -369,7 +367,7 @@ public sealed class Shop : MudObjectBase, IRoom, IResettable, ISpawner, IHasComm
         ctx.Say("The shop seems to come alive with activity.");
     }
 
-    public void Reset(IMudContext ctx)
+    public override void Reset(IMudContext ctx)
     {
         ctx.Say("The shopkeeper tidies up the merchandise.");
     }

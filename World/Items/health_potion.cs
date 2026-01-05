@@ -10,9 +10,9 @@ public class HealthPotion : JitRealm.World.Std.ItemBase
     public override int Weight => 1;
     public override int Value => 25;
 
-    public override string ShortDescription => "a red potion";
+    protected override string GetDefaultShortDescription() => "a red potion";
     public override IReadOnlyList<string> Aliases => new[] { "potion", "red potion", "health potion", "vial", "healing potion" };
-    public override string LongDescription =>
+    protected override string GetDefaultDescription() =>
         "A small glass vial filled with a luminous red liquid. " +
         "The cork is sealed with wax. It appears to be a healing potion.";
 

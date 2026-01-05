@@ -23,11 +23,6 @@ public interface IItem : IMudObject
     string ShortDescription { get; }
 
     /// <summary>
-    /// Detailed description shown when examining the item.
-    /// </summary>
-    string LongDescription { get; }
-
-    /// <summary>
     /// Alternative names/keywords for this item used in player commands.
     /// Players can use any of these words to refer to the item.
     /// Example: ["sword", "rusty sword", "blade", "weapon"]
