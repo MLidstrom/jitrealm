@@ -2009,16 +2009,21 @@ public sealed class GameServer
             if (otherName.ToLowerInvariant().Contains(normalizedTarget) ||
                 normalizedTarget.Contains(otherName.ToLowerInvariant()))
             {
-                // Players are ILiving - display same as other livings
-                var otherLiving = _state.Objects!.Get<ILiving>(otherSession.PlayerId);
-                if (otherLiving is not null)
+                if (otherSession.IsWizard)
                 {
-                    await session.WriteLineAsync(otherLiving.Description);
-                    await session.WriteLineAsync($"  HP: {otherLiving.HP}/{otherLiving.MaxHP}");
+                    await session.WriteLineAsync($"{otherName} the Wizard is here.");
+                    await session.WriteLineAsync("  They radiate an aura of power and knowledge.");
                 }
                 else
                 {
-                    await session.WriteLineAsync($"You see {otherName} here.");
+                    // Get player stats from state store (object's Ctx isn't bound when fetched directly)
+                    var otherState = _state.Objects!.GetStateStore(otherSession.PlayerId);
+                    var level = otherState?.Get<int>("level") ?? 1;
+                    var hp = otherState?.Get<int>("hp") ?? 100;
+                    var maxHp = 100 + (level * 10);
+
+                    await session.WriteLineAsync($"{otherName} the level {level} adventurer is here.");
+                    await session.WriteLineAsync($"  HP: {hp}/{maxHp}");
                 }
                 return;
             }

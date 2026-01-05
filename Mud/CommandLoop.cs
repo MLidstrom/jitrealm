@@ -1,7 +1,9 @@
+using System.Text.Json;
 using JitRealm.Mud.Commands;
 using JitRealm.Mud.Configuration;
 using JitRealm.Mud.Network;
 using JitRealm.Mud.Persistence;
+using JitRealm.Mud.Players;
 using JitRealm.Mud.Security;
 
 namespace JitRealm.Mud;
@@ -12,6 +14,7 @@ public sealed class CommandLoop
     private readonly WorldStatePersistence _persistence;
     private readonly DriverSettings _settings;
     private readonly IClock _clock;
+    private readonly PlayerAccountService _accounts;
     private string? _playerId;
     private readonly ConsoleSession _session;
     private readonly CommandRegistry _commandRegistry;
@@ -22,6 +25,7 @@ public sealed class CommandLoop
         _persistence = persistence;
         _settings = settings;
         _clock = state.Clock;
+        _accounts = new PlayerAccountService(settings);
         _session = new ConsoleSession();
         _commandRegistry = CommandFactory.CreateRegistry();
     }
@@ -29,15 +33,23 @@ public sealed class CommandLoop
     public async Task RunAsync()
     {
         Console.WriteLine($"{_settings.Server.MudName} v{_settings.Server.Version}");
+        Console.WriteLine();
+
+        // Login or register
+        var loggedIn = await LoginOrRegisterAsync();
+        if (!loggedIn)
+        {
+            Console.WriteLine("Goodbye!");
+            return;
+        }
+
+        Console.WriteLine();
         Console.WriteLine("Commands: look, go <exit>, get <item>, drop <item>, inventory, examine <item>,");
         Console.WriteLine("          equip <item>, unequip <slot>, equipment, score,");
         Console.WriteLine("          kill <target>, flee, consider <target>,");
         Console.WriteLine("          shout <msg>, whisper <player> <msg>, who, help [cmd],");
         Console.WriteLine("          objects, blueprints, clone <bp>, destruct <id>, stat <id>,");
         Console.WriteLine("          reload <bp>, unload <bp>, reset <id>, save, load, quit");
-
-        // Create player world object
-        await CreatePlayerAsync();
 
         while (true)
         {
@@ -71,212 +83,40 @@ public sealed class CommandLoop
 
             try
             {
-                switch (cmd)
+                // Special handling for quit/exit to terminate the game loop
+                if (cmd is "quit" or "exit")
                 {
-                    case "look":
-                    case "l":
-                        if (parts.Length == 1)
-                        {
-                        await LookAsync();
-                        }
-                        else
-                        {
-                            // "look at X" or "look X" or "l X"
-                            var target = parts[1].ToLowerInvariant() == "at" && parts.Length > 2
-                                ? string.Join(" ", parts.Skip(2))
-                                : string.Join(" ", parts.Skip(1));
-                            await LookAtDetailAsync(target);
-                        }
-                        break;
+                    await LogoutPlayerAsync();
+                    return;
+                }
 
-                    case "go":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: go <exit>");
-                            break;
-                        }
-                        await GoAsync(parts[1]);
-                        break;
+                // Console-only commands that need _persistence
+                if (cmd == "save" && _session.IsWizard)
+                {
+                    await _persistence.SaveAsync(_state, _session);
+                    Console.WriteLine("World state saved.");
+                    continue;
+                }
+                if (cmd == "load" && _session.IsWizard)
+                {
+                    var loaded = await _persistence.LoadAsync(_state, _session);
+                    if (loaded)
+                    {
+                        _playerId = _session.PlayerId;
+                        Console.WriteLine("World state loaded.");
+                        await TryExecuteRegisteredCommandAsync("look", Array.Empty<string>());
+                    }
+                    else
+                    {
+                        Console.WriteLine("No saved state found.");
+                    }
+                    continue;
+                }
 
-                    case "get":
-                    case "take":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: get <item>");
-                            break;
-                        }
-                        GetItem(string.Join(" ", parts.Skip(1)));
-                        break;
-
-                    case "drop":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: drop <item>");
-                            break;
-                        }
-                        DropItem(string.Join(" ", parts.Skip(1)));
-                        break;
-
-                    case "inventory":
-                    case "inv":
-                    case "i":
-                        ShowInventory();
-                        break;
-
-                    case "examine":
-                    case "exam":
-                    case "x":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: examine <item>");
-                            break;
-                        }
-                        ExamineItem(string.Join(" ", parts.Skip(1)));
-                        break;
-
-                    case "objects":
-                        Console.WriteLine("=== Instances ===");
-                        foreach (var id in _state.Objects!.ListInstanceIds())
-                            Console.WriteLine($"  {id}");
-                        break;
-
-                    case "blueprints":
-                        Console.WriteLine("=== Blueprints ===");
-                        foreach (var id in _state.Objects!.ListBlueprintIds())
-                            Console.WriteLine($"  {id}");
-                        break;
-
-                    case "clone":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: clone <blueprintId>");
-                            break;
-                        }
-                        await CloneAsync(parts[1]);
-                        break;
-
-                    case "destruct":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: destruct <objectId>");
-                            break;
-                        }
-                        await DestructAsync(parts[1]);
-                        break;
-
-                    case "stat":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: stat <id>");
-                            break;
-                        }
-                        ShowStats(parts[1]);
-                        break;
-
-                    case "reload":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: reload <blueprintId>");
-                            break;
-                        }
-                        await _state.Objects!.ReloadBlueprintAsync(parts[1], _state);
-                        Console.WriteLine($"Reloaded blueprint {parts[1]}");
-                        break;
-
-                    case "unload":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: unload <blueprintId>");
-                            break;
-                        }
-                        await _state.Objects!.UnloadBlueprintAsync(parts[1], _state);
-                        Console.WriteLine($"Unloaded blueprint {parts[1]}");
-                        break;
-
-                    case "reset":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: reset <objectId>");
-                            break;
-                        }
-                        await ResetAsync(parts[1]);
-                        break;
-
-                    case "save":
-                        await SaveAsync();
-                        break;
-
-                    case "load":
-                        await LoadSaveAsync();
-                        break;
-
-                    case "score":
-                        ShowScore();
-                        break;
-
-                    case "equip":
-                    case "wield":
-                    case "wear":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: equip <item>");
-                            break;
-                        }
-                        EquipItem(string.Join(" ", parts.Skip(1)));
-                        break;
-
-                    case "unequip":
-                    case "remove":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: unequip <slot>");
-                            break;
-                        }
-                        UnequipSlot(string.Join(" ", parts.Skip(1)));
-                        break;
-
-                    case "equipment":
-                    case "eq":
-                        ShowEquipment();
-                        break;
-
-                    case "kill":
-                    case "attack":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: kill <target>");
-                            break;
-                        }
-                        StartCombat(string.Join(" ", parts.Skip(1)));
-                        break;
-
-                    case "flee":
-                    case "retreat":
-                        AttemptFlee();
-                        break;
-
-                    case "consider":
-                    case "con":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("Usage: consider <target>");
-                            break;
-                        }
-                        ConsiderTarget(string.Join(" ", parts.Skip(1)));
-                        break;
-
-                    case "quit":
-                    case "exit":
-                        await LogoutPlayerAsync();
-                        return;
-
-                    default:
-                        // Try the command registry for social/utility commands
-                        if (!await TryExecuteRegisteredCommandAsync(cmd, parts.Skip(1).ToArray()))
-                        {
-                            Console.WriteLine("Unknown command. Type 'help' for a list of commands.");
-                        }
-                        break;
+                // All other commands are handled through the registry
+                if (!await TryExecuteRegisteredCommandAsync(cmd, parts.Skip(1).ToArray()))
+                {
+                    Console.WriteLine("Unknown command. Type 'help' for a list of commands.");
                 }
             }
             catch (Exception ex)
@@ -286,10 +126,140 @@ public sealed class CommandLoop
         }
     }
 
-    private async Task CreatePlayerAsync()
+    private async Task<bool> LoginOrRegisterAsync()
     {
-        // Load start room first
-        var startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
+        Console.WriteLine("1. Login");
+        Console.WriteLine("2. Create new player");
+        Console.Write("Choice (1/2): ");
+
+        var choice = Console.ReadLine()?.Trim();
+        if (choice == "2")
+        {
+            return await HandleRegistrationAsync();
+        }
+        else
+        {
+            return await HandleLoginAsync();
+        }
+    }
+
+    private async Task<bool> HandleLoginAsync()
+    {
+        Console.WriteLine();
+
+        // Get player name
+        Console.Write("Enter player name: ");
+        var name = Console.ReadLine()?.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        if (!await _accounts.PlayerExistsAsync(name))
+        {
+            Console.WriteLine("Player not found.");
+            return false;
+        }
+
+        // Get password
+        Console.Write("Enter password: ");
+        var password = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(password))
+            return false;
+
+        if (!await _accounts.ValidateCredentialsAsync(name, password))
+        {
+            Console.WriteLine("Invalid password.");
+            return false;
+        }
+
+        // Load player data
+        var accountData = await _accounts.LoadPlayerDataAsync(name);
+        if (accountData is null)
+        {
+            Console.WriteLine("Error loading player data.");
+            return false;
+        }
+
+        // Update last login time
+        await _accounts.UpdateLastLoginAsync(name);
+
+        // Create player in world
+        await SetupPlayerInWorldAsync(accountData);
+        return true;
+    }
+
+    private async Task<bool> HandleRegistrationAsync()
+    {
+        Console.WriteLine();
+
+        // Get player name
+        Console.Write("Enter player name: ");
+        var name = Console.ReadLine()?.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        var nameError = PlayerAccountService.ValidatePlayerName(name);
+        if (nameError is not null)
+        {
+            Console.WriteLine(nameError);
+            return false;
+        }
+
+        if (await _accounts.PlayerExistsAsync(name))
+        {
+            Console.WriteLine("That name is already taken.");
+            return false;
+        }
+
+        // Get password
+        Console.Write("Enter password: ");
+        var password = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(password))
+            return false;
+
+        var passwordError = PlayerAccountService.ValidatePassword(password);
+        if (passwordError is not null)
+        {
+            Console.WriteLine(passwordError);
+            return false;
+        }
+
+        Console.Write("Confirm password: ");
+        var confirm = Console.ReadLine();
+        if (confirm != password)
+        {
+            Console.WriteLine("Passwords don't match.");
+            return false;
+        }
+
+        // Create account
+        var accountData = await _accounts.CreateAccountAsync(name, password);
+
+        Console.WriteLine();
+        Console.WriteLine($"Welcome to the realm, {name}!");
+
+        // Create player in world
+        await SetupPlayerInWorldAsync(accountData);
+        return true;
+    }
+
+    private async Task SetupPlayerInWorldAsync(PlayerAccountData accountData)
+    {
+        var playerName = accountData.Name;
+
+        // Determine starting location
+        var startRoomId = accountData.Location ?? _settings.Paths.StartRoom;
+
+        // Try to load the saved location, fall back to start room
+        IRoom startRoom;
+        try
+        {
+            startRoom = await _state.Objects!.LoadAsync<IRoom>(startRoomId, _state);
+        }
+        catch
+        {
+            // Fall back to start room if saved location doesn't exist
+            startRoom = await _state.Objects!.LoadAsync<IRoom>(_settings.Paths.StartRoom, _state);
+        }
 
         // Process spawns for the start room
         await _state.ProcessSpawnsAsync(startRoom.Id, _clock);
@@ -300,18 +270,85 @@ public sealed class CommandLoop
 
         // Set up the session
         _session.PlayerId = _playerId;
-        _session.PlayerName = "Player";
+        _session.PlayerName = playerName;
+        _session.IsWizard = accountData.IsWizard;
         _state.Sessions.Add(_session);
 
-        // Set player name
+        // Create context and set player name
         var ctx = CreateContextFor(_playerId);
         if (player is PlayerBase playerBase)
         {
-            playerBase.SetPlayerName("Player", ctx);
+            playerBase.SetPlayerName(playerName, ctx);
+        }
+
+        // Restore saved state if any
+        if (accountData.State is not null && accountData.State.Count > 0)
+        {
+            var stateStore = _state.Objects.GetStateStore(_playerId);
+            if (stateStore is not null)
+            {
+                foreach (var (key, value) in accountData.State)
+                {
+                    // Convert JsonElement to appropriate type
+                    object? converted = value.ValueKind switch
+                    {
+                        JsonValueKind.Number when value.TryGetInt32(out var i) => i,
+                        JsonValueKind.Number when value.TryGetInt64(out var l) => l,
+                        JsonValueKind.Number => value.GetDouble(),
+                        JsonValueKind.String => value.GetString(),
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        _ => null
+                    };
+
+                    if (converted is not null)
+                    {
+                        stateStore.Set(key, converted);
+                    }
+                }
+            }
         }
 
         // Move player to start room
-        _state.Containers.Add(_playerId, startRoom.Id);
+        _state.Containers.Add(startRoom.Id, _playerId);
+
+        // Restore inventory
+        if (accountData.Inventory is not null)
+        {
+            foreach (var itemBlueprintId in accountData.Inventory)
+            {
+                try
+                {
+                    var item = await _state.Objects.CloneAsync<IItem>(itemBlueprintId, _state);
+                    _state.Containers.Add(_playerId, item.Id);
+                }
+                catch
+                {
+                    // Skip items that fail to load
+                }
+            }
+        }
+
+        // Restore equipment
+        if (accountData.Equipment is not null)
+        {
+            foreach (var kvp in accountData.Equipment)
+            {
+                if (Enum.TryParse<EquipmentSlot>(kvp.Key, out var slot))
+                {
+                    try
+                    {
+                        var item = await _state.Objects.CloneAsync<IEquippable>(kvp.Value, _state);
+                        _state.Containers.Add(_playerId, item.Id);
+                        _state.Equipment.Equip(_playerId, slot, item.Id);
+                    }
+                    catch
+                    {
+                        // Skip equipment that fails to load
+                    }
+                }
+            }
+        }
 
         // Call login hook
         player.OnLogin(ctx);
@@ -320,12 +357,12 @@ public sealed class CommandLoop
         DisplayMessages();
 
         // Show initial room
-        await LookAsync();
+        await TryExecuteRegisteredCommandAsync("look", Array.Empty<string>());
     }
 
-    private Task LogoutPlayerAsync()
+    private async Task LogoutPlayerAsync()
     {
-        if (_playerId is null) return Task.CompletedTask;
+        if (_playerId is null || _session.PlayerName is null) return;
 
         var player = _state.Objects!.Get<IPlayer>(_playerId);
         if (player is not null)
@@ -334,333 +371,61 @@ public sealed class CommandLoop
             player.OnLogout(ctx);
             DisplayMessages();
         }
-        return Task.CompletedTask;
-    }
 
-    private async Task CloneAsync(string blueprintId)
-    {
-        var instance = await _state.Objects!.CloneAsync<IMudObject>(blueprintId, _state);
-        Console.WriteLine($"Created clone: {instance.Id}");
-
-        // If cloning into current room, add to room contents
-        var playerRoomId = GetPlayerLocation();
-        if (playerRoomId is not null)
+        try
         {
-            _state.Containers.Add(instance.Id, playerRoomId);
-            Console.WriteLine($"  (placed in {playerRoomId})");
-        }
-    }
+            // Load existing account data
+            var accountData = await _accounts.LoadPlayerDataAsync(_session.PlayerName);
+            if (accountData is null) return;
 
-    private async Task DestructAsync(string objectId)
-    {
-        // Remove from any container first
-        _state.Containers.Remove(objectId);
+            // Update location
+            accountData.Location = GetPlayerLocation();
 
-        await _state.Objects!.DestructAsync(objectId, _state);
-        Console.WriteLine($"Destructed: {objectId}");
-    }
-
-    private void ShowStats(string id)
-    {
-        var stats = _state.Objects!.GetStats(id);
-        if (stats is null)
-        {
-            Console.WriteLine($"Object not found: {id}");
-            return;
-        }
-
-        Console.WriteLine($"=== {stats.Id} ===");
-        Console.WriteLine($"  Type: {(stats.IsBlueprint ? "Blueprint" : "Instance")}");
-        Console.WriteLine($"  Blueprint: {stats.BlueprintId}");
-        Console.WriteLine($"  Class: {stats.TypeName}");
-
-        if (stats.IsBlueprint)
-        {
-            Console.WriteLine($"  Source mtime: {stats.SourceMtime}");
-            Console.WriteLine($"  Instance count: {stats.InstanceCount}");
-        }
-        else
-        {
-            Console.WriteLine($"  Created: {stats.CreatedAt}");
-            if (stats.StateKeys?.Length > 0)
-                Console.WriteLine($"  State keys: {string.Join(", ", stats.StateKeys)}");
-
-            // Show living stats if applicable
-            var obj = _state.Objects.Get<IMudObject>(id);
-            if (obj is ILiving living)
+            // Update state from IStateStore
+            var stateStore = _state.Objects.GetStateStore(_playerId);
+            if (stateStore is not null)
             {
-                Console.WriteLine($"  HP: {living.HP}/{living.MaxHP}");
-                Console.WriteLine($"  Alive: {living.IsAlive}");
-            }
-            if (obj is IPlayer player)
-            {
-                Console.WriteLine($"  Level: {player.Level}");
-                Console.WriteLine($"  Experience: {player.Experience}");
-            }
-        }
-    }
-
-    private void ShowScore()
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        var player = _state.Objects!.Get<IPlayer>(_playerId);
-        if (player is null)
-        {
-            Console.WriteLine("Player not found.");
-            return;
-        }
-
-        Console.WriteLine($"=== {player.PlayerName} ===");
-        Console.WriteLine($"  HP: {player.HP}/{player.MaxHP}");
-        Console.WriteLine($"  Level: {player.Level}");
-        Console.WriteLine($"  Experience: {player.Experience}");
-        Console.WriteLine($"  Session time: {player.SessionTime:hh\\:mm\\:ss}");
-    }
-
-    private async Task LookAsync()
-    {
-        var room = await GetCurrentRoomAsync();
-        Console.WriteLine(room.Name);
-        Console.WriteLine(room.Description);
-
-        if (room.Exits.Count > 0)
-            Console.WriteLine("Exits: " + string.Join(", ", room.Exits.Keys));
-
-        // Get contents from driver's container registry
-        var contents = _state.Containers.GetContents(room.Id);
-        if (contents.Count > 0)
-        {
-            var names = new List<string>();
-            foreach (var objId in contents)
-            {
-                // Don't show the player themselves
-                if (objId == _playerId) continue;
-
-                var obj = _state.Objects!.Get<IMudObject>(objId);
-                names.Add(obj?.Name ?? objId);
-            }
-            if (names.Count > 0)
-                Console.WriteLine("You see: " + string.Join(", ", names));
-        }
-    }
-
-    private async Task LookAtDetailAsync(string target)
-    {
-        var room = await GetCurrentRoomAsync();
-        var normalizedTarget = target.ToLowerInvariant();
-
-        // 1. Check room details first
-        foreach (var (keyword, description) in room.Details)
-        {
-            if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
-                normalizedTarget.Contains(keyword.ToLowerInvariant()))
-            {
-                Console.WriteLine(description);
-                return;
-            }
-        }
-
-        // 2. Check items in inventory
-        var ctx = CreateContextFor(_playerId!);
-        var itemId = ctx.FindItem(target, _playerId!);
-        if (itemId is not null)
-        {
-            var item = _state.Objects!.Get<IItem>(itemId);
-            if (item is not null)
-            {
-                // Check item details first
-                foreach (var (keyword, description) in item.Details)
+                accountData.State.Clear();
+                foreach (var key in stateStore.Keys)
                 {
-                    if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
-                        normalizedTarget.Contains(keyword.ToLowerInvariant()))
+                    var value = stateStore.Get<object>(key);
+                    if (value is not null)
                     {
-                        Console.WriteLine(description);
-                        return;
+                        // Convert to JsonElement for storage
+                        var json = JsonSerializer.Serialize(value);
+                        accountData.State[key] = JsonSerializer.Deserialize<JsonElement>(json);
                     }
                 }
-                // Fall back to item long description
-                Console.WriteLine(item.LongDescription);
-                return;
             }
-        }
 
-        // 3. Check all objects in room by name and aliases
-        var contents = _state.Containers.GetContents(room.Id);
-        foreach (var objId in contents)
-        {
-            if (objId == _playerId) continue;
-
-            var obj = _state.Objects!.Get<IMudObject>(objId);
-            if (obj is null) continue;
-
-            // Check if name matches
-            bool matches = obj.Name.ToLowerInvariant().Contains(normalizedTarget);
-
-            // For IItem, also check aliases and ShortDescription
-            if (!matches && obj is IItem itemObj)
+            // Update inventory (save all items, including equipped)
+            accountData.Inventory.Clear();
+            foreach (var itemId in _state.Containers.GetContents(_playerId))
             {
-                foreach (var alias in itemObj.Aliases)
-                {
-                    if (alias.ToLowerInvariant().Contains(normalizedTarget) ||
-                        normalizedTarget.Contains(alias.ToLowerInvariant()))
-                    {
-                        matches = true;
-                        break;
-                    }
-                }
-                if (!matches && itemObj.ShortDescription.ToLowerInvariant().Contains(normalizedTarget))
-                {
-                    matches = true;
-                }
+                accountData.Inventory.Add(itemId);
             }
 
-            if (matches)
+            // Update equipment
+            accountData.Equipment.Clear();
+            var equipped = _state.Equipment.GetAllEquipped(_playerId);
+            foreach (var (slot, itemId) in equipped)
             {
-                // Check object details first
-                foreach (var (keyword, description) in obj.Details)
-                {
-                    if (keyword.ToLowerInvariant().Contains(normalizedTarget) ||
-                        normalizedTarget.Contains(keyword.ToLowerInvariant()))
-                    {
-                        Console.WriteLine(description);
-                        return;
-                    }
-                }
-                // For items, show long description
-                if (obj is IItem item)
-                {
-                    Console.WriteLine(item.LongDescription);
-                    return;
-                }
-                // For livings, show their description and HP
-                if (obj is ILiving living)
-                {
-                    Console.WriteLine(living.Description);
-                    Console.WriteLine($"  HP: {living.HP}/{living.MaxHP}");
-                    return;
-                }
-                Console.WriteLine($"You see {obj.Name}.");
-                return;
+                accountData.Equipment[slot.ToString()] = itemId;
             }
+
+            // Save to file
+            await _accounts.SavePlayerDataAsync(_session.PlayerName, accountData);
+            Console.WriteLine("Player data saved.");
         }
-
-        Console.WriteLine($"You don't see '{target}' here.");
-    }
-
-    private async Task GoAsync(string exit)
-    {
-        var currentRoom = await GetCurrentRoomAsync();
-        if (!currentRoom.Exits.TryGetValue(exit, out var destId))
+        catch (Exception ex)
         {
-            Console.WriteLine("You can't go that way.");
-            return;
+            Console.WriteLine($"Error saving player data: {ex.Message}");
         }
-
-        // Call IOnLeave hook on current room (with timeout protection)
-        if (currentRoom is IOnLeave onLeave)
-        {
-            var ctx = CreateContextFor(currentRoom.Id);
-            SafeInvoker.TryInvokeHook(() => onLeave.OnLeave(ctx, _playerId!), $"OnLeave in {currentRoom.Id}");
-        }
-
-        var dest = await _state.Objects!.LoadAsync<IRoom>(destId, _state);
-
-        // Process spawns for the destination room
-        await _state.ProcessSpawnsAsync(dest.Id, _clock);
-
-        // Move player to new room via ContainerRegistry
-        _state.Containers.Move(_playerId!, dest.Id);
-
-        // Call IOnEnter hook on destination room (with timeout protection)
-        if (dest is IOnEnter onEnter)
-        {
-            var ctx = CreateContextFor(dest.Id);
-            SafeInvoker.TryInvokeHook(() => onEnter.OnEnter(ctx, _playerId!), $"OnEnter in {dest.Id}");
-        }
-
-        // Display any messages generated by the hooks
-        DisplayMessages();
-
-        await LookAsync();
     }
 
     private string? GetPlayerLocation()
     {
         return _playerId is not null ? _state.Containers.GetContainer(_playerId) : null;
-    }
-
-    private async Task<IRoom> GetCurrentRoomAsync()
-    {
-        var roomId = GetPlayerLocation() ?? throw new InvalidOperationException("Player has no location.");
-        return _state.Objects!.Get<IRoom>(roomId) ?? await _state.Objects.LoadAsync<IRoom>(roomId, _state);
-    }
-
-    private async Task ResetAsync(string objectId)
-    {
-        var obj = _state.Objects!.Get<IMudObject>(objectId);
-        if (obj is null)
-        {
-            Console.WriteLine($"Object not found: {objectId}");
-            return;
-        }
-
-        if (obj is not IResettable resettable)
-        {
-            Console.WriteLine($"Object {objectId} does not implement IResettable");
-            return;
-        }
-
-        var ctx = CreateContextFor(objectId);
-        if (SafeInvoker.TryInvokeHook(() => resettable.Reset(ctx), $"Reset in {objectId}"))
-        {
-            Console.WriteLine($"Reset: {objectId}");
-        }
-
-        // Process spawns if this is a room with ISpawner
-        if (obj is ISpawner)
-        {
-            var spawned = await _state.ProcessSpawnsAsync(objectId, _clock);
-            if (spawned > 0)
-            {
-                Console.WriteLine($"Spawned {spawned} creature(s).");
-            }
-        }
-
-        // Display any messages generated by the reset
-        DisplayMessages();
-    }
-
-    private async Task SaveAsync()
-    {
-        await _persistence.SaveAsync(_state, _session);
-        Console.WriteLine("World state saved.");
-    }
-
-    private async Task LoadSaveAsync()
-    {
-        var loaded = await _persistence.LoadAsync(_state, _session);
-        if (loaded)
-        {
-            // Restore player ID from session
-            _playerId = _session.PlayerId;
-
-            Console.WriteLine("World state loaded.");
-
-            // Re-look at current location if player has one
-            if (GetPlayerLocation() is not null)
-            {
-                await LookAsync();
-            }
-        }
-        else
-        {
-            Console.WriteLine("No saved state found.");
-        }
     }
 
     private MudContext CreateContextFor(string objectId)
@@ -732,6 +497,12 @@ public sealed class CommandLoop
 
     private string GetObjectName(string objectId)
     {
+        // Special case for the current player - use session's PlayerName
+        if (objectId == _playerId && _session.PlayerName is not null)
+        {
+            return _session.PlayerName;
+        }
+
         var obj = _state.Objects!.Get<IMudObject>(objectId);
         return obj?.Name ?? objectId;
     }
@@ -791,344 +562,6 @@ public sealed class CommandLoop
         }
     }
 
-    private void GetItem(string itemName)
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        var roomId = GetPlayerLocation();
-        if (roomId is null)
-        {
-            Console.WriteLine("You're not in a room.");
-            return;
-        }
-
-        // Find item in room
-        var ctx = CreateContextFor(_playerId);
-        var itemId = ctx.FindItem(itemName, roomId);
-        if (itemId is null)
-        {
-            Console.WriteLine($"You don't see '{itemName}' here.");
-            return;
-        }
-
-        // Check if it's a carryable item
-        var item = _state.Objects!.Get<IItem>(itemId);
-        if (item is null)
-        {
-            Console.WriteLine("That's not an item.");
-            return;
-        }
-
-        // Check weight limit
-        var player = _state.Objects.Get<IPlayer>(_playerId);
-        if (player is not null && !player.CanCarry(item.Weight))
-        {
-            Console.WriteLine($"You can't carry that much weight. (Carrying {player.CarriedWeight}/{player.CarryCapacity})");
-            return;
-        }
-
-        // Move item to player inventory
-        ctx.Move(itemId, _playerId);
-        Console.WriteLine($"You pick up {item.ShortDescription}.");
-        DisplayMessages();
-    }
-
-    private void DropItem(string itemName)
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        var roomId = GetPlayerLocation();
-        if (roomId is null)
-        {
-            Console.WriteLine("You're not in a room.");
-            return;
-        }
-
-        // Find item in inventory
-        var ctx = CreateContextFor(_playerId);
-        var itemId = ctx.FindItem(itemName, _playerId);
-        if (itemId is null)
-        {
-            Console.WriteLine($"You're not carrying '{itemName}'.");
-            return;
-        }
-
-        var item = _state.Objects!.Get<IItem>(itemId);
-        if (item is null)
-        {
-            Console.WriteLine("That's not an item.");
-            return;
-        }
-
-        // Move item to room
-        ctx.Move(itemId, roomId);
-        Console.WriteLine($"You drop {item.ShortDescription}.");
-        DisplayMessages();
-    }
-
-    private void ShowInventory()
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        var contents = _state.Containers.GetContents(_playerId);
-        if (contents.Count == 0)
-        {
-            Console.WriteLine("You are not carrying anything.");
-            return;
-        }
-
-        Console.WriteLine("You are carrying:");
-        int totalWeight = 0;
-        foreach (var itemId in contents)
-        {
-            var item = _state.Objects!.Get<IItem>(itemId);
-            if (item is not null)
-            {
-                Console.WriteLine($"  {item.ShortDescription} ({item.Weight} lbs)");
-                totalWeight += item.Weight;
-            }
-            else
-            {
-                var obj = _state.Objects.Get<IMudObject>(itemId);
-                Console.WriteLine($"  {obj?.Name ?? itemId}");
-            }
-        }
-
-        var player = _state.Objects!.Get<IPlayer>(_playerId);
-        if (player is not null)
-        {
-            Console.WriteLine($"Total weight: {totalWeight}/{player.CarryCapacity} lbs");
-        }
-    }
-
-    private void ExamineItem(string itemName)
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        var roomId = GetPlayerLocation();
-        if (roomId is null)
-        {
-            Console.WriteLine("You're not in a room.");
-            return;
-        }
-
-        // Find item in room or inventory
-        var ctx = CreateContextFor(_playerId);
-        var itemId = ctx.FindItem(itemName, _playerId);  // Check inventory first
-        if (itemId is null)
-        {
-            itemId = ctx.FindItem(itemName, roomId);  // Then check room
-        }
-
-        if (itemId is null)
-        {
-            Console.WriteLine($"You don't see '{itemName}' here.");
-            return;
-        }
-
-        var item = _state.Objects!.Get<IItem>(itemId);
-        if (item is not null)
-        {
-            Console.WriteLine(item.LongDescription);
-            Console.WriteLine($"  Weight: {item.Weight} lbs");
-            Console.WriteLine($"  Value: {item.Value} coins");
-        }
-        else
-        {
-            var obj = _state.Objects.Get<IMudObject>(itemId);
-            if (obj is not null)
-            {
-                Console.WriteLine($"{obj.Name}");
-            }
-            else
-            {
-                Console.WriteLine("You examine it closely but see nothing special.");
-            }
-        }
-    }
-
-    private void EquipItem(string itemName)
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        // Find item in inventory
-        var ctx = CreateContextFor(_playerId);
-        var itemId = ctx.FindItem(itemName, _playerId);
-        if (itemId is null)
-        {
-            Console.WriteLine($"You're not carrying '{itemName}'.");
-            return;
-        }
-
-        var item = _state.Objects!.Get<IEquippable>(itemId);
-        if (item is null)
-        {
-            Console.WriteLine("That can't be equipped.");
-            return;
-        }
-
-        // Check if something is already equipped in that slot
-        var existingItemId = _state.Equipment.GetEquipped(_playerId, item.Slot);
-        if (existingItemId is not null)
-        {
-            var existingItem = _state.Objects.Get<IEquippable>(existingItemId);
-            if (existingItem is not null)
-            {
-                // Unequip existing item first
-                var existingItemCtx = CreateContextFor(existingItemId);
-                existingItem.OnUnequip(_playerId, existingItemCtx);
-                Console.WriteLine($"You remove {existingItem.ShortDescription}.");
-            }
-        }
-
-        // Equip the new item
-        _state.Equipment.Equip(_playerId, item.Slot, itemId);
-
-        // Call OnEquip hook
-        var itemCtx = CreateContextFor(itemId);
-        item.OnEquip(_playerId, itemCtx);
-
-        Console.WriteLine($"You equip {item.ShortDescription} ({item.Slot}).");
-        DisplayMessages();
-    }
-
-    private void UnequipSlot(string slotName)
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        // Try to parse slot name
-        if (!Enum.TryParse<EquipmentSlot>(slotName, ignoreCase: true, out var slot))
-        {
-            // Try partial match
-            var matchingSlots = Enum.GetValues<EquipmentSlot>()
-                .Where(s => s.ToString().StartsWith(slotName, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (matchingSlots.Count == 1)
-            {
-                slot = matchingSlots[0];
-            }
-            else if (matchingSlots.Count > 1)
-            {
-                Console.WriteLine($"Ambiguous slot '{slotName}'. Did you mean: {string.Join(", ", matchingSlots)}?");
-                return;
-            }
-            else
-            {
-                Console.WriteLine($"Unknown slot '{slotName}'. Valid slots: {string.Join(", ", Enum.GetNames<EquipmentSlot>())}");
-                return;
-            }
-        }
-
-        // Check if something is equipped in that slot
-        var itemId = _state.Equipment.GetEquipped(_playerId, slot);
-        if (itemId is null)
-        {
-            Console.WriteLine($"Nothing is equipped in {slot}.");
-            return;
-        }
-
-        var item = _state.Objects!.Get<IEquippable>(itemId);
-        if (item is not null)
-        {
-            // Call OnUnequip hook
-            var itemCtx = CreateContextFor(itemId);
-            item.OnUnequip(_playerId, itemCtx);
-        }
-
-        // Unequip the item
-        _state.Equipment.Unequip(_playerId, slot);
-
-        Console.WriteLine($"You unequip {item?.ShortDescription ?? itemId}.");
-        DisplayMessages();
-    }
-
-    private void ShowEquipment()
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        var equipped = _state.Equipment.GetAllEquipped(_playerId);
-        if (equipped.Count == 0)
-        {
-            Console.WriteLine("You have nothing equipped.");
-            return;
-        }
-
-        Console.WriteLine("You have equipped:");
-        foreach (var slot in Enum.GetValues<EquipmentSlot>())
-        {
-            if (equipped.TryGetValue(slot, out var itemId))
-            {
-                var item = _state.Objects!.Get<IItem>(itemId);
-                var desc = item?.ShortDescription ?? itemId;
-
-                // Add extra info for weapons/armor
-                if (item is IWeapon weapon)
-                {
-                    desc += $" ({weapon.MinDamage}-{weapon.MaxDamage} dmg)";
-                }
-                else if (item is IArmor armor)
-                {
-                    desc += $" ({armor.ArmorClass} AC)";
-                }
-
-                Console.WriteLine($"  {slot,-12}: {desc}");
-            }
-        }
-
-        // Show totals
-        int totalAC = 0;
-        int minDmg = 0, maxDmg = 0;
-        foreach (var kvp in equipped)
-        {
-            var item = _state.Objects!.Get<IItem>(kvp.Value);
-            if (item is IArmor armor)
-            {
-                totalAC += armor.ArmorClass;
-            }
-            if (item is IWeapon weapon)
-            {
-                minDmg += weapon.MinDamage;
-                maxDmg += weapon.MaxDamage;
-            }
-        }
-
-        if (totalAC > 0 || maxDmg > 0)
-        {
-            Console.WriteLine();
-            if (totalAC > 0) Console.WriteLine($"Total Armor Class: {totalAC}");
-            if (maxDmg > 0) Console.WriteLine($"Weapon Damage: {minDmg}-{maxDmg}");
-        }
-    }
-
     private void ProcessCombat()
     {
         void SendMessage(string targetId, string message)
@@ -1171,190 +604,5 @@ public sealed class CommandLoop
 
             Console.WriteLine($"{victim?.Name ?? victimId} has been slain!");
         }
-    }
-
-    private void StartCombat(string targetName)
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        // Check if already in combat
-        if (_state.Combat.IsInCombat(_playerId))
-        {
-            var currentTarget = _state.Combat.GetCombatTarget(_playerId);
-            var currentTargetObj = _state.Objects!.Get<IMudObject>(currentTarget!);
-            Console.WriteLine($"You are already fighting {currentTargetObj?.Name ?? currentTarget}!");
-            return;
-        }
-
-        var roomId = GetPlayerLocation();
-        if (roomId is null)
-        {
-            Console.WriteLine("You're not in a room.");
-            return;
-        }
-
-        // Find target in room
-        var targetId = FindTargetInRoom(targetName, roomId);
-        if (targetId is null)
-        {
-            Console.WriteLine($"You don't see '{targetName}' here.");
-            return;
-        }
-
-        // Can't attack yourself
-        if (targetId == _playerId)
-        {
-            Console.WriteLine("You can't attack yourself!");
-            return;
-        }
-
-        // Check if target is a living thing
-        var target = _state.Objects!.Get<ILiving>(targetId);
-        if (target is null)
-        {
-            Console.WriteLine("You can't attack that.");
-            return;
-        }
-
-        if (!target.IsAlive)
-        {
-            Console.WriteLine($"{target.Name} is already dead.");
-            return;
-        }
-
-        // Start combat
-        _state.Combat.StartCombat(_playerId, targetId, _clock.Now);
-
-        Console.WriteLine($"You attack {target.Name}!");
-
-        // If target is not already in combat, they fight back
-        if (!_state.Combat.IsInCombat(targetId))
-        {
-            _state.Combat.StartCombat(targetId, _playerId, _clock.Now);
-        }
-    }
-
-    private void AttemptFlee()
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        if (!_state.Combat.IsInCombat(_playerId))
-        {
-            Console.WriteLine("You're not in combat.");
-            return;
-        }
-
-        var exitDir = _state.Combat.AttemptFlee(_playerId, _state, _clock);
-
-        if (exitDir is null)
-        {
-            Console.WriteLine("You fail to escape!");
-            return;
-        }
-
-        Console.WriteLine($"You flee to the {exitDir}!");
-
-        // Actually move the player
-        Task.Run(async () => await GoAsync(exitDir)).Wait();
-    }
-
-    private void ConsiderTarget(string targetName)
-    {
-        if (_playerId is null)
-        {
-            Console.WriteLine("No player.");
-            return;
-        }
-
-        var roomId = GetPlayerLocation();
-        if (roomId is null)
-        {
-            Console.WriteLine("You're not in a room.");
-            return;
-        }
-
-        // Find target in room
-        var targetId = FindTargetInRoom(targetName, roomId);
-        if (targetId is null)
-        {
-            Console.WriteLine($"You don't see '{targetName}' here.");
-            return;
-        }
-
-        var target = _state.Objects!.Get<ILiving>(targetId);
-        if (target is null)
-        {
-            Console.WriteLine("You can't fight that.");
-            return;
-        }
-
-        var player = _state.Objects.Get<ILiving>(_playerId);
-        if (player is null)
-        {
-            Console.WriteLine("Error getting player stats.");
-            return;
-        }
-
-        // Compare levels/HP
-        var playerPower = player.MaxHP;
-        var targetPower = target.MaxHP;
-
-        string difficulty;
-        if (targetPower < playerPower * 0.5)
-            difficulty = "an easy target";
-        else if (targetPower < playerPower * 0.8)
-            difficulty = "a fair fight";
-        else if (targetPower < playerPower * 1.2)
-            difficulty = "a challenging opponent";
-        else if (targetPower < playerPower * 2.0)
-            difficulty = "a dangerous foe";
-        else
-            difficulty = "certain death";
-
-        Console.WriteLine($"{target.Name} looks like {difficulty}.");
-        Console.WriteLine($"  HP: {target.HP}/{target.MaxHP}");
-
-        if (target is IHasEquipment equipped)
-        {
-            Console.WriteLine($"  Armor Class: {equipped.TotalArmorClass}");
-            var (min, max) = equipped.WeaponDamage;
-            if (max > 0)
-            {
-                Console.WriteLine($"  Weapon Damage: {min}-{max}");
-            }
-        }
-    }
-
-    private string? FindTargetInRoom(string name, string roomId)
-    {
-        if (_state.Objects is null)
-            return null;
-
-        var normalizedName = name.ToLowerInvariant();
-        var contents = _state.Containers.GetContents(roomId);
-
-        foreach (var objId in contents)
-        {
-            if (objId == _playerId)
-                continue;  // Skip self
-
-            var obj = _state.Objects.Get<IMudObject>(objId);
-            if (obj is null)
-                continue;
-
-            // Check if object name contains the search term (case-insensitive)
-            if (obj.Name.ToLowerInvariant().Contains(normalizedName))
-                return objId;
-        }
-
-        return null;
     }
 }

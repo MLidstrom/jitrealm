@@ -26,6 +26,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Configuration** (v0.15): appsettings.json for driver settings (port, paths, combat, security, player defaults)
 - **Player Accounts** (v0.16): Login/registration with SHA256 passwords, persistent player data (state, inventory, equipment, location)
 - **Wizard Tools** (v0.17): Filesystem navigation (pwd, ls, cd, cat, more, edit), teleportation (goto), wizard homes, performance diagnostics (perf)
+- **Unified Commands** (v0.18): All commands use single CommandRegistry system, consistent behavior between console and telnet modes
 - **LLM-Powered NPCs**: AI-driven NPC behavior via OpenAI-compatible APIs (configurable), context-aware reactions to room events
 - **Rich Terminal Output**: ANSI colors via Spectre.Console, toggleable per-session with `colors on|off`
 - **Command History**: Up/down arrows navigate command history, with full line editing (left/right, home/end, Ctrl+K/U)
@@ -186,7 +187,7 @@ Edit `appsettings.json` to customize driver settings:
     "MaxConnections": 0,
     "WelcomeMessage": "Welcome to JitRealm, {PlayerName}!",
     "MudName": "JitRealm",
-    "Version": "0.17"
+    "Version": "0.18"
   },
   "Paths": {
     "WorldDirectory": "World",

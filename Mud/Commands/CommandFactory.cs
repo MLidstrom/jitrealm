@@ -1,3 +1,7 @@
+using JitRealm.Mud.Commands.Combat;
+using JitRealm.Mud.Commands.Equipment;
+using JitRealm.Mud.Commands.Inventory;
+using JitRealm.Mud.Commands.Navigation;
 using JitRealm.Mud.Commands.Social;
 using JitRealm.Mud.Commands.Utility;
 using JitRealm.Mud.Commands.Wizard;
@@ -16,6 +20,18 @@ public static class CommandFactory
     {
         var registry = new CommandRegistry();
 
+        // Register navigation commands
+        RegisterNavigationCommands(registry);
+
+        // Register inventory commands
+        RegisterInventoryCommands(registry);
+
+        // Register equipment commands
+        RegisterEquipmentCommands(registry);
+
+        // Register combat commands
+        RegisterCombatCommands(registry);
+
         // Register social commands
         RegisterSocialCommands(registry);
 
@@ -26,6 +42,34 @@ public static class CommandFactory
         RegisterWizardCommands(registry);
 
         return registry;
+    }
+
+    private static void RegisterNavigationCommands(CommandRegistry registry)
+    {
+        registry.Register(new LookCommand());
+        registry.Register(new GoCommand());
+    }
+
+    private static void RegisterInventoryCommands(CommandRegistry registry)
+    {
+        registry.Register(new GetCommand());
+        registry.Register(new DropCommand());
+        registry.Register(new InventoryCommand());
+        registry.Register(new ExamineCommand());
+    }
+
+    private static void RegisterEquipmentCommands(CommandRegistry registry)
+    {
+        registry.Register(new EquipCommand());
+        registry.Register(new UnequipCommand());
+        registry.Register(new EquipmentCommand());
+    }
+
+    private static void RegisterCombatCommands(CommandRegistry registry)
+    {
+        registry.Register(new KillCommand());
+        registry.Register(new FleeCommand());
+        registry.Register(new ConsiderCommand());
     }
 
     private static void RegisterSocialCommands(CommandRegistry registry)
@@ -81,5 +125,7 @@ public static class CommandFactory
         registry.Register(new MoreCommand());
         registry.Register(new EditCommand());
         registry.Register(new LeditCommand());
+        // Note: save/load commands are handled directly in CommandLoop
+        // because they require access to _persistence which isn't in CommandContext
     }
 }

@@ -20,52 +20,67 @@ public class ScoreCommand : CommandBase
             return Task.CompletedTask;
         }
 
-        context.Output($"=== {player.Name} ===");
-        context.Output("");
+        // Use session's PlayerName since the object's Ctx isn't bound
+        var playerName = context.Session.PlayerName ?? "Unknown";
 
-        // Health
-        var hpPercent = player.MaxHP > 0 ? (player.HP * 100 / player.MaxHP) : 0;
-        var hpBar = CreateBar(player.HP, player.MaxHP, 20);
-        context.Output($"HP: [{hpBar}] {player.HP}/{player.MaxHP} ({hpPercent}%)");
-
-        // Level & Experience
-        context.Output("");
-        context.Output($"Level: {player.Level}");
-        context.Output($"Experience: {player.Experience}");
-
-        // Calculate XP to next level (same formula as PlayerBase)
-        var xpForNext = CalculateXpForLevel(player.Level + 1);
-        var xpNeeded = xpForNext - player.Experience;
-        if (xpNeeded > 0)
+        if (context.IsWizard)
         {
-            context.Output($"XP to next level: {xpNeeded}");
-        }
-
-        // Equipment stats
-        if (player is IHasEquipment equipped)
-        {
+            // Wizard display - they transcend mortal concerns
+            context.Output($"=== {playerName} the Wizard ===");
             context.Output("");
-            context.Output("Combat Stats:");
-            var (minDmg, maxDmg) = equipped.WeaponDamage;
-            context.Output($"  Weapon Damage: {minDmg}-{maxDmg}");
-            context.Output($"  Armor Class: {equipped.TotalArmorClass}");
+            context.Output("You are a Wizard - master of the realm.");
+            context.Output("Mortal concerns like HP and experience do not apply to you.");
         }
-
-        // Inventory capacity
-        context.Output("");
-        context.Output("Inventory:");
-        context.Output($"  Carrying: {player.CarriedWeight}/{player.CarryCapacity} lbs");
-
-        // Combat status
-        if (context.State.Combat.IsInCombat(context.PlayerId))
+        else
         {
-            var targetId = context.State.Combat.GetCombatTarget(context.PlayerId);
-            var target = targetId is not null ? context.State.Objects?.Get<IMudObject>(targetId) : null;
+            // Regular player display
+            context.Output($"=== {playerName} ===");
             context.Output("");
-            context.Output($"In combat with: {target?.Name ?? targetId}");
+
+            // Health
+            var hpPercent = player.MaxHP > 0 ? (player.HP * 100 / player.MaxHP) : 0;
+            var hpBar = CreateBar(player.HP, player.MaxHP, 20);
+            context.Output($"HP: [{hpBar}] {player.HP}/{player.MaxHP} ({hpPercent}%)");
+
+            // Level & Experience
+            context.Output("");
+            context.Output($"Level: {player.Level}");
+            context.Output($"Experience: {player.Experience}");
+
+            // Calculate XP to next level (same formula as PlayerBase)
+            var xpForNext = CalculateXpForLevel(player.Level + 1);
+            var xpNeeded = xpForNext - player.Experience;
+            if (xpNeeded > 0)
+            {
+                context.Output($"XP to next level: {xpNeeded}");
+            }
+
+            // Equipment stats
+            if (player is IHasEquipment equipped)
+            {
+                context.Output("");
+                context.Output("Combat Stats:");
+                var (minDmg, maxDmg) = equipped.WeaponDamage;
+                context.Output($"  Weapon Damage: {minDmg}-{maxDmg}");
+                context.Output($"  Armor Class: {equipped.TotalArmorClass}");
+            }
+
+            // Inventory capacity
+            context.Output("");
+            context.Output("Inventory:");
+            context.Output($"  Carrying: {player.CarriedWeight}/{player.CarryCapacity} lbs");
+
+            // Combat status
+            if (context.State.Combat.IsInCombat(context.PlayerId))
+            {
+                var targetId = context.State.Combat.GetCombatTarget(context.PlayerId);
+                var target = targetId is not null ? context.State.Objects?.Get<IMudObject>(targetId) : null;
+                context.Output("");
+                context.Output($"In combat with: {target?.Name ?? targetId}");
+            }
         }
 
-        // Session info
+        // Session info (shown for both wizards and players)
         context.Output("");
         context.Output($"Session time: {FormatTimeSpan(player.SessionTime)}");
 
