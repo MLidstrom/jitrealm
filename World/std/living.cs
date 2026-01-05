@@ -18,6 +18,16 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Only one event is queued at a time to prevent spam.
     /// </summary>
     private RoomEvent? _pendingLlmEvent;
+
+    /// <summary>
+    /// Timestamp of last LLM response to prevent spam.
+    /// </summary>
+    private DateTime _lastLlmResponseTime = DateTime.MinValue;
+
+    /// <summary>
+    /// Whether we're currently processing an LLM request (prevent concurrent calls).
+    /// </summary>
+    private bool _isProcessingLlm;
     /// <summary>
     /// Cached context for property access.
     /// Set during OnLoad.
@@ -81,6 +91,12 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Default is 0 (no wandering).
     /// </summary>
     public virtual int WanderChance => 0;
+
+    /// <summary>
+    /// Minimum time between LLM responses to prevent spam (in seconds).
+    /// Override to customize. Default is 3 seconds.
+    /// </summary>
+    protected virtual double LlmCooldownSeconds => 3.0;
 
     /// <summary>
     /// The direction this living last came from.
@@ -359,26 +375,40 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     protected bool HasPendingLlmEvent => _pendingLlmEvent is not null;
 
     /// <summary>
-    /// Queue an LLM event for processing on the next heartbeat.
+    /// Queue an LLM event for processing. Speech events are processed immediately
+    /// if not on cooldown; other events wait for next heartbeat.
     /// Call this from OnRoomEventAsync in ILlmNpc implementations.
     /// </summary>
     /// <param name="event">The room event to queue.</param>
     /// <param name="ctx">The MUD context.</param>
-    /// <returns>A completed task.</returns>
-    protected Task QueueLlmEvent(RoomEvent @event, IMudContext ctx)
+    /// <returns>A task that completes when the event is queued (or processed for immediate events).</returns>
+    protected async Task QueueLlmEvent(RoomEvent @event, IMudContext ctx)
     {
         // Don't respond if dead
-        if (!IsAlive) return Task.CompletedTask;
+        if (!IsAlive) return;
 
         // Don't respond if LLM is disabled
-        if (!ctx.IsLlmEnabled) return Task.CompletedTask;
+        if (!ctx.IsLlmEnabled) return;
 
         // Don't react to own actions
-        if (@event.ActorId == ctx.CurrentObjectId) return Task.CompletedTask;
+        if (@event.ActorId == ctx.CurrentObjectId) return;
 
-        // Queue the event for processing on next heartbeat
-        _pendingLlmEvent = @event;
-        return Task.CompletedTask;
+        // Check if we're on cooldown
+        var timeSinceLastResponse = (DateTime.UtcNow - _lastLlmResponseTime).TotalSeconds;
+        var isOnCooldown = timeSinceLastResponse < LlmCooldownSeconds;
+
+        // Speech events get immediate processing if not on cooldown and not already processing
+        if (@event.Type == RoomEventType.Speech && !isOnCooldown && !_isProcessingLlm)
+        {
+            // Process immediately for faster response
+            await ProcessLlmEventNow(@event, ctx);
+        }
+        else if (!isOnCooldown)
+        {
+            // Queue other events for heartbeat processing
+            _pendingLlmEvent = @event;
+        }
+        // If on cooldown, silently ignore the event
     }
 
     /// <summary>
@@ -406,32 +436,58 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     protected virtual async void ProcessPendingLlmEvent(IMudContext ctx)
     {
         // Only process if we implement ILlmNpc
-        if (this is not ILlmNpc llmNpc) return;
+        if (this is not ILlmNpc) return;
         if (_pendingLlmEvent is null || !IsAlive || !ctx.IsLlmEnabled) return;
+
+        // Check cooldown
+        var timeSinceLastResponse = (DateTime.UtcNow - _lastLlmResponseTime).TotalSeconds;
+        if (timeSinceLastResponse < LlmCooldownSeconds) return;
 
         var eventToProcess = _pendingLlmEvent;
         _pendingLlmEvent = null;
 
-        // Build full environmental context (pass 'this' as ILiving)
-        var npcContext = ctx.BuildNpcContext(this);
-        var environmentDesc = npcContext.BuildEnvironmentDescription();
-        var actionInstructions = npcContext.BuildActionInstructions();
-        var reactionInstructions = GetLlmReactionInstructions(eventToProcess);
+        await ProcessLlmEventNow(eventToProcess, ctx);
+    }
 
-        var userPrompt = $"{environmentDesc}\n\n{actionInstructions}\n\n[Event: {eventToProcess.Description}]\n\n{reactionInstructions}";
+    /// <summary>
+    /// Process an LLM event immediately (used for speech and heartbeat processing).
+    /// </summary>
+    private async Task ProcessLlmEventNow(RoomEvent eventToProcess, IMudContext ctx)
+    {
+        if (this is not ILlmNpc llmNpc) return;
+        if (_isProcessingLlm) return; // Prevent concurrent LLM calls
 
-        var response = await ctx.LlmCompleteAsync(llmNpc.SystemPrompt, userPrompt);
-        if (!string.IsNullOrEmpty(response))
+        _isProcessingLlm = true;
+        try
         {
-            // Check if the NPC decided not to react
-            var lower = response.ToLowerInvariant();
-            if (lower.Contains("no reaction") || lower.Contains("ignores") || lower.Contains("doesn't react"))
-                return;
+            // Build full environmental context (pass 'this' as ILiving)
+            var npcContext = ctx.BuildNpcContext(this);
+            var environmentDesc = npcContext.BuildEnvironmentDescription();
+            var actionInstructions = npcContext.BuildActionInstructions();
+            var reactionInstructions = GetLlmReactionInstructions(eventToProcess);
 
-            // Parse and execute the response
-            await ctx.ExecuteLlmResponseAsync(response,
-                canSpeak: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanSpeak),
-                canEmote: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanEmote));
+            var userPrompt = $"{environmentDesc}\n\n{actionInstructions}\n\n[Event: {eventToProcess.Description}]\n\n{reactionInstructions}";
+
+            var response = await ctx.LlmCompleteAsync(llmNpc.SystemPrompt, userPrompt);
+            if (!string.IsNullOrEmpty(response))
+            {
+                // Check if the NPC decided not to react
+                var lower = response.ToLowerInvariant();
+                if (lower.Contains("no reaction") || lower.Contains("ignores") || lower.Contains("doesn't react"))
+                    return;
+
+                // Update cooldown timestamp
+                _lastLlmResponseTime = DateTime.UtcNow;
+
+                // Parse and execute the response
+                await ctx.ExecuteLlmResponseAsync(response,
+                    canSpeak: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanSpeak),
+                    canEmote: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanEmote));
+            }
+        }
+        finally
+        {
+            _isProcessingLlm = false;
         }
     }
 
