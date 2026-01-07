@@ -50,6 +50,11 @@ public sealed class DriverSettings
     /// Display and formatting settings.
     /// </summary>
     public DisplaySettings Display { get; set; } = new();
+
+    /// <summary>
+    /// Persistent NPC memory/goals and shared world knowledge base settings.
+    /// </summary>
+    public MemorySettings Memory { get; set; } = new();
 }
 
 /// <summary>

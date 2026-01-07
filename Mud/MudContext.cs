@@ -281,7 +281,7 @@ public sealed class MudContext : IMudContext
         return await _llmService.CompleteAsync(systemPrompt, userMessage);
     }
 
-    public NpcContext BuildNpcContext(ILiving npc)
+    public async Task<NpcContext> BuildNpcContextAsync(ILiving npc, string? focalPlayerName = null)
     {
         var npcId = (npc as IMudObject)?.Id ?? CurrentObjectId ?? "unknown";
         var roomId = RoomId ?? _internalWorld.Containers.GetContainer(npcId);
@@ -372,6 +372,62 @@ public sealed class MudContext : IMudContext
             ? llmNpc.Capabilities
             : NpcCapabilities.Humanoid;
 
+        // Long-term per-NPC memory + world KB (optional)
+        var longTermMemories = Array.Empty<string>();
+        var worldFacts = Array.Empty<string>();
+        string? goalSummary = null;
+
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is not null)
+        {
+            try
+            {
+                // Goal (small, single-row)
+                var goal = await memorySystem.Goals.GetAsync(npcId);
+                if (goal is not null)
+                {
+                    goalSummary = string.IsNullOrWhiteSpace(goal.TargetPlayer)
+                        ? $"{goal.GoalType} ({goal.Status})"
+                        : $"{goal.GoalType} -> {goal.TargetPlayer} ({goal.Status})";
+                }
+
+                // Memories (bounded)
+                var memTopK = memorySystem.DefaultMemoryTopK;
+                var mems = await memorySystem.NpcMemory.RecallAsync(new NpcMemoryRecallQuery(
+                    NpcId: npcId,
+                    SubjectPlayer: focalPlayerName,
+                    Tags: Array.Empty<string>(),
+                    TopK: memTopK,
+                    CandidateLimit: memorySystem.CandidateLimit,
+                    QueryEmbedding: null));
+                if (mems.Count > 0)
+                {
+                    longTermMemories = mems
+                        .Select(m => $"{m.Kind}: {m.Content}")
+                        .ToArray();
+                }
+
+                // World KB (tagged by room/area, best-effort)
+                var kbTags = roomId is not null
+                    ? new[] { $"room:{roomId}", $"area:{roomId.Split('/').FirstOrDefault() ?? roomId}" }
+                    : Array.Empty<string>();
+                if (kbTags.Length > 0)
+                {
+                    var kb = await memorySystem.WorldKnowledge.SearchByTagsAsync(kbTags, memorySystem.DefaultKbTopK);
+                    if (kb.Count > 0)
+                    {
+                        worldFacts = kb
+                            .Select(e => $"{e.Key}: {e.Value.RootElement.ToString()}")
+                            .ToArray();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Memory] WARNING: Failed to retrieve memory/goal/KB for {npcId}: {ex.Message}");
+            }
+        }
+
         return new NpcContext
         {
             NpcId = npcId,
@@ -390,7 +446,10 @@ public sealed class MudContext : IMudContext
             PlayersInRoom = players,
             NpcsInRoom = npcs,
             ItemsInRoom = items,
-            RecentEvents = recentEvents.ToList()
+            RecentEvents = recentEvents.ToList(),
+            LongTermMemories = longTermMemories,
+            WorldKnowledge = worldFacts,
+            GoalSummary = goalSummary
         };
     }
 
@@ -434,5 +493,96 @@ public sealed class MudContext : IMudContext
             return;
 
         await _internalWorld.NpcCommands.ExecuteLlmResponseAsync(CurrentObjectId, response, canSpeak, canEmote, interactorId);
+    }
+
+    // Coin methods
+
+    public int GetCopperValue(string containerId)
+    {
+        return CoinHelper.GetTotalCopperValue(_internalWorld, containerId);
+    }
+
+    public async Task AddCoinsAsync(string containerId, int copperAmount)
+    {
+        if (copperAmount <= 0)
+            return;
+
+        // Calculate optimal breakdown
+        var gold = copperAmount / 10000;
+        var remaining = copperAmount % 10000;
+        var silver = remaining / 100;
+        var copper = remaining % 100;
+
+        // Add each denomination
+        if (gold > 0)
+            await CoinHelper.AddCoinsAsync(_internalWorld, containerId, gold, CoinMaterial.Gold);
+        if (silver > 0)
+            await CoinHelper.AddCoinsAsync(_internalWorld, containerId, silver, CoinMaterial.Silver);
+        if (copper > 0)
+            await CoinHelper.AddCoinsAsync(_internalWorld, containerId, copper, CoinMaterial.Copper);
+    }
+
+    public async Task<bool> DeductCoinsAsync(string containerId, int copperAmount)
+    {
+        return await CoinHelper.DeductCoinsAsync(_internalWorld, containerId, copperAmount);
+    }
+
+    // Goal methods
+
+    public async Task<bool> SetGoalAsync(string goalType, string? targetPlayer = null, string status = "active", int importance = 50)
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        var goal = new NpcGoal(
+            NpcId: CurrentObjectId,
+            GoalType: goalType,
+            TargetPlayer: targetPlayer,
+            Params: System.Text.Json.JsonDocument.Parse("{}"),
+            Status: status,
+            Importance: importance,
+            UpdatedAt: DateTimeOffset.UtcNow);
+
+        await memorySystem.Goals.UpsertAsync(goal);
+        return true;
+    }
+
+    public async Task<bool> ClearGoalAsync(string goalType)
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        await memorySystem.Goals.ClearAsync(CurrentObjectId, goalType);
+        return true;
+    }
+
+    public async Task<bool> ClearAllGoalsAsync(bool preserveSurvival = true)
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        await memorySystem.Goals.ClearAllAsync(CurrentObjectId, preserveSurvival);
+        return true;
+    }
+
+    public async Task<NpcGoal?> GetGoalAsync()
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return null;
+
+        return await memorySystem.Goals.GetAsync(CurrentObjectId);
+    }
+
+    public async Task<IReadOnlyList<NpcGoal>> GetAllGoalsAsync()
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return Array.Empty<NpcGoal>();
+
+        return await memorySystem.Goals.GetAllAsync(CurrentObjectId);
     }
 }

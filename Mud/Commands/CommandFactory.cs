@@ -57,6 +57,8 @@ public static class CommandFactory
         registry.Register(new GiveCommand());
         registry.Register(new InventoryCommand());
         registry.Register(new ExamineCommand());
+        registry.Register(new EatCommand());
+        registry.Register(new DrinkCommand());
     }
 
     private static void RegisterEquipmentCommands(CommandRegistry registry)
@@ -130,6 +132,7 @@ public static class CommandFactory
         registry.Register(new EditCommand());
         registry.Register(new LeditCommand());
         registry.Register(new WhereCommand());
+        registry.Register(new GoalCommand());
         // Note: save/load commands are handled directly in CommandLoop
         // because they require access to _persistence which isn't in CommandContext
     }

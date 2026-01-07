@@ -188,6 +188,24 @@ public class CommandContext
             var obj = State.Objects.Get<IMudObject>(objId);
             if (obj is ILlmNpc llmNpc)
             {
+                // Persistent per-NPC memory promotion (best-effort, non-blocking)
+                var memorySystem = State.MemorySystem;
+                if (memorySystem is not null)
+                {
+                    try
+                    {
+                        var write = MemoryPromotionRules.TryCreateObserverMemory(State, objId, obj, roomEvent, roomId);
+                        if (write is not null)
+                        {
+                            memorySystem.TryEnqueueMemoryWrite(write);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[Memory] Promotion failed: {ex.Message}");
+                    }
+                }
+
                 var ctx = CreateContext(objId);
                 await llmNpc.OnRoomEventAsync(roomEvent, ctx);
             }

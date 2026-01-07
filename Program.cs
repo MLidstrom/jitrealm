@@ -6,13 +6,29 @@ using JitRealm.Mud.Network;
 using JitRealm.Mud.Persistence;
 using Microsoft.Extensions.Configuration;
 
-// Load configuration from appsettings.json
+// Load .env file if present (check project root and bin directory)
+var envPaths = new[]
+{
+    Path.Combine(Directory.GetCurrentDirectory(), ".env"),  // Project root (development)
+    Path.Combine(AppContext.BaseDirectory, ".env")          // Bin directory (production)
+};
+foreach (var path in envPaths)
+{
+    if (File.Exists(path))
+    {
+        DotNetEnv.Env.Load(path);
+        break;
+    }
+}
+
+// Load configuration from appsettings.json + environment variables
 var baseDir = AppContext.BaseDirectory;
 var configPath = Path.Combine(baseDir, "appsettings.json");
 
 var configuration = new ConfigurationBuilder()
     .SetBasePath(baseDir)
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables("JITREALM_")
     .Build();
 
 var settings = new DriverSettings();
@@ -59,6 +75,25 @@ if (settings.Llm.Enabled)
     var llmService = new OllamaLlmService(settings.Llm);
     state.LlmService = llmService;
     Console.WriteLine($"LLM service enabled: {settings.Llm.Provider} ({settings.Llm.Model})");
+}
+
+// Set up persistent NPC memory/goals system (Postgres + optional pgvector)
+NpcMemorySystem? memorySystem = null;
+if (settings.Memory.Enabled)
+{
+    try
+    {
+        memorySystem = await NpcMemorySystem.CreateAsync(settings.Memory);
+        state.MemorySystem = memorySystem;
+        Console.WriteLine("[Memory] Persistent NPC memory/goals enabled (PostgreSQL).");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Memory] Failed to initialize memory system: {ex.Message}");
+        Console.WriteLine("[Memory] Continuing without persistent NPC memory/goals.");
+        memorySystem = null;
+        state.MemorySystem = null;
+    }
 }
 
 // Set up persistence
@@ -110,4 +145,9 @@ else
     // CommandLoop now handles player creation as a world object
     var loop = new CommandLoop(state, persistence, settings, autoPlayer, autoPassword);
     await loop.RunAsync();
+}
+
+if (memorySystem is not null)
+{
+    await memorySystem.DisposeAsync();
 }

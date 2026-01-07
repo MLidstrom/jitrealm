@@ -65,8 +65,17 @@ public class LookCommand : CommandBase
                 }
                 else if (obj is ILiving living)
                 {
-                    // Use ShortDescription for living entities (includes article)
-                    names.Add(living.ShortDescription);
+                    if (obj is IPlayer)
+                    {
+                        // Show player name (not "a <name>")
+                        var session = context.State.Sessions.GetByPlayerId(objId);
+                        names.Add(session?.PlayerName ?? obj.Name);
+                    }
+                    else
+                    {
+                        // Use ShortDescription for non-player living entities (includes article)
+                        names.Add(living.ShortDescription);
+                    }
                 }
                 else if (obj is IItem item)
                 {

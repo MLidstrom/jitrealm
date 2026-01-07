@@ -67,6 +67,11 @@ public sealed class NpcContext
     // Recent events the NPC witnessed
     public required IReadOnlyList<string> RecentEvents { get; init; }
 
+    // Persistent memory and goals (optional)
+    public IReadOnlyList<string> LongTermMemories { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> WorldKnowledge { get; init; } = Array.Empty<string>();
+    public string? GoalSummary { get; init; }
+
     /// <summary>
     /// Check if this NPC has a specific capability.
     /// </summary>
@@ -138,6 +143,30 @@ public sealed class NpcContext
             foreach (var evt in RecentEvents.TakeLast(5))
             {
                 lines.Add($"- {evt}");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(GoalSummary))
+        {
+            lines.Add($"\n[Current goal:]");
+            lines.Add($"- {GoalSummary}");
+        }
+
+        if (LongTermMemories.Count > 0)
+        {
+            lines.Add($"\n[Your memories of past interactions - you REMEMBER these people:]");
+            foreach (var mem in LongTermMemories.Take(10))
+            {
+                lines.Add($"- {mem}");
+            }
+        }
+
+        if (WorldKnowledge.Count > 0)
+        {
+            lines.Add($"\n[World knowledge (shared facts):]");
+            foreach (var fact in WorldKnowledge.Take(10))
+            {
+                lines.Add($"- {fact}");
             }
         }
 

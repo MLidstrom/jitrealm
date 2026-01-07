@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace JitRealm.Mud.Commands.Utility;
 
 /// <summary>
@@ -25,6 +27,21 @@ public class HelpCommand : CommandBase
             // Show general help
             var summary = _registry.GetHelpSummary(context.IsWizard);
             context.Output(summary);
+
+            // Show local commands if any
+            var localDispatcher = new LocalCommandDispatcher(context.State);
+            var localCommands = localDispatcher.GetAvailableCommands(context.PlayerId).ToList();
+            if (localCommands.Count > 0)
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine();
+                sb.AppendLine("Local Commands (context-sensitive):");
+                foreach (var (source, cmd) in localCommands)
+                {
+                    sb.AppendLine($"  {cmd.Usage,-20} - {cmd.Description} [{source}]");
+                }
+                context.Output(sb.ToString().TrimEnd());
+            }
         }
         else
         {
@@ -33,7 +50,17 @@ public class HelpCommand : CommandBase
             var help = _registry.GetCommandHelp(commandName);
             if (help is null)
             {
-                context.Output($"Unknown command: {commandName}");
+                // Try local command help
+                var localDispatcher = new LocalCommandDispatcher(context.State);
+                var localHelp = localDispatcher.GetCommandHelp(context.PlayerId, commandName);
+                if (localHelp is not null)
+                {
+                    context.Output(localHelp);
+                }
+                else
+                {
+                    context.Output($"Unknown command: {commandName}");
+                }
             }
             else
             {

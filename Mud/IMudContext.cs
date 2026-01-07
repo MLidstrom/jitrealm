@@ -132,8 +132,9 @@ public interface IMudContext
     /// Includes room description, other entities, items, and recent events.
     /// </summary>
     /// <param name="npc">The NPC living object to build context for.</param>
+    /// <param name="focalPlayerName">Optional stable player account/name the NPC is interacting with (for memory retrieval).</param>
     /// <returns>NpcContext with complete environmental information.</returns>
-    NpcContext BuildNpcContext(ILiving npc);
+    Task<NpcContext> BuildNpcContextAsync(ILiving npc, string? focalPlayerName = null);
 
     /// <summary>
     /// Record an event that NPCs in the room can observe.
@@ -162,4 +163,67 @@ public interface IMudContext
     /// <param name="canEmote">Whether the NPC can emote.</param>
     /// <param name="interactorId">Optional ID of who the NPC is responding to (for "player" resolution).</param>
     Task ExecuteLlmResponseAsync(string response, bool canSpeak, bool canEmote, string? interactorId = null);
+
+    // Coin methods (for shops and commerce)
+
+    /// <summary>
+    /// Get total coin value in copper for a container.
+    /// </summary>
+    /// <param name="containerId">ID of the container to check.</param>
+    /// <returns>Total value in copper (1 GC = 10000 CC, 1 SC = 100 CC).</returns>
+    int GetCopperValue(string containerId);
+
+    /// <summary>
+    /// Add coins to a container, merging with existing piles.
+    /// </summary>
+    /// <param name="containerId">ID of the container to add coins to.</param>
+    /// <param name="copperAmount">Amount in copper to add (will be broken into optimal denominations).</param>
+    Task AddCoinsAsync(string containerId, int copperAmount);
+
+    /// <summary>
+    /// Deduct coins from a container, with proper change handling.
+    /// </summary>
+    /// <param name="containerId">ID of the container to deduct from.</param>
+    /// <param name="copperAmount">Amount in copper to deduct.</param>
+    /// <returns>True if successful, false if insufficient funds.</returns>
+    Task<bool> DeductCoinsAsync(string containerId, int copperAmount);
+
+    // Goal methods (for NPC goals)
+
+    /// <summary>
+    /// Set a goal for the current NPC. Goals are stackable with priority based on importance.
+    /// Lower importance = higher priority. Use GoalImportance constants.
+    /// </summary>
+    /// <param name="goalType">Type of goal (e.g., "help_customer", "patrol", "survive").</param>
+    /// <param name="targetPlayer">Optional player the goal relates to.</param>
+    /// <param name="status">Goal status (default "active").</param>
+    /// <param name="importance">Priority level (1=highest/survival, 50=default, 100=background).</param>
+    /// <returns>True if goal was set, false if memory system unavailable.</returns>
+    Task<bool> SetGoalAsync(string goalType, string? targetPlayer = null, string status = "active", int importance = 50);
+
+    /// <summary>
+    /// Clear a specific goal type for the current NPC.
+    /// </summary>
+    /// <param name="goalType">Type of goal to clear.</param>
+    /// <returns>True if cleared, false if memory system unavailable.</returns>
+    Task<bool> ClearGoalAsync(string goalType);
+
+    /// <summary>
+    /// Clear all goals for the current NPC (except survival goal by default).
+    /// </summary>
+    /// <param name="preserveSurvival">If true, keeps the survival goal.</param>
+    /// <returns>True if cleared, false if memory system unavailable.</returns>
+    Task<bool> ClearAllGoalsAsync(bool preserveSurvival = true);
+
+    /// <summary>
+    /// Get the highest priority (lowest importance) goal for the current NPC.
+    /// </summary>
+    /// <returns>The highest priority goal, or null if none set.</returns>
+    Task<NpcGoal?> GetGoalAsync();
+
+    /// <summary>
+    /// Get all goals for the current NPC, ordered by importance (highest priority first).
+    /// </summary>
+    /// <returns>List of goals ordered by importance.</returns>
+    Task<IReadOnlyList<NpcGoal>> GetAllGoalsAsync();
 }

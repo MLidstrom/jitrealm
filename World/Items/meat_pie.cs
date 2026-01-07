@@ -5,10 +5,11 @@ using JitRealm.Mud;
 /// A hearty meat pie from The Sleepy Dragon tavern.
 /// Consumable - restores 15 HP when eaten.
 /// </summary>
-public class MeatPie : JitRealm.World.Std.ItemBase, IUsable
+public class MeatPie : JitRealm.World.Std.ItemBase, IConsumable
 {
     public override int Weight => 2;
     public override int Value => 15;
+    public ConsumptionType ConsumptionType => ConsumptionType.Food;
 
     protected override string GetDefaultShortDescription() => "a meat pie";
     public override IReadOnlyList<string> Aliases => new[]

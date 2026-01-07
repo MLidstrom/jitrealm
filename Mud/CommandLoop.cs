@@ -18,8 +18,10 @@ public sealed class CommandLoop
     private string? _playerId;
     private readonly ConsoleSession _session;
     private readonly CommandRegistry _commandRegistry;
+    private readonly LocalCommandDispatcher _localCommands;
     private readonly string? _autoPlayer;
     private readonly string? _autoPassword;
+    private volatile bool _waitingForInput;
 
     public CommandLoop(WorldState state, WorldStatePersistence persistence, DriverSettings settings,
         string? autoPlayer = null, string? autoPassword = null)
@@ -31,8 +33,52 @@ public sealed class CommandLoop
         _accounts = new PlayerAccountService(settings);
         _session = new ConsoleSession();
         _commandRegistry = CommandFactory.CreateRegistry();
+        _localCommands = new LocalCommandDispatcher(state);
         _autoPlayer = autoPlayer;
         _autoPassword = autoPassword;
+
+        // Register immediate message delivery for async LLM responses
+        _state.Messages.ImmediateDeliveryHandler = DeliverMessageImmediately;
+    }
+
+    /// <summary>
+    /// Deliver a message immediately when enqueued (used for async LLM responses in single-player mode).
+    /// Returns true if delivered (skip queue), false to queue for later.
+    /// </summary>
+    private bool DeliverMessageImmediately(MudMessage msg)
+    {
+        var playerRoomId = GetPlayerLocation();
+
+        // Filter messages by relevance to player
+        var shouldDisplay = msg.Type switch
+        {
+            MessageType.Tell => msg.ToId == _playerId,
+            MessageType.Say => msg.RoomId == playerRoomId && msg.FromId != _playerId,
+            MessageType.Emote => msg.RoomId == playerRoomId && msg.FromId != _playerId,
+            _ => false
+        };
+
+        if (!shouldDisplay)
+            return false;
+
+        // Format message based on type
+        var formatted = msg.Type switch
+        {
+            MessageType.Tell => $"{GetObjectName(msg.FromId)} tells you: {msg.Content}",
+            MessageType.Say => $"{GetObjectName(msg.FromId)} says: {msg.Content}",
+            MessageType.Emote => $"{GetObjectName(msg.FromId)} {msg.Content}",
+            _ => msg.Content
+        };
+
+        Console.WriteLine(formatted);
+
+        // Redraw prompt if we're waiting for input (async message arrived during ReadLine)
+        if (_waitingForInput)
+        {
+            Console.Write("> ");
+        }
+
+        return true;
     }
 
     public async Task RunAsync()
@@ -81,7 +127,9 @@ public sealed class CommandLoop
             DisplayMessages();
 
             Console.Write("> ");
+            _waitingForInput = true;
             var input = Console.ReadLine();
+            _waitingForInput = false;
             if (input is null)
             {
                 // When stdin is closed/redirected (e.g. background run), ReadLine() can return null immediately,
@@ -131,7 +179,21 @@ public sealed class CommandLoop
                 // All other commands are handled through the registry
                 if (!await TryExecuteRegisteredCommandAsync(cmd, parts.Skip(1).ToArray()))
                 {
-                    Console.WriteLine("Unknown command. Type 'help' for a list of commands.");
+                    // Try local commands from room/inventory/equipment
+                    var handled = await _localCommands.TryExecuteAsync(
+                        _playerId!,
+                        cmd,
+                        parts.Skip(1).ToArray(),
+                        CreateContextFor);
+
+                    if (handled)
+                    {
+                        DisplayMessages();
+                    }
+                    else
+                    {
+                        Console.WriteLine("Unknown command. Type 'help' for a list of commands.");
+                    }
                 }
             }
             catch (Exception ex)

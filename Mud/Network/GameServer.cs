@@ -47,6 +47,56 @@ public sealed class GameServer
         _telnet = new TelnetServer(settings.Server.Port);
 
         _telnet.OnClientConnected += OnClientConnected;
+
+        // Register immediate message delivery for async LLM responses
+        _state.Messages.ImmediateDeliveryHandler = DeliverMessageImmediately;
+    }
+
+    /// <summary>
+    /// Deliver a message immediately when enqueued (used for async LLM responses).
+    /// Returns true if delivered (skip queue), false to queue for later.
+    /// </summary>
+    private bool DeliverMessageImmediately(MudMessage msg)
+    {
+        var delivered = false;
+
+        switch (msg.Type)
+        {
+            case MessageType.Tell:
+                // Direct message to a player
+                var targetSession = msg.ToId is not null
+                    ? _state.Sessions.GetByPlayerId(msg.ToId)
+                    : null;
+                if (targetSession is not null)
+                {
+                    var formatted = $"{GetObjectName(msg.FromId)} tells you: {msg.Content}";
+                    _ = targetSession.WriteLineAsync(formatted);
+                    delivered = true;
+                }
+                break;
+
+            case MessageType.Say:
+            case MessageType.Emote:
+                // Room broadcast
+                if (msg.RoomId is not null)
+                {
+                    var formatted = msg.Type == MessageType.Say
+                        ? $"{GetObjectName(msg.FromId)} says: {msg.Content}"
+                        : $"{GetObjectName(msg.FromId)} {msg.Content}";
+
+                    var sessions = _state.Sessions.GetSessionsInRoom(msg.RoomId, _state.Containers.GetContainer);
+                    foreach (var session in sessions)
+                    {
+                        // Don't echo room messages back to the sender
+                        if (session.PlayerId == msg.FromId) continue;
+                        _ = session.WriteLineAsync(formatted);
+                        delivered = true;
+                    }
+                }
+                break;
+        }
+
+        return delivered;
     }
 
     public int Port => _telnet.Port;
@@ -828,6 +878,11 @@ public sealed class GameServer
             {
                 objectNames.Add(item.ShortDescription);
             }
+            else if (obj is LivingBase living)
+            {
+                // Non-player living: show short room-facing description ("a shopkeeper")
+                objectNames.Add(living.ShortDescription);
+            }
             else if (obj is not null)
             {
                 objectNames.Add(obj.Name);
@@ -953,6 +1008,9 @@ public sealed class GameServer
             return session.PlayerName;
 
         var obj = _state.Objects!.Get<IMudObject>(objectId);
+        if (obj is LivingBase living && obj is not IPlayer)
+            return living.ShortDescription;
+
         return obj?.Name ?? objectId;
     }
 

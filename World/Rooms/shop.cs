@@ -48,21 +48,20 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         new("sell", Array.Empty<string>(), "sell <item>", "Sell an item from your inventory"),
     };
 
-    public Task HandleLocalCommandAsync(string command, string[] args, string playerId, IMudContext ctx)
+    public async Task HandleLocalCommandAsync(string command, string[] args, string playerId, IMudContext ctx)
     {
         switch (command)
         {
             case "buy":
-                HandleBuy(args, playerId, ctx);
+                await HandleBuyAsync(args, playerId, ctx);
                 break;
             case "sell":
-                HandleSell(args, playerId, ctx);
+                await HandleSellAsync(args, playerId, ctx);
                 break;
         }
-        return Task.CompletedTask;
     }
 
-    private void HandleBuy(string[] args, string playerId, IMudContext ctx)
+    private async Task HandleBuyAsync(string[] args, string playerId, IMudContext ctx)
     {
         if (args.Length == 0)
         {
@@ -99,7 +98,7 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         var priceCopper = CalculatePriceCopper(item.Value);
 
         // Check player's total coin value
-        var playerWealth = GetPlayerCopperValue(playerId, ctx);
+        var playerWealth = ctx.GetCopperValue(playerId);
 
         if (playerWealth < priceCopper)
         {
@@ -115,15 +114,15 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
             return;
         }
 
-        // Deduct coins from player
-        DeductCoins(playerId, priceCopper, ctx);
+        // Deduct coins from player (with proper change)
+        await ctx.DeductCoinsAsync(playerId, priceCopper);
         ctx.Move(itemId, playerId);
 
         ctx.Tell(playerId, $"You purchase {item.ShortDescription} for {FormatPrice(priceCopper)}.");
         ctx.Say($"Thanks for your purchase!");
     }
 
-    private void HandleSell(string[] args, string playerId, IMudContext ctx)
+    private async Task HandleSellAsync(string[] args, string playerId, IMudContext ctx)
     {
         if (args.Length == 0)
         {
@@ -162,8 +161,8 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         // Find storage room to move item to (or just destruct it)
         var storageId = FindStorageRoom(ctx);
 
-        // Give coins to player (optimal breakdown)
-        AddCoins(playerId, sellPriceCopper, ctx);
+        // Give coins to player (with optimal breakdown)
+        await ctx.AddCoinsAsync(playerId, sellPriceCopper);
 
         // Move item to storage (or remove from world if no storage)
         if (storageId != null)
@@ -214,142 +213,6 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         if (copper > 0) parts.Add($"{copper} CC");
 
         return parts.Count > 0 ? string.Join(", ", parts) : "0 CC";
-    }
-
-    /// <summary>
-    /// Get total value of player's coins in copper.
-    /// </summary>
-    private static int GetPlayerCopperValue(string playerId, IMudContext ctx)
-    {
-        int total = 0;
-        var inventory = ctx.World.GetRoomContents(playerId);
-        foreach (var itemId in inventory)
-        {
-            var coin = ctx.World.GetObject<ICoin>(itemId);
-            if (coin != null)
-            {
-                total += coin.Amount * (int)coin.Material;
-            }
-        }
-        return total;
-    }
-
-    /// <summary>
-    /// Deduct coins from player, converting as needed.
-    /// </summary>
-    private static void DeductCoins(string playerId, int copperAmount, IMudContext ctx)
-    {
-        // Get current coin amounts
-        var inventory = ctx.World.GetRoomContents(playerId);
-        int goldAmt = 0, silverAmt = 0, copperAmt = 0;
-        string? goldId = null, silverId = null, copperId = null;
-
-        foreach (var itemId in inventory)
-        {
-            var coin = ctx.World.GetObject<ICoin>(itemId);
-            if (coin != null)
-            {
-                switch (coin.Material)
-                {
-                    case CoinMaterial.Gold:
-                        goldAmt = coin.Amount;
-                        goldId = itemId;
-                        break;
-                    case CoinMaterial.Silver:
-                        silverAmt = coin.Amount;
-                        silverId = itemId;
-                        break;
-                    case CoinMaterial.Copper:
-                        copperAmt = coin.Amount;
-                        copperId = itemId;
-                        break;
-                }
-            }
-        }
-
-        // Convert to total copper and deduct
-        var totalCopper = goldAmt * 10000 + silverAmt * 100 + copperAmt;
-        var remaining = totalCopper - copperAmount;
-
-        // Calculate new optimal breakdown
-        var newGold = remaining / 10000;
-        var rem = remaining % 10000;
-        var newSilver = rem / 100;
-        var newCopper = rem % 100;
-
-        // Update or remove coin piles
-        UpdateCoinPile(goldId, newGold, CoinMaterial.Gold, playerId, ctx);
-        UpdateCoinPile(silverId, newSilver, CoinMaterial.Silver, playerId, ctx);
-        UpdateCoinPile(copperId, newCopper, CoinMaterial.Copper, playerId, ctx);
-    }
-
-    /// <summary>
-    /// Add coins to player with optimal breakdown.
-    /// </summary>
-    private static void AddCoins(string playerId, int copperAmount, IMudContext ctx)
-    {
-        // Calculate optimal breakdown
-        var gold = copperAmount / 10000;
-        var remaining = copperAmount % 10000;
-        var silver = remaining / 100;
-        var copper = remaining % 100;
-
-        if (gold > 0) AddCoinPile(playerId, gold, CoinMaterial.Gold, ctx);
-        if (silver > 0) AddCoinPile(playerId, silver, CoinMaterial.Silver, ctx);
-        if (copper > 0) AddCoinPile(playerId, copper, CoinMaterial.Copper, ctx);
-    }
-
-    /// <summary>
-    /// Update a coin pile's amount or remove if zero.
-    /// </summary>
-    private static void UpdateCoinPile(string? pileId, int newAmount, CoinMaterial material, string playerId, IMudContext ctx)
-    {
-        if (newAmount <= 0)
-        {
-            // Would need to remove, but we can't destruct from world code
-            // Just set amount to 0 - it will be cleaned up later
-            if (pileId != null)
-            {
-                var state = ctx.World.GetStateStore(pileId);
-                state?.Set("amount", 0);
-            }
-        }
-        else if (pileId != null)
-        {
-            var state = ctx.World.GetStateStore(pileId);
-            state?.Set("amount", newAmount);
-        }
-        else if (newAmount > 0)
-        {
-            // Need to create new pile - use AddCoinPile
-            AddCoinPile(playerId, newAmount, material, ctx);
-        }
-    }
-
-    /// <summary>
-    /// Add coins to a container, merging with existing pile if any.
-    /// </summary>
-    private static void AddCoinPile(string containerId, int amount, CoinMaterial material, IMudContext ctx)
-    {
-        // Find existing pile
-        var inventory = ctx.World.GetRoomContents(containerId);
-        foreach (var itemId in inventory)
-        {
-            var coin = ctx.World.GetObject<ICoin>(itemId);
-            if (coin != null && coin.Material == material)
-            {
-                // Add to existing pile
-                var state = ctx.World.GetStateStore(itemId);
-                var current = state?.Get<int>("amount") ?? 0;
-                state?.Set("amount", current + amount);
-                return;
-            }
-        }
-
-        // No existing pile - need to create one
-        // Since we can't clone from world code, we'll just add to state and hope for the best
-        // Actually, world code can use ctx.CloneAsync if available... let's check the interface
-        // For now, we'll rely on the caller having coins already
     }
 
     private string? FindStorageRoom(IMudContext ctx)

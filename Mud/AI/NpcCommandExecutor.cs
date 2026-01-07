@@ -23,6 +23,13 @@ public sealed class NpcCommandExecutor
     // Regex to match command markup: [cmd:command args] or {cmd:command args}
     private static readonly Regex CommandMarkupPattern = new(@"[\[{]cmd:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // Regex to match goal markup: [goal:type] or [goal:type target] or {goal:type}
+    private static readonly Regex GoalMarkupPattern = new(@"[\[{]goal:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Regex to match goal clear: [goal:clear], [goal:done], [goal:clear type], etc.
+    // Captures the full content after goal: for patterns starting with clear/done/complete/none
+    private static readonly Regex GoalClearPattern = new(@"[\[{]goal:((?:clear|done|complete|none)(?:\s+[^\]}]*)?)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // Commands that NPCs are forbidden from using via [cmd:...] markup
     private static readonly HashSet<string> ForbiddenCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -84,8 +91,12 @@ public sealed class NpcCommandExecutor
                 }
             }
 
-            // Remove command markups from response for further parsing
+            // Process goal markups [goal:type] or [goal:clear]
+            await ProcessGoalMarkupsAsync(npcId, response);
+
+            // Remove command and goal markups from response for further parsing
             var cleanResponse = CommandMarkupPattern.Replace(response, "").Trim();
+            cleanResponse = GoalMarkupPattern.Replace(cleanResponse, "").Trim();
             if (string.IsNullOrWhiteSpace(cleanResponse))
                 return;
 
@@ -107,14 +118,27 @@ public sealed class NpcCommandExecutor
                     }
                 }
 
-                // No speech before emote, execute the emote only
+                // No speech before emote, check the emote content
+                // Groups[2] = text inside *asterisks*, Groups[3] = text inside [brackets]
+                var emoteText = match.Groups[2].Success
+                    ? match.Groups[2].Value.Trim()
+                    : match.Groups[3].Value.Trim();
+
+                // Check if the "emote" is actually speech wrapped in asterisks (e.g., *"Hello!"*)
+                // This happens when LLMs wrap speech in asterisks by mistake
+                if (canSpeak && LooksLikeSpeech(emoteText))
+                {
+                    var speech = CleanSpeech(emoteText);
+                    if (!string.IsNullOrEmpty(speech))
+                    {
+                        await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
+                        return;
+                    }
+                }
+
+                // It's a real emote, execute it
                 if (canEmote)
                 {
-                    // Groups[2] = text inside *asterisks*, Groups[3] = text inside [brackets]
-                    var emoteText = match.Groups[2].Success
-                        ? match.Groups[2].Value.Trim()
-                        : match.Groups[3].Value.Trim();
-
                     // Clean emote text - remove any inner asterisks or brackets the LLM may have added
                     emoteText = CleanEmote(emoteText);
                     if (!string.IsNullOrWhiteSpace(emoteText))
@@ -140,6 +164,28 @@ public sealed class NpcCommandExecutor
             // Clear the interactor context
             _currentInteractorId = null;
         }
+    }
+
+    /// <summary>
+    /// Check if text inside emote markers (*...*) is actually speech.
+    /// LLMs sometimes wrap speech in asterisks like *"Hello!"*
+    /// </summary>
+    private static bool LooksLikeSpeech(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var trimmed = text.Trim();
+
+        // If it starts with a quote, it's probably speech
+        if (trimmed.StartsWith('"') || trimmed.StartsWith('"') || trimmed.StartsWith('\''))
+            return true;
+
+        // If it ends with a quote and contains mostly dialogue-like content
+        if (trimmed.EndsWith('"') || trimmed.EndsWith('"') || trimmed.EndsWith('\''))
+            return true;
+
+        return false;
     }
 
     /// <summary>
@@ -906,6 +952,81 @@ public sealed class NpcCommandExecutor
             "southwest" or "sw" => "northeast",
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Process goal markups in the LLM response.
+    /// [goal:type] or [goal:type target] sets a goal with default importance.
+    /// [goal:clear] clears all goals (except survival).
+    /// [goal:clear type] clears a specific goal type.
+    /// [goal:done type] marks a specific goal as complete (clears it).
+    /// </summary>
+    private async Task ProcessGoalMarkupsAsync(string npcId, string response)
+    {
+        var memorySystem = _state.MemorySystem;
+        if (memorySystem is null)
+            return;
+
+        // Check for goal clear patterns
+        var clearMatch = GoalClearPattern.Match(response);
+        if (clearMatch.Success)
+        {
+            var clearContent = clearMatch.Groups[1].Value.Trim().ToLowerInvariant();
+
+            // [goal:clear type] - clear specific goal type
+            var clearParts = clearContent.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (clearParts.Length > 1)
+            {
+                await memorySystem.Goals.ClearAsync(npcId, clearParts[1]);
+            }
+            else
+            {
+                // [goal:clear] - clear all goals except survival
+                await memorySystem.Goals.ClearAllAsync(npcId, preserveSurvival: true);
+            }
+            return;
+        }
+
+        // Check for goal set
+        var match = GoalMarkupPattern.Match(response);
+        if (!match.Success)
+            return;
+
+        var goalContent = match.Groups[1].Value.Trim();
+        if (string.IsNullOrWhiteSpace(goalContent))
+            return;
+
+        // Skip if this is a clear pattern (already handled above)
+        if (goalContent.StartsWith("clear", StringComparison.OrdinalIgnoreCase) ||
+            goalContent.StartsWith("done", StringComparison.OrdinalIgnoreCase) ||
+            goalContent.StartsWith("complete", StringComparison.OrdinalIgnoreCase) ||
+            goalContent.Equals("none", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        // Parse goal: first word is type, rest is target (optional)
+        var parts = goalContent.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var goalType = parts[0].ToLowerInvariant();
+        var targetPlayer = parts.Length > 1 ? parts[1].Trim() : null;
+
+        // Normalize "player" target to actual interactor if available
+        if (targetPlayer?.Equals("player", StringComparison.OrdinalIgnoreCase) == true && _currentInteractorId is not null)
+        {
+            // Try to get player name from session
+            var session = _state.Sessions.GetByPlayerId(_currentInteractorId);
+            if (session?.PlayerName is not null)
+                targetPlayer = session.PlayerName;
+        }
+
+        var goal = new NpcGoal(
+            NpcId: npcId,
+            GoalType: goalType,
+            TargetPlayer: targetPlayer,
+            Params: System.Text.Json.JsonDocument.Parse("{}"),
+            Status: "active",
+            Importance: GoalImportance.Default,  // LLM-set goals use default importance
+            UpdatedAt: DateTimeOffset.UtcNow);
+
+        await memorySystem.Goals.UpsertAsync(goal);
     }
 
     /// <summary>

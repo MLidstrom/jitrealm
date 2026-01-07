@@ -30,6 +30,12 @@ public sealed class WorldState
     public ILlmService? LlmService { get; set; }
 
     /// <summary>
+    /// Optional persistent memory/goals system for NPCs and world knowledge.
+    /// Set during server initialization if enabled.
+    /// </summary>
+    public NpcMemorySystem? MemorySystem { get; set; }
+
+    /// <summary>
     /// The clock backing schedulers and time-based systems.
     /// Prefer reusing this clock instead of allocating new clocks per operation.
     /// </summary>

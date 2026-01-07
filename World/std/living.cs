@@ -30,7 +30,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     private bool _isProcessingLlm;
 
     /// <summary>
-    /// Engagement tracking - maps player ID to last interaction timestamp.
+    /// Engagement tracking - maps a stable player identifier (account/name) to last interaction timestamp.
     /// Engaged players get immediate responses without needing to say the NPC's name.
     /// </summary>
     private readonly Dictionary<string, DateTime> _engagedWith = new();
@@ -133,15 +133,15 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Check if this NPC is currently engaged with a specific player.
     /// Engagement expires after EngagementTimeoutSeconds.
     /// </summary>
-    protected bool IsEngagedWith(string playerId)
+    protected bool IsEngagedWith(string playerKey)
     {
-        if (!_engagedWith.TryGetValue(playerId, out var lastInteraction))
+        if (!_engagedWith.TryGetValue(playerKey, out var lastInteraction))
             return false;
 
         var elapsed = (DateTime.UtcNow - lastInteraction).TotalSeconds;
         if (elapsed > EngagementTimeoutSeconds)
         {
-            _engagedWith.Remove(playerId);
+            _engagedWith.Remove(playerKey);
             return false;
         }
         return true;
@@ -150,17 +150,17 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// <summary>
     /// Engage this NPC with a player (called when NPC responds or is directly addressed).
     /// </summary>
-    protected void EngageWith(string playerId)
+    protected void EngageWith(string playerKey)
     {
-        _engagedWith[playerId] = DateTime.UtcNow;
+        _engagedWith[playerKey] = DateTime.UtcNow;
     }
 
     /// <summary>
     /// Clear engagement with a player (called on departure).
     /// </summary>
-    protected void DisengageFrom(string playerId)
+    protected void DisengageFrom(string playerKey)
     {
-        _engagedWith.Remove(playerId);
+        _engagedWith.Remove(playerKey);
     }
 
     /// <summary>
@@ -227,9 +227,9 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
     /// <summary>
     /// Minimum time between LLM responses for non-speech events (in seconds).
-    /// Override to customize. Default is 3 seconds.
+    /// Override to customize. Default is 2 seconds.
     /// </summary>
-    protected virtual double LlmCooldownSeconds => 3.0;
+    protected virtual double LlmCooldownSeconds => 2.0;
 
     /// <summary>
     /// Minimum time between speech responses (in seconds).
@@ -314,6 +314,53 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         if (!HasStateKey(ctx, "description"))
         {
             ctx.State.Set("description", GetDefaultDescription());
+        }
+
+        // Apply survival goal and any default goals
+        ApplyDefaultGoalsIfNeeded(ctx);
+    }
+
+    /// <summary>
+    /// Apply survival goal (all living entities) and default goals from IHasDefaultGoal.
+    /// Goals are stackable by type - survival is always highest priority.
+    /// </summary>
+    private async void ApplyDefaultGoalsIfNeeded(IMudContext ctx)
+    {
+        var myId = ctx.CurrentObjectId;
+        if (string.IsNullOrEmpty(myId))
+            return;
+
+        try
+        {
+            // Get existing goals to avoid duplicates
+            var existingGoals = await ctx.GetAllGoalsAsync();
+            var existingTypes = new HashSet<string>(existingGoals.Select(g => g.GoalType));
+
+            // Always set survival goal if not present (highest priority)
+            if (!existingTypes.Contains("survive"))
+            {
+                await ctx.SetGoalAsync(
+                    "survive",
+                    targetPlayer: null,
+                    status: "active",
+                    importance: GoalImportance.Survival);
+            }
+
+            // Apply default goal from IHasDefaultGoal if not present
+            if (this is IHasDefaultGoal hasDefault &&
+                !string.IsNullOrWhiteSpace(hasDefault.DefaultGoalType) &&
+                !existingTypes.Contains(hasDefault.DefaultGoalType))
+            {
+                await ctx.SetGoalAsync(
+                    hasDefault.DefaultGoalType,
+                    hasDefault.DefaultGoalTarget,
+                    "active",
+                    hasDefault.DefaultGoalImportance);
+            }
+        }
+        catch
+        {
+            // Silently ignore errors (goal store may not be available)
         }
     }
 
@@ -521,14 +568,15 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     protected bool HasPendingLlmEvent => _pendingLlmEvent is not null;
 
     /// <summary>
-    /// Queue an LLM event for processing. Speech events are processed immediately
-    /// if not on cooldown; other events wait for next heartbeat.
+    /// Queue an LLM event for heartbeat processing.
     /// Call this from OnRoomEventAsync in ILlmNpc implementations.
     /// </summary>
     /// <param name="event">The room event to queue.</param>
     /// <param name="ctx">The MUD context.</param>
-    /// <returns>A task that completes when the event is queued (or processed for immediate events).</returns>
+    /// <returns>A task that completes when the event is queued.</returns>
+#pragma warning disable CS1998 // Async method without await - async signature for concurrent access
     protected async Task QueueLlmEvent(RoomEvent @event, IMudContext ctx)
+#pragma warning restore CS1998
     {
         // Don't respond if dead
         if (!IsAlive) return;
@@ -542,31 +590,42 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         // Clear engagement when someone leaves the room
         if (@event.Type == RoomEventType.Departure)
         {
-            DisengageFrom(@event.ActorId);
+            DisengageFrom(@event.ActorName);
             // Still process the event so NPC might react (e.g., "waves goodbye")
         }
 
         // Check if this event is directed at us (speech, combat target, given item, etc.)
         var isDirectedAtUs = IsEventDirectedAtNpc(@event, ctx);
 
-        // Check if we're on cooldown (directed events have shorter cooldown for responsive interaction)
-        var timeSinceLastResponse = (DateTime.UtcNow - _lastLlmResponseTime).TotalSeconds;
-        var cooldown = isDirectedAtUs ? SpeechCooldownSeconds : LlmCooldownSeconds;
-        var isOnCooldown = timeSinceLastResponse < cooldown;
+        // Arrivals are semi-directed (greetings)
+        var isArrival = @event.Type == RoomEventType.Arrival;
 
-        // Directed events get immediate processing if not on cooldown and not already processing
-        if (isDirectedAtUs && !isOnCooldown && !_isProcessingLlm)
-        {
-            // Process immediately for faster response
-            await ProcessLlmEventNow(@event, ctx);
-        }
-        else if (!isOnCooldown)
-        {
-            // Queue other events for heartbeat processing
-            _pendingLlmEvent = @event;
-        }
-        // If on cooldown, silently ignore the event
+        // Mark event with priority info for heartbeat processing
+        // Directed events and arrivals get priority processing with shorter cooldowns
+        var priority = isDirectedAtUs ? EventPriority.Directed
+                     : isArrival ? EventPriority.Arrival
+                     : EventPriority.Normal;
+
+        // Queue for heartbeat processing (replaces any previous pending event)
+        // Heartbeat will check cooldown based on priority
+        _pendingLlmEvent = @event;
+        _pendingEventPriority = priority;
     }
+
+    /// <summary>
+    /// Priority levels for queued LLM events.
+    /// </summary>
+    private enum EventPriority
+    {
+        Normal,     // General events - use LlmCooldownSeconds
+        Arrival,    // Player arrivals - use 1.0 second cooldown
+        Directed    // Direct speech/combat - use SpeechCooldownSeconds
+    }
+
+    /// <summary>
+    /// Priority of the pending LLM event.
+    /// </summary>
+    private EventPriority _pendingEventPriority = EventPriority.Normal;
 
     /// <summary>
     /// Check if a room event is directed at this NPC (speech, combat, item given, etc.)
@@ -586,7 +645,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                 return true;
 
             // Active engagement: we're in conversation with this speaker
-            if (IsEngagedWith(@event.ActorId))
+            if (IsEngagedWith(@event.ActorName))
                 return true;
 
             // Otherwise this is ambient chatter - queue for heartbeat (rare reaction)
@@ -665,14 +724,27 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     {
         // Only process if we implement ILlmNpc
         if (this is not ILlmNpc) return;
-        if (_pendingLlmEvent is null || !IsAlive || !ctx.IsLlmEnabled) return;
+        if (_pendingLlmEvent is null) return;
+        if (!IsAlive) return;
+        if (!ctx.IsLlmEnabled) return;
 
-        // Check cooldown
+        // Check cooldown based on event priority
         var timeSinceLastResponse = (DateTime.UtcNow - _lastLlmResponseTime).TotalSeconds;
-        if (timeSinceLastResponse < LlmCooldownSeconds) return;
+        var cooldown = _pendingEventPriority switch
+        {
+            EventPriority.Directed => SpeechCooldownSeconds,
+            EventPriority.Arrival => 1.0,
+            _ => LlmCooldownSeconds
+        };
+
+        if (timeSinceLastResponse < cooldown)
+        {
+            return;
+        }
 
         var eventToProcess = _pendingLlmEvent;
         _pendingLlmEvent = null;
+        _pendingEventPriority = EventPriority.Normal;
 
         await ProcessLlmEventNow(eventToProcess, ctx);
     }
@@ -683,13 +755,13 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     private async Task ProcessLlmEventNow(RoomEvent eventToProcess, IMudContext ctx)
     {
         if (this is not ILlmNpc llmNpc) return;
-        if (_isProcessingLlm) return; // Prevent concurrent LLM calls
+        if (_isProcessingLlm) return;
 
         _isProcessingLlm = true;
         try
         {
             // Build full environmental context (pass 'this' as ILiving)
-            var npcContext = ctx.BuildNpcContext(this);
+            var npcContext = await ctx.BuildNpcContextAsync(this, focalPlayerName: eventToProcess.ActorName);
             var environmentDesc = npcContext.BuildEnvironmentDescription();
             var actionInstructions = npcContext.BuildActionInstructions();
             var reactionInstructions = GetLlmReactionInstructions(eventToProcess);
@@ -697,18 +769,21 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             var userPrompt = $"{environmentDesc}\n\n{actionInstructions}\n\n[Event: {eventToProcess.Description}]\n\n{reactionInstructions}";
 
             var response = await ctx.LlmCompleteAsync(llmNpc.SystemPrompt, userPrompt);
+
             if (!string.IsNullOrEmpty(response))
             {
                 // Check if the NPC decided not to react
                 var lower = response.ToLowerInvariant();
                 if (lower.Contains("no reaction") || lower.Contains("ignores") || lower.Contains("doesn't react"))
+                {
                     return;
+                }
 
                 // Update cooldown timestamp
                 _lastLlmResponseTime = DateTime.UtcNow;
 
                 // Engage with the speaker for follow-up conversation
-                EngageWith(eventToProcess.ActorId);
+                EngageWith(eventToProcess.ActorName);
 
                 // Parse and execute the response, passing the event actor as interactor
                 await ctx.ExecuteLlmResponseAsync(response,
@@ -716,6 +791,10 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                     canEmote: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanEmote),
                     interactorId: eventToProcess.ActorId);
             }
+        }
+        catch
+        {
+            // Silently ignore LLM errors to avoid spamming console
         }
         finally
         {
@@ -878,6 +957,15 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             }
             sb.AppendLine();
         }
+
+        // Goal markup section
+        sb.AppendLine("Goal Management:");
+        sb.AppendLine("- You can set or update your current goal using [goal:...] markup");
+        sb.AppendLine("- Set a goal: [goal:type] or [goal:type target] where target is a player name");
+        sb.AppendLine("- Clear/complete a goal: [goal:done] or [goal:clear]");
+        sb.AppendLine("- Example goals: [goal:sell_items], [goal:help_customer Mats], [goal:guard_area]");
+        sb.AppendLine("- Goals persist across sessions - use them for long-term objectives");
+        sb.AppendLine();
 
         // Core rules (always included)
         sb.AppendLine("Rules:");

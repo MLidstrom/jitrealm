@@ -28,6 +28,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Wizard Tools** (v0.17): Filesystem navigation (pwd, ls, cd, cat, more, edit), teleportation (goto), wizard homes, performance diagnostics (perf)
 - **Unified Commands** (v0.18): All commands use single CommandRegistry system, consistent behavior between console and telnet modes
 - **LLM-Powered NPCs**: AI-driven NPC behavior via OpenAI-compatible APIs (configurable), context-aware reactions to room events
+- **Persistent NPC Goals + Memory**: optional PostgreSQL-backed per-NPC memory/goals with shared world knowledge base (pgvector-ready)
 - **Rich Terminal Output**: ANSI colors via Spectre.Console, toggleable per-session with `colors on|off`
 - **Command History**: Up/down arrows navigate command history, with full line editing (left/right, home/end, Ctrl+K/U)
 - **Item Aliases**: Items can be referenced by multiple names (e.g., "sword", "blade", "weapon")
@@ -188,7 +189,7 @@ Edit `appsettings.json` to customize driver settings:
     "MaxConnections": 0,
     "WelcomeMessage": "Welcome to JitRealm, {PlayerName}!",
     "MudName": "JitRealm",
-    "Version": "0.18"
+    "Version": "0.19"
   },
   "Paths": {
     "WorldDirectory": "World",
@@ -217,6 +218,17 @@ Edit `appsettings.json` to customize driver settings:
     "RegenPerHeartbeat": 1,
     "XpMultiplier": 1.5,
     "BaseXpPerLevel": 100
+  },
+  "Memory": {
+    "Enabled": false,
+    "ConnectionString": "",
+    "UsePgvector": true,
+    "EmbeddingDimensions": 1536,
+    "MaxWriteQueue": 10000,
+    "MaxWritesPerSecond": 200,
+    "CandidateLimit": 500,
+    "DefaultMemoryTopK": 10,
+    "DefaultKbTopK": 5
   }
 }
 ```

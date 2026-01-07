@@ -9,8 +9,11 @@ using JitRealm.Mud.AI;
 /// Barnaby Thimblewick - a friendly shopkeeper who greets visitors and responds to conversation.
 /// Stock is stored in the shop_storage room; a sign in the shop lists prices.
 /// </summary>
-public sealed class Shopkeeper : NPCBase, ILlmNpc
+public sealed class Shopkeeper : NPCBase, ILlmNpc, IHasDefaultGoal
 {
+    // Default goal: help customers and sell items
+    public string? DefaultGoalType => "sell_items";
+
     public override string Name => "shopkeeper";
     protected override string GetDefaultDescription() =>
         "A stout, balding man in his late fifties with rosy cheeks and twinkling blue eyes behind " +

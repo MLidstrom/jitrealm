@@ -5,10 +5,11 @@ using JitRealm.Mud;
 /// A frothy mug of ale from The Sleepy Dragon tavern.
 /// Consumable - restores 5 HP when drunk.
 /// </summary>
-public class AleMug : JitRealm.World.Std.ItemBase, IUsable
+public class AleMug : JitRealm.World.Std.ItemBase, IConsumable
 {
     public override int Weight => 1;
     public override int Value => 5;
+    public ConsumptionType ConsumptionType => ConsumptionType.Drink;
 
     protected override string GetDefaultShortDescription() => "a mug of ale";
     public override IReadOnlyList<string> Aliases => new[]

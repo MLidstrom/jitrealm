@@ -24,7 +24,7 @@ public sealed class Postmaster : NPCBase, ILlmNpc
         "clerk", "postal clerk"
     };
 
-    public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(4);
+    public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(2);
 
     // ILlmNpc implementation
     public NpcCapabilities Capabilities => NpcCapabilities.Merchant;

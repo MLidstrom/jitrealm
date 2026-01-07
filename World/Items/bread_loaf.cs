@@ -5,10 +5,11 @@ using JitRealm.Mud;
 /// A fresh loaf of bread from The Sleepy Dragon tavern.
 /// Consumable - restores 8 HP when eaten.
 /// </summary>
-public class BreadLoaf : JitRealm.World.Std.ItemBase, IUsable
+public class BreadLoaf : JitRealm.World.Std.ItemBase, IConsumable
 {
     public override int Weight => 1;
     public override int Value => 3;
+    public ConsumptionType ConsumptionType => ConsumptionType.Food;
 
     protected override string GetDefaultShortDescription() => "a loaf of bread";
     public override IReadOnlyList<string> Aliases => new[]

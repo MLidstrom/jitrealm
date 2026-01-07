@@ -864,7 +864,7 @@ players/
 
 ---
 
-## LLM-Powered NPCs ✅ COMPLETE
+## Phase 17 — LLM-Powered NPCs ✅ COMPLETE
 
 **Goal**: NPCs that react intelligently to the world using LLM (Large Language Model) integration.
 
@@ -987,6 +987,32 @@ Refactored LLM NPC support into `LivingBase` for minimal boilerplate:
 - Truncates speech to first sentence
 - **First-person auto-correction**: "I smile" → "smiles", "I look around" → "looks around"
 
+**Persistent NPC Memory + Goals (Postgres + pgvector) ✅**
+- Optional driver-owned memory system stored in `WorldState.MemorySystem`
+- Enabled via `appsettings.json` → `Memory.Enabled=true` and `Memory.ConnectionString`
+- Stores **per-NPC goals** + **per-NPC long-term memories** and a **shared world knowledge base**
+- NPC prompt context now includes:
+  - `GoalSummary`
+  - `LongTermMemories` (top-K)
+  - `WorldKnowledge` (top-K)
+- Writes are buffered via a bounded in-process queue (DropOldest) to protect the game loop
+- Default memory promotion happens on salient room events (combat/death/item-given + directly-addressed speech)
+
+**Stackable Goals with Priority ✅**
+- Goals are now stackable (multiple goals per NPC) with importance-based priority
+- Lower importance = higher priority. Importance levels:
+  - `GoalImportance.Survival` (1) — highest priority, auto-set for all living entities
+  - `GoalImportance.Combat` (5) — active combat situations
+  - `GoalImportance.Urgent` (10) — urgent tasks
+  - `GoalImportance.Default` (50) — normal priority (default for LLM-set goals)
+  - `GoalImportance.Background` (100) — low priority background tasks
+- Three ways to set goals:
+  1. **Source code** via `IHasDefaultGoal` interface (includes `DefaultGoalImportance`)
+  2. **LLM markup** via `[goal:type]`, `[goal:clear]`, `[goal:done type]`
+  3. **Wizard command** `goal <npc> [type [importance] [target]]`
+- Database schema: composite primary key `(npc_id, goal_type)` with `importance` column
+- IMudContext methods: `SetGoalAsync`, `ClearGoalAsync`, `ClearAllGoalsAsync`, `GetGoalAsync`, `GetAllGoalsAsync`
+
 **NPC Engagement System:**
 Smart speech detection to reduce spam and make NPCs feel more natural:
 - **1:1 conversation** — If only NPC and player in room, all speech is directed
@@ -1010,14 +1036,28 @@ Smart speech detection to reduce spam and make NPCs feel more natural:
 | `Mud/AI/NpcCommandExecutor.cs` | Bracket pattern, one-action limit, first-person emote fix |
 | `Mud/CommandLoop.cs` | Updated look command to show living.Description |
 | `Mud/Network/GameServer.cs` | Updated look command to show living.Description |
+| `Mud/AI/NpcMemorySystem.cs` | Postgres-backed memory/goals system with bounded write queue |
+| `Mud/AI/PostgresMemorySchema.cs` | Idempotent schema/extension initialization |
+| `Mud/AI/PostgresNpcMemoryStore.cs` | Postgres memory store (pgvector-aware) |
+| `Mud/AI/PostgresNpcGoalStore.cs` | Postgres goal store (stackable goals with importance) |
+| `Mud/Commands/Wizard/GoalCommand.cs` | Wizard command for viewing/setting NPC goals |
+| `Mud/AI/PostgresWorldKnowledgeBase.cs` | Postgres world KB store |
+| `Mud/AI/MemoryPromotionRules.cs` | Conservative memory promotion rules |
+| `Mud/MudContext.cs` | BuildNpcContext is async and retrieves goal/memory/KB for prompts |
+| `Mud/IMudContext.cs` | `BuildNpcContextAsync(ILiving, focalPlayerName)` |
+| `Mud/Commands/CommandContext.cs` | Promotes salient room events into per-NPC memory (queued) |
+| `Mud/Configuration/MemorySettings.cs` | Memory settings block |
 
 ---
 
-## Phase 17 — Web Frontend
+## Phase 18 — Web Frontend
 
 **Goal**: Modern web-based client with wizard tools for world building.
 
 ### Architecture
+
+Related design docs:
+- `docs/NPC_MEMORY_AND_GOALS_PLAN.md` — Per-NPC goals + long-term memory (Postgres + pgvector), shared world KB
 
 ```
 ┌─────────────────────┐         ┌─────────────────────────────────────┐
@@ -1032,7 +1072,7 @@ Smart speech detection to reduce spam and make NPCs feel more natural:
                                  * = wizard-only features
 ```
 
-### Phase 16a — Backend WebSocket API
+### Phase 18a — Backend WebSocket API
 
 **Add IsWizard to player system:**
 - `Mud/IPlayer.cs` — Add `bool IsWizard { get; }`
@@ -1081,7 +1121,7 @@ Mud/Network/
 - File paths validated (no traversal outside World/)
 - WebSocket connections require authentication
 
-### Phase 16b — Game Event Broadcasting
+### Phase 18b — Game Event Broadcasting
 
 **Push events to WebSocket clients:**
 - Room changes → `Room_Look`
@@ -1100,7 +1140,7 @@ while (!ct.IsCancellationRequested)
 }
 ```
 
-### Phase 16c — SvelteKit Frontend
+### Phase 18c — SvelteKit Frontend
 
 **Tech stack:**
 - SvelteKit 2.x + Svelte 5
@@ -1126,7 +1166,7 @@ web/
 └── package.json
 ```
 
-### Phase 16d — Player UI (Everyone)
+### Phase 18d — Player UI (Everyone)
 
 **Components:**
 - Terminal — xterm.js for game output with ANSI colors
@@ -1144,7 +1184,7 @@ web/
 └─────────────────────────────────────────┘
 ```
 
-### Phase 16e — Wizard UI (Wizard Only)
+### Phase 18e — Wizard UI (Wizard Only)
 
 **Additional tabs/panels for wizards:**
 - World Editor tab — file explorer + Monaco editor
@@ -1232,9 +1272,11 @@ web/
 ### Polish & Accessibility
 - Phase 14: Mudlib Polish ✅
 - Phase 15: Configuration ✅
+- Phase 16: Player Accounts ✅
+- Phase 17: LLM-Powered NPCs ✅
 
 ### Web & Future (next)
-- Phase 16: Web Frontend
+- Phase 18: Web Frontend
 
 ### Future Enhancements
 - Spell/magic system
@@ -1242,3 +1284,4 @@ web/
 - Crafting
 - Guilds/classes
 - Visual room/map editor
+- GraphRAG for NPC memory (knowledge graph + vector search)

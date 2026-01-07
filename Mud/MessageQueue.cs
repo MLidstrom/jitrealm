@@ -10,10 +10,25 @@ public sealed class MessageQueue
     private readonly ConcurrentQueue<MudMessage> _messages = new();
 
     /// <summary>
+    /// Optional callback for immediate message delivery.
+    /// Returns true if message was delivered (skip queue), false to queue for later.
+    /// Used for async scenarios (e.g., LLM responses) where messages need immediate delivery.
+    /// </summary>
+    public Func<MudMessage, bool>? ImmediateDeliveryHandler { get; set; }
+
+    /// <summary>
     /// Enqueue a message for later delivery.
+    /// If ImmediateDeliveryHandler returns true, the message is NOT queued (already delivered).
     /// </summary>
     public void Enqueue(MudMessage message)
     {
+        // Try immediate delivery first
+        if (ImmediateDeliveryHandler?.Invoke(message) == true)
+        {
+            // Message was delivered immediately, don't queue
+            return;
+        }
+
         _messages.Enqueue(message);
     }
 

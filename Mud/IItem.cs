@@ -117,3 +117,28 @@ public interface IUsable : IItem
     /// <param name="ctx">The MUD context.</param>
     void OnUse(string userId, IMudContext ctx);
 }
+
+/// <summary>
+/// Type of consumable item for eat/drink commands.
+/// </summary>
+public enum ConsumptionType
+{
+    /// <summary>Food items consumed with 'eat' command.</summary>
+    Food,
+    /// <summary>Drink items consumed with 'drink' command.</summary>
+    Drink,
+    /// <summary>Items that can be either eaten or drunk (e.g., soup, stew).</summary>
+    Either
+}
+
+/// <summary>
+/// Interface for food and drink items that can be consumed.
+/// Extends IUsable with consumption type for eat/drink command support.
+/// </summary>
+public interface IConsumable : IUsable
+{
+    /// <summary>
+    /// Whether this item is consumed by eating, drinking, or either.
+    /// </summary>
+    ConsumptionType ConsumptionType { get; }
+}
