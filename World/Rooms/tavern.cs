@@ -4,47 +4,67 @@ using System.Threading.Tasks;
 using JitRealm.Mud;
 
 /// <summary>
-/// A cozy shop where the shopkeeper sells wares.
-/// Implements ISpawner to spawn the shopkeeper NPC and a price sign.
+/// The Sleepy Dragon Inn - a warm tavern serving food and drinks.
+/// Implements ISpawner to spawn the innkeeper NPC and menu sign.
 /// Implements IHasCommands to provide buy/sell commands.
-/// Implements IHasLinkedRooms to load the storage room.
-/// Stock is stored in the shop_storage room (hidden from players).
+/// Implements IHasLinkedRooms to load the tavern storage.
 /// </summary>
-public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRooms
+public sealed class Tavern : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRooms
 {
-    protected override string GetDefaultName() => "The General Store";
+    protected override string GetDefaultName() => "The Sleepy Dragon Inn";
 
     protected override string GetDefaultDescription() =>
-        "A cluttered but cozy shop filled with all manner of goods. " +
-        "Dusty shelves line the walls, stacked with potions, weapons, and curious trinkets. " +
-        "A worn wooden counter separates the merchandise from a small backroom. " +
-        "A wooden sign on the wall lists items for sale.";
+        "A warm, low-ceilinged common room filled with the smell of roasting meat and " +
+        "pipe smoke. Rough-hewn tables and chairs crowd the sawdust floor. A stone " +
+        "fireplace crackles cheerfully against the far wall, above which hangs the " +
+        "mounted head of a surprisingly small dragon. A polished oak bar dominates " +
+        "one side of the room.";
 
     public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
-        ["west"] = "Rooms/village_square.cs"
+        ["north"] = "Rooms/village_square.cs",
+    };
+
+    public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
+    {
+        ["fireplace"] = "A stone fireplace with dancing flames and a well-worn hearthrug before it. " +
+                        "The warmth is welcoming after a cold day outside. A brass poker and shovel " +
+                        "lean against the stone surround.",
+        ["fire"] = "The flames dance merrily, casting flickering shadows across the room. " +
+                   "The fire is well-tended and gives off a pleasant warmth.",
+        ["dragon"] = "A mounted dragon head about the size of a large dog, with dusty green scales " +
+                     "and yellowed fangs. A brass plaque beneath it reads: 'Pip the Terrible - " +
+                     "Vanquished by Bertram Stoutbarrel I, Year 847'. The dragon's glass eyes seem " +
+                     "to follow you around the room.",
+        ["bar"] = "A well-polished oak bar with brass fittings and a row of dusty bottles behind it. " +
+                  "The wood is dark with age and worn smooth by countless elbows. Several stools " +
+                  "line the front.",
+        ["tables"] = "Scarred wooden tables bearing the marks of countless mugs and knife games. " +
+                     "Each table has a few mismatched chairs around it.",
+        ["bottles"] = "Rows of bottles containing liquids of various colors - ales, wines, and " +
+                      "some mysterious spirits. Many are covered in a fine layer of dust.",
     };
 
     /// <summary>
-    /// Spawn the shopkeeper and sign in this room.
+    /// Spawn the innkeeper and menu in this room.
     /// </summary>
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
-        ["npcs/shopkeeper.cs"] = 1,
-        ["Items/shop_sign.cs"] = 1,
+        ["npcs/innkeeper.cs"] = 1,
+        ["Items/tavern_menu.cs"] = 1,
     };
 
     /// <summary>
-    /// The storage room should be loaded when the shop is active.
+    /// The storage room should be loaded when the tavern is active.
     /// </summary>
-    public IReadOnlyList<string> LinkedRooms => new[] { "Rooms/shop_storage.cs" };
+    public IReadOnlyList<string> LinkedRooms => new[] { "Rooms/tavern_storage.cs" };
 
     /// <summary>
-    /// Local commands available in the shop.
+    /// Local commands available in the tavern.
     /// </summary>
     public IReadOnlyList<LocalCommandInfo> LocalCommands => new LocalCommandInfo[]
     {
-        new("buy", new[] { "purchase" }, "buy <item>", "Purchase an item from the shop"),
+        new("buy", new[] { "purchase", "order" }, "buy <item>", "Purchase food or drinks from the tavern"),
         new("sell", Array.Empty<string>(), "sell <item>", "Sell an item from your inventory"),
     };
 
@@ -66,7 +86,7 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
     {
         if (args.Length == 0)
         {
-            ctx.Tell(playerId, "Buy what? Type 'read sign' to see available items.");
+            ctx.Tell(playerId, "Buy what? Type 'read menu' to see available items.");
             return;
         }
 
@@ -76,7 +96,7 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         var storageId = FindStorageRoom(ctx);
         if (storageId == null)
         {
-            ctx.Tell(playerId, "The shop appears to be closed.");
+            ctx.Tell(playerId, "The kitchen appears to be closed.");
             return;
         }
 
@@ -84,7 +104,7 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         var itemId = ctx.FindItem(itemName, storageId);
         if (itemId == null)
         {
-            ctx.Tell(playerId, $"We don't have '{itemName}' in stock.");
+            ctx.Tell(playerId, $"We don't have '{itemName}' available right now.");
             return;
         }
 
@@ -95,7 +115,7 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
             return;
         }
 
-        // Calculate price in copper (Value * 1.5, rounded to nearest 5)
+        // Calculate price in copper (Value * 2.0 for tavern markup)
         var priceCopper = CalculatePriceCopper(item.Value);
 
         // Check player's total coin value
@@ -120,7 +140,7 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         ctx.Move(itemId, playerId);
 
         ctx.Tell(playerId, $"You purchase {item.ShortDescription} for {FormatPrice(priceCopper)}.");
-        ctx.Say($"Thanks for your purchase!");
+        ctx.Say($"Enjoy your {item.Name}!");
     }
 
     private void HandleSell(string[] args, string playerId, IMudContext ctx)
@@ -155,49 +175,39 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
             return;
         }
 
-        // Calculate sell price in copper (half of base value in silver, converted to copper)
-        // Item.Value is in silver units (1 SC = 100 CC)
+        // Calculate sell price in copper (half of base value)
         var sellPriceCopper = Math.Max(50, (item.Value * 100) / 2);
 
-        // Find storage room to move item to (or just destruct it)
+        // Find storage room to move item to
         var storageId = FindStorageRoom(ctx);
 
-        // Give coins to player (optimal breakdown)
+        // Give coins to player
         AddCoins(playerId, sellPriceCopper, ctx);
 
-        // Move item to storage (or remove from world if no storage)
+        // Move item to storage or room
         if (storageId != null)
         {
             ctx.Move(itemId, storageId);
         }
         else
         {
-            // Just remove from player - item goes into the void
-            // Note: We can't destruct from world code, so we move it to the room
             ctx.Move(itemId, Id);
         }
 
         ctx.Tell(playerId, $"You sell {item.ShortDescription} for {FormatPrice(sellPriceCopper)}.");
-        ctx.Say($"Pleasure doing business with you!");
+        ctx.Say($"Thanks! I'm sure someone will enjoy that.");
     }
 
     /// <summary>
-    /// Calculate buy price in copper (Value * 1.5, rounded to nearest 5 SC).
-    /// Item.Value is in silver units, so we convert to copper first.
+    /// Calculate buy price in copper. Tavern uses 2x markup.
     /// </summary>
     private static int CalculatePriceCopper(int baseValueInSilver)
     {
-        // Convert from silver to copper (1 SC = 100 CC)
         var baseCopper = baseValueInSilver * 100;
-        // Apply 1.5x markup
-        var price = (int)(baseCopper * 1.5);
-        // Round to nearest 50 copper (0.5 SC) for cleaner prices
+        var price = (int)(baseCopper * 2.0);
         return Math.Max(50, ((price + 25) / 50) * 50);
     }
 
-    /// <summary>
-    /// Format a copper value as breakdown (e.g., "1 GC, 50 SC").
-    /// </summary>
     private static string FormatPrice(int copperAmount)
     {
         if (copperAmount <= 0)
@@ -216,9 +226,6 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         return parts.Count > 0 ? string.Join(", ", parts) : "0 CC";
     }
 
-    /// <summary>
-    /// Get total value of player's coins in copper.
-    /// </summary>
     private static int GetPlayerCopperValue(string playerId, IMudContext ctx)
     {
         int total = 0;
@@ -234,12 +241,8 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         return total;
     }
 
-    /// <summary>
-    /// Deduct coins from player, converting as needed.
-    /// </summary>
     private static void DeductCoins(string playerId, int copperAmount, IMudContext ctx)
     {
-        // Get current coin amounts
         var inventory = ctx.World.GetRoomContents(playerId);
         int goldAmt = 0, silverAmt = 0, copperAmt = 0;
         string? goldId = null, silverId = null, copperId = null;
@@ -267,28 +270,21 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
             }
         }
 
-        // Convert to total copper and deduct
         var totalCopper = goldAmt * 10000 + silverAmt * 100 + copperAmt;
         var remaining = totalCopper - copperAmount;
 
-        // Calculate new optimal breakdown
         var newGold = remaining / 10000;
         var rem = remaining % 10000;
         var newSilver = rem / 100;
         var newCopper = rem % 100;
 
-        // Update or remove coin piles
         UpdateCoinPile(goldId, newGold, CoinMaterial.Gold, playerId, ctx);
         UpdateCoinPile(silverId, newSilver, CoinMaterial.Silver, playerId, ctx);
         UpdateCoinPile(copperId, newCopper, CoinMaterial.Copper, playerId, ctx);
     }
 
-    /// <summary>
-    /// Add coins to player with optimal breakdown.
-    /// </summary>
     private static void AddCoins(string playerId, int copperAmount, IMudContext ctx)
     {
-        // Calculate optimal breakdown
         var gold = copperAmount / 10000;
         var remaining = copperAmount % 10000;
         var silver = remaining / 100;
@@ -299,15 +295,10 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         if (copper > 0) AddCoinPile(playerId, copper, CoinMaterial.Copper, ctx);
     }
 
-    /// <summary>
-    /// Update a coin pile's amount or remove if zero.
-    /// </summary>
     private static void UpdateCoinPile(string? pileId, int newAmount, CoinMaterial material, string playerId, IMudContext ctx)
     {
         if (newAmount <= 0)
         {
-            // Would need to remove, but we can't destruct from world code
-            // Just set amount to 0 - it will be cleaned up later
             if (pileId != null)
             {
                 var state = ctx.World.GetStateStore(pileId);
@@ -321,42 +312,31 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
         }
         else if (newAmount > 0)
         {
-            // Need to create new pile - use AddCoinPile
             AddCoinPile(playerId, newAmount, material, ctx);
         }
     }
 
-    /// <summary>
-    /// Add coins to a container, merging with existing pile if any.
-    /// </summary>
     private static void AddCoinPile(string containerId, int amount, CoinMaterial material, IMudContext ctx)
     {
-        // Find existing pile
         var inventory = ctx.World.GetRoomContents(containerId);
         foreach (var itemId in inventory)
         {
             var coin = ctx.World.GetObject<ICoin>(itemId);
             if (coin != null && coin.Material == material)
             {
-                // Add to existing pile
                 var state = ctx.World.GetStateStore(itemId);
                 var current = state?.Get<int>("amount") ?? 0;
                 state?.Set("amount", current + amount);
                 return;
             }
         }
-
-        // No existing pile - need to create one
-        // Since we can't clone from world code, we'll just add to state and hope for the best
-        // Actually, world code can use ctx.CloneAsync if available... let's check the interface
-        // For now, we'll rely on the caller having coins already
     }
 
     private string? FindStorageRoom(IMudContext ctx)
     {
         foreach (var objId in ctx.World.ListObjectIds())
         {
-            if (objId.StartsWith("Rooms/shop_storage", StringComparison.OrdinalIgnoreCase))
+            if (objId.StartsWith("Rooms/tavern_storage", StringComparison.OrdinalIgnoreCase))
                 return objId;
         }
         return null;
@@ -364,11 +344,6 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
 
     public void Respawn(IMudContext ctx)
     {
-        ctx.Say("The shop seems to come alive with activity.");
-    }
-
-    public override void Reset(IMudContext ctx)
-    {
-        ctx.Say("The shopkeeper tidies up the merchandise.");
+        // Called when stock is replenished
     }
 }

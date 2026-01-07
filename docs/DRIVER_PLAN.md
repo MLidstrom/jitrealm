@@ -238,6 +238,8 @@ See [LPMUD_EVOLUTION_PLAN.md](LPMUD_EVOLUTION_PLAN.md) for detailed specificatio
 ### New interfaces ✅
 
 - `ILiving` — HP, MaxHP, IsAlive, TakeDamage(), Heal(), Die() ✅
+  - `Aliases` — alternative names for player targeting (e.g., "barnaby", "keeper") ✅
+  - `ShortDescription` — display name with article (e.g., "a shopkeeper") ✅
 - `IHasStats` (optional) — Strength, Dexterity, Constitution, etc. ✅
 
 ### New hooks ✅
@@ -984,6 +986,17 @@ Refactored LLM NPC support into `LivingBase` for minimal boilerplate:
 - Only executes first action per response (spam prevention)
 - Truncates speech to first sentence
 - **First-person auto-correction**: "I smile" → "smiles", "I look around" → "looks around"
+
+**NPC Engagement System:**
+Smart speech detection to reduce spam and make NPCs feel more natural:
+- **1:1 conversation** — If only NPC and player in room, all speech is directed
+- **Direct address** — Speech containing NPC's name or alias is directed (e.g., "hey shopkeeper")
+- **Engagement tracking** — When NPC responds, they stay "engaged" with that player
+  - Engaged players get immediate responses without addressing by name
+  - Engagement expires after `EngagementTimeoutSeconds` (default 60s)
+  - Engagement clears when player leaves room
+- **Ambient chatter** — Unaddressed speech in crowded rooms queued for rare heartbeat reaction
+- Helper methods: `IsEngagedWith()`, `EngageWith()`, `DisengageFrom()`, `IsAloneWithSpeaker()`, `IsSpeechDirectlyAddressed()`
 
 ### Files modified (LivingBase refactor)
 

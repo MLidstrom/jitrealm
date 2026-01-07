@@ -50,6 +50,9 @@ public sealed class NpcContext
     // Species/type capabilities
     public NpcCapabilities Capabilities { get; init; } = NpcCapabilities.Humanoid;
 
+    // NPC's inventory (items they are carrying)
+    public IReadOnlyList<string> Inventory { get; init; } = Array.Empty<string>();
+
     // Room information
     public required string RoomId { get; init; }
     public required string RoomName { get; init; }
@@ -87,6 +90,12 @@ public sealed class NpcContext
             _ => "healthy"
         };
         lines.Add($"[Your status: {healthDesc} ({CurrentHP}/{MaxHP} HP)]");
+
+        // NPC's inventory
+        if (Inventory.Count > 0)
+        {
+            lines.Add($"[You are carrying: {string.Join(", ", Inventory)}]");
+        }
 
         if (InCombat && CombatTargetName is not null)
         {

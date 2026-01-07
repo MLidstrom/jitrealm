@@ -12,6 +12,20 @@ public interface ILiving : IMudObject
     new string Description { get; }
 
     /// <summary>
+    /// Alternative names players can use to reference this living being.
+    /// For NPCs, this typically includes their character name (e.g., "barnaby")
+    /// and role (e.g., "merchant", "keeper") in addition to their type name.
+    /// </summary>
+    IReadOnlyList<string> Aliases { get; }
+
+    /// <summary>
+    /// Brief description shown in room listings.
+    /// Example: "a shopkeeper", "the goblin"
+    /// Default implementation adds an article to Name.
+    /// </summary>
+    string ShortDescription { get; }
+
+    /// <summary>
     /// Current hit points.
     /// </summary>
     int HP { get; }

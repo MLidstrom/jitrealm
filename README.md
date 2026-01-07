@@ -134,6 +134,7 @@ These commands are visible in `help` and executable only for wizard users:
 - `edit <file>` — nano-style in-game file editor (Ctrl+O save, Ctrl+X exit)
 - `ledit <file> [line# [text]]` — line-based editor (no ANSI required, see below)
 - `perf` — show driver loop timings and performance stats
+- `where <id|name|alias>` — find where an object is located (aliases: locate, find)
 - `save` — save world state to `save/world.json`
 - `load` — restore world state from save file
 

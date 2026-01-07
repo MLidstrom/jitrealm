@@ -23,11 +23,13 @@ public sealed class NpcCommandExecutor
     // Regex to match command markup: [cmd:command args] or {cmd:command args}
     private static readonly Regex CommandMarkupPattern = new(@"[\[{]cmd:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Commands that NPCs are forbidden from using
+    // Commands that NPCs are forbidden from using via [cmd:...] markup
     private static readonly HashSet<string> ForbiddenCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "quit", "logout", "exit", "password", "save", "delete", "suicide",
-        "patch", "stat", "destruct", "reset", "goto", "pwd", "ls", "cd", "cat", "more", "edit", "ledit", "perf"
+        "patch", "stat", "destruct", "reset", "goto", "pwd", "ls", "cd", "cat", "more", "edit", "ledit", "perf",
+        // Say/emote must use natural format (*emote* or "speech"), not [cmd:...] markup
+        "say", "emote", "me", "'"
     };
 
     public NpcCommandExecutor(WorldState state, IClock clock)
@@ -92,19 +94,20 @@ public sealed class NpcCommandExecutor
 
             if (match.Success)
             {
-                // Check if there's speech BEFORE the first emote
+                // Check if there's speech BEFORE the first emote - prefer speech over emote
                 if (match.Index > 0 && canSpeak)
                 {
                     var rawSpeech = cleanResponse.Substring(0, match.Index).Trim();
                     var speech = CleanSpeech(rawSpeech);
                     if (!string.IsNullOrEmpty(speech))
                     {
-                        // Execute the speech
+                        // Execute ONLY the speech (one action per response)
                         await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
+                        return;
                     }
                 }
 
-                // Also execute the emote (allows speech + emote combo)
+                // No speech before emote, execute the emote only
                 if (canEmote)
                 {
                     // Groups[2] = text inside *asterisks*, Groups[3] = text inside [brackets]
@@ -398,6 +401,9 @@ public sealed class NpcCommandExecutor
             Direction = direction
         }, roomId);
 
+        // Send departure message to players in the room
+        _state.Messages.Enqueue(new MudMessage(npcId, null, MessageType.Emote, $"leaves {direction}.", roomId));
+
         // Move the NPC
         _state.Containers.Move(npcId, destinationId);
 
@@ -410,6 +416,12 @@ public sealed class NpcCommandExecutor
             ActorName = npcName,
             Direction = oppositeDir
         }, destinationId);
+
+        // Send arrival message to players in the destination room
+        var arrivalMsg = oppositeDir is not null
+            ? $"arrives from the {oppositeDir}."
+            : "arrives.";
+        _state.Messages.Enqueue(new MudMessage(npcId, null, MessageType.Emote, arrivalMsg, destinationId));
 
         return Task.FromResult(true);
     }
@@ -795,10 +807,19 @@ public sealed class NpcCommandExecutor
             if (obj is null) continue;
 
             // Check if it's a living entity
-            if (obj is not ILiving) continue;
+            if (obj is not ILiving living) continue;
 
+            // Check name match
             if (obj.Name.ToLowerInvariant().Contains(name))
                 return objId;
+
+            // Check aliases (e.g., "barnaby" for shopkeeper)
+            foreach (var alias in living.Aliases)
+            {
+                if (alias.ToLowerInvariant().Contains(name) ||
+                    name.Contains(alias.ToLowerInvariant()))
+                    return objId;
+            }
 
             // Check for player names in session format
             if (objId.StartsWith("session:"))

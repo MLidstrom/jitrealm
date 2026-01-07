@@ -28,6 +28,13 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Whether we're currently processing an LLM request (prevent concurrent calls).
     /// </summary>
     private bool _isProcessingLlm;
+
+    /// <summary>
+    /// Engagement tracking - maps player ID to last interaction timestamp.
+    /// Engaged players get immediate responses without needing to say the NPC's name.
+    /// </summary>
+    private readonly Dictionary<string, DateTime> _engagedWith = new();
+
     /// <summary>
     /// Cached context for property access.
     /// Set during OnLoad.
@@ -93,6 +100,132 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     public virtual int WanderChance => 0;
 
     /// <summary>
+    /// Alternative names players can use to reference this living being.
+    /// Override in derived classes to provide character names, roles, etc.
+    /// Default returns the Name property as the only alias.
+    /// </summary>
+    public virtual IReadOnlyList<string> Aliases => new[] { Name };
+
+    /// <summary>
+    /// Brief description shown in room listings.
+    /// Example: "a shopkeeper", "the goblin"
+    /// Override to customize. Default adds "a" or "an" article to Name.
+    /// </summary>
+    public virtual string ShortDescription => AddArticle(Name);
+
+    /// <summary>
+    /// Add an indefinite article ("a" or "an") to a word.
+    /// </summary>
+    private static string AddArticle(string word)
+    {
+        if (string.IsNullOrEmpty(word))
+            return word;
+
+        // Use "an" before vowel sounds
+        var first = char.ToLowerInvariant(word[0]);
+        var article = first is 'a' or 'e' or 'i' or 'o' or 'u' ? "an" : "a";
+        return $"{article} {word}";
+    }
+
+    #region Engagement Tracking
+
+    /// <summary>
+    /// Check if this NPC is currently engaged with a specific player.
+    /// Engagement expires after EngagementTimeoutSeconds.
+    /// </summary>
+    protected bool IsEngagedWith(string playerId)
+    {
+        if (!_engagedWith.TryGetValue(playerId, out var lastInteraction))
+            return false;
+
+        var elapsed = (DateTime.UtcNow - lastInteraction).TotalSeconds;
+        if (elapsed > EngagementTimeoutSeconds)
+        {
+            _engagedWith.Remove(playerId);
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Engage this NPC with a player (called when NPC responds or is directly addressed).
+    /// </summary>
+    protected void EngageWith(string playerId)
+    {
+        _engagedWith[playerId] = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Clear engagement with a player (called on departure).
+    /// </summary>
+    protected void DisengageFrom(string playerId)
+    {
+        _engagedWith.Remove(playerId);
+    }
+
+    /// <summary>
+    /// Check if a speech message directly mentions this NPC by name or alias.
+    /// </summary>
+    protected bool IsSpeechDirectlyAddressed(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        var msgLower = message.ToLowerInvariant();
+
+        // Check if our name is mentioned
+        if (msgLower.Contains(Name.ToLowerInvariant()))
+            return true;
+
+        // Check if any alias is mentioned
+        foreach (var alias in Aliases)
+        {
+            if (msgLower.Contains(alias.ToLowerInvariant()))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if the NPC is alone with the speaker in the room (1:1 conversation).
+    /// When only two living beings are present, speech is considered directed.
+    /// </summary>
+    protected bool IsAloneWithSpeaker(string speakerId, IMudContext ctx)
+    {
+        // Get our current room
+        var myId = ctx.CurrentObjectId;
+        if (string.IsNullOrEmpty(myId)) return false;
+
+        var roomId = ctx.World.GetObjectLocation(myId);
+        if (string.IsNullOrEmpty(roomId)) return false;
+
+        // Get all objects in the room
+        var contents = ctx.World.GetRoomContents(roomId);
+
+        // Count living beings (ILiving) in the room
+        int livingCount = 0;
+        bool speakerPresent = false;
+        bool weArePresent = false;
+
+        foreach (var objId in contents)
+        {
+            var obj = ctx.World.GetObject<ILiving>(objId);
+            if (obj is not null)
+            {
+                livingCount++;
+                if (objId == speakerId) speakerPresent = true;
+                if (objId == myId) weArePresent = true;
+            }
+        }
+
+        // 1:1 conversation: exactly 2 living beings, both are us and the speaker
+        return livingCount == 2 && speakerPresent && weArePresent;
+    }
+
+    #endregion
+
+    /// <summary>
     /// Minimum time between LLM responses for non-speech events (in seconds).
     /// Override to customize. Default is 3 seconds.
     /// </summary>
@@ -104,6 +237,12 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Override to customize. Default is 0.5 seconds.
     /// </summary>
     protected virtual double SpeechCooldownSeconds => 0.5;
+
+    /// <summary>
+    /// How long engagement lasts without interaction (seconds).
+    /// Override to customize per-NPC. Default is 60 seconds.
+    /// </summary>
+    protected virtual double EngagementTimeoutSeconds => 60.0;
 
     /// <summary>
     /// The direction this living last came from.
@@ -400,6 +539,13 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         // Don't react to own actions
         if (@event.ActorId == ctx.CurrentObjectId) return;
 
+        // Clear engagement when someone leaves the room
+        if (@event.Type == RoomEventType.Departure)
+        {
+            DisengageFrom(@event.ActorId);
+            // Still process the event so NPC might react (e.g., "waves goodbye")
+        }
+
         // Check if this event is directed at us (speech, combat target, given item, etc.)
         var isDirectedAtUs = IsEventDirectedAtNpc(@event, ctx);
 
@@ -428,9 +574,24 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// </summary>
     private bool IsEventDirectedAtNpc(RoomEvent @event, IMudContext ctx)
     {
-        // Speech is always considered "directed" - we should respond quickly
+        // Speech: check for 1:1 conversation, direct address, OR active engagement
         if (@event.Type == RoomEventType.Speech)
-            return true;
+        {
+            // 1:1 conversation: only NPC and speaker in room - treat as directed
+            if (IsAloneWithSpeaker(@event.ActorId, ctx))
+                return true;
+
+            // Direct address: message contains our name or alias
+            if (IsSpeechDirectlyAddressed(@event.Message))
+                return true;
+
+            // Active engagement: we're in conversation with this speaker
+            if (IsEngagedWith(@event.ActorId))
+                return true;
+
+            // Otherwise this is ambient chatter - queue for heartbeat (rare reaction)
+            return false;
+        }
 
         // Check if we're the target of the event
         if (!string.IsNullOrEmpty(@event.Target))
@@ -442,6 +603,13 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             // Direct ID match or name match
             if (target.Contains(myName) || myId.Equals(@event.Target, StringComparison.OrdinalIgnoreCase))
                 return true;
+
+            // Check if target matches any of our aliases (e.g., "barnaby" for shopkeeper)
+            foreach (var alias in Aliases)
+            {
+                if (target.Contains(alias.ToLowerInvariant()))
+                    return true;
+            }
         }
 
         // Combat and ItemGiven events with us as target are definitely directed
@@ -465,7 +633,24 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         // When someone speaks TO us, we MUST respond with speech
         if (@event.Type == RoomEventType.Speech && this is ILlmNpc npc && npc.Capabilities.HasFlag(NpcCapabilities.CanSpeak))
         {
-            return $"Someone spoke to you. You MUST reply with speech in quotes (e.g. \"Your reply here\"). Do NOT use an emote. Give ONE short spoken response.";
+            var hasItems = npc.Capabilities.HasFlag(NpcCapabilities.CanManipulateItems);
+            if (hasItems)
+            {
+                return "Someone spoke to you. You MUST reply with SPEECH in quotes - do NOT use emotes! " +
+                       "CRITICAL: If they ask for an item, you MUST include [cmd:give <item> to player] in your response. " +
+                       "Saying 'here you go' or nodding does NOT transfer items - ONLY the [cmd:give] command works! " +
+                       "Example: \"Sure, here it is!\" [cmd:give sword to player]";
+            }
+            return "Someone spoke to you. You MUST reply with SPEECH in quotes - do NOT use emotes! Give ONE short response.";
+        }
+
+        // When someone gives us an item, we might want to give it back or react
+        if (@event.Type == RoomEventType.ItemGiven && this is ILlmNpc itemNpc && itemNpc.Capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
+        {
+            return $"Someone gave you an item ({@event.Message}). You now have it in your inventory. " +
+                   $"If you want to give it back or give them something else, you MUST use [cmd:give <item> to player]. " +
+                   $"Emotes like *hands back the item* do NOT actually transfer items! " +
+                   $"Reply with speech and optionally a command.";
         }
 
         // For other events, allow emotes or no reaction
@@ -521,6 +706,9 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
                 // Update cooldown timestamp
                 _lastLlmResponseTime = DateTime.UtcNow;
+
+                // Engage with the speaker for follow-up conversation
+                EngageWith(eventToProcess.ActorId);
 
                 // Parse and execute the response, passing the event actor as interactor
                 await ctx.ExecuteLlmResponseAsync(response,
@@ -653,9 +841,10 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         if (canSpeak || canEmote || canManipulate || canWander || canAttack)
         {
             sb.AppendLine("Command Actions:");
-            sb.AppendLine("- You can perform actions using [cmd:command] markup in your response");
-            sb.AppendLine("- Commands are executed in addition to regular speech/emotes");
-            sb.AppendLine("- Example: \"Let me help you.\" [cmd:give sword to player] [cmd:emote smiles warmly]");
+            sb.AppendLine("- To ACTUALLY perform game actions, you MUST use [cmd:command] markup");
+            sb.AppendLine("- IMPORTANT: Emotes like *hands you the sword* only DESCRIBE actions - they do NOT execute them!");
+            sb.AppendLine("- To give an item, you MUST use [cmd:give item to player] - describing giving does nothing");
+            sb.AppendLine("- Example: \"Here you go!\" [cmd:give sword to player]");
             sb.AppendLine();
             sb.AppendLine("Available commands:");
             if (canSpeak)
@@ -695,7 +884,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         sb.AppendLine("- NEVER break character");
         sb.AppendLine("- Respond with exactly ONE short action per event - one emote OR one sentence");
         sb.AppendLine("- Do NOT chain multiple actions together");
-        sb.AppendLine("- Use [cmd:...] sparingly - only when it makes sense for the character");
+        sb.AppendLine("- When asked to give/get/drop items, you MUST use [cmd:...] - emotes alone do nothing");
         if (!string.IsNullOrWhiteSpace(NpcExtraRules))
         {
             sb.AppendLine($"- {NpcExtraRules}");

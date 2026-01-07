@@ -347,6 +347,21 @@ public sealed class MudContext : IMudContext
             }
         }
 
+        // Get NPC's inventory
+        var inventory = new List<string>();
+        if (_internalWorld.Objects is not null)
+        {
+            var npcContents = _internalWorld.Containers.GetContents(npcId);
+            foreach (var itemId in npcContents)
+            {
+                var item = _internalWorld.Objects.Get<IItem>(itemId);
+                if (item is not null)
+                {
+                    inventory.Add(item.ShortDescription);
+                }
+            }
+        }
+
         // Get recent events
         var recentEvents = roomId is not null
             ? _internalWorld.EventLog.GetEvents(roomId, 10)
@@ -367,6 +382,7 @@ public sealed class MudContext : IMudContext
             CombatTargetId = combatTargetId,
             CombatTargetName = combatTargetName,
             Capabilities = capabilities,
+            Inventory = inventory,
             RoomId = roomId ?? "unknown",
             RoomName = roomName,
             RoomDescription = roomDescription,

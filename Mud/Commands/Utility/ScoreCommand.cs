@@ -6,7 +6,7 @@ namespace JitRealm.Mud.Commands.Utility;
 public class ScoreCommand : CommandBase
 {
     public override string Name => "score";
-    public override IReadOnlyList<string> Aliases => new[] { "stats", "status" };
+    public override IReadOnlyList<string> Aliases => new[] { "sc", "stats", "status" };
     public override string Usage => "score";
     public override string Description => "Show your stats";
     public override string Category => "Utility";

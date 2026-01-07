@@ -33,7 +33,7 @@ public class GotoCommand : WizardCommandBase
 
             var normalizedName = playerName.ToLowerInvariant();
             var firstLetter = normalizedName[0];
-            roomBlueprintId = $"Rooms/Homes/{firstLetter}/{normalizedName}/home";
+            roomBlueprintId = $"Rooms/Homes/{firstLetter}/{normalizedName}/home.cs";
         }
         else
         {

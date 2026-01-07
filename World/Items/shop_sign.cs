@@ -62,7 +62,11 @@ public sealed class ShopSign : SignBase
                         ? $"{count}x {first.ShortDescription}"
                         : first.ShortDescription;
 
-                    sb.AppendLine($"  {name,-30} {FormatPrice(priceCopper)}");
+                    var priceText = count > 1
+                        ? $"{FormatPrice(priceCopper)} each"
+                        : FormatPrice(priceCopper);
+
+                    sb.AppendLine($"  {name,-30} {priceText}");
                 }
             }
 

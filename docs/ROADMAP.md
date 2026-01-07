@@ -258,10 +258,21 @@
 
 - **LivingBase LLM Integration** ✅
   - `Description` property for NPC look descriptions
+  - `Aliases` property for alternative targeting names (e.g., "barnaby", "keeper")
+  - `ShortDescription` property for display with article (e.g., "a shopkeeper")
   - `QueueLlmEvent()` / `ProcessPendingLlmEvent()` — heartbeat-based processing
   - `GetLlmReactionInstructions()` — context-aware (speech→speech, other→emote)
   - `BuildSystemPrompt()` — auto-generates consistent NPC prompts
   - Properties: NpcNature, NpcCommunicationStyle, NpcPersonality, NpcExamples, NpcExtraRules
+
+- **NPC Engagement System** ✅
+  - Smart speech detection reduces spam and makes NPCs feel natural
+  - 1:1 conversations — all speech directed when alone with NPC
+  - Direct address — speech containing NPC name/alias is directed
+  - Engagement tracking — NPC stays engaged with player for follow-up conversation (60s timeout)
+  - Ambient chatter — unaddressed speech queued for rare heartbeat reaction
+  - `EngagementTimeoutSeconds` — configurable per-NPC (default 60s)
+  - Engagement clears on player departure
 
 - **NPC Command Execution** ✅
   - `NpcCommandExecutor` — NPCs issue player-like commands (say, emote, go, get, drop, kill, flee)
@@ -358,3 +369,43 @@
   - Linked rooms have spawns processed when main room becomes active
   - Works for both login (starting in room) and movement (entering room)
   - Example: Shop declares `shop_storage.cs` as linked room
+
+## Village Expansion (Millbrook) ✅
+
+- **New Rooms** ✅
+  - `village_square.cs` — Central hub connecting all village locations
+  - `tavern.cs` — The Sleepy Dragon Inn with buy/sell food/drinks
+  - `tavern_storage.cs` — Hidden cellar storing tavern inventory
+  - `post_office.cs` — Millbrook Post Office
+  - `blacksmith.cs` — Millbrook Smithy with buy/sell weapons/armor
+  - `blacksmith_storage.cs` — Hidden stockroom for smithy inventory
+  - `start.cs` — Renamed to "A Worn Path", connects to village square
+
+- **New NPCs** ✅
+  - `innkeeper.cs` — Bertram Stoutbarrel, jovial tavern owner
+  - `postmaster.cs` — Cornelius Inksworth, fussy bureaucrat
+  - `blacksmith.cs` — Greta Ironhand, gruff craftsman
+
+- **New Items** ✅
+  - Consumables: `ale_mug.cs` (5 HP), `bread_loaf.cs` (8 HP), `meat_pie.cs` (15 HP)
+  - Weapons: `iron_sword.cs` (4-10 dmg), `iron_shield.cs` (4 AC)
+  - Signs: `notice_board.cs`, `tavern_menu.cs` (dynamic from storage)
+
+- **Village Map** ✅
+  ```
+                        [Meadow]
+                           |
+                        [Start]
+                           |
+  [Post Office] ←── [Village Square] ──→ [General Store]
+                        /     \
+               [Blacksmith]  [Tavern]
+  ```
+
+## Wizard Tools Expansion ✅
+
+- **Where Command** ✅
+  - `where <id|name|alias>` — find object locations in the world
+  - Aliases: `locate`, `find`
+  - Searches by instance ID, name, or alias
+  - Shows object name, full ID, and container location

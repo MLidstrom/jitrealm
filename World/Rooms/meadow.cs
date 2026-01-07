@@ -7,7 +7,7 @@ public sealed class Meadow : OutdoorRoomBase, ISpawner
     protected override string GetDefaultName() => "A Quiet Meadow";
 
     protected override string GetDefaultDescription() => "Soft grass sways in a gentle breeze. The sky is a perfect ASCII-blue. " +
-                                  "Wildflowers dot the meadow in patches of color. A goblin lurks nearby, eyeing you warily.";
+                                  "Wildflowers dot the meadow in patches of color.";
 
     public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
     {

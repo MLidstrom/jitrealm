@@ -59,7 +59,24 @@ public class LookCommand : CommandBase
                 if (objId == context.PlayerId) continue;
 
                 var obj = context.State.Objects!.Get<IMudObject>(objId);
-                names.Add(obj?.Name ?? objId);
+                if (obj is null)
+                {
+                    names.Add(objId);
+                }
+                else if (obj is ILiving living)
+                {
+                    // Use ShortDescription for living entities (includes article)
+                    names.Add(living.ShortDescription);
+                }
+                else if (obj is IItem item)
+                {
+                    // Use ShortDescription for items (includes article)
+                    names.Add(item.ShortDescription);
+                }
+                else
+                {
+                    names.Add(obj.Name);
+                }
             }
             if (names.Count > 0)
                 context.Output("You see: " + string.Join(", ", names));
@@ -149,6 +166,20 @@ public class LookCommand : CommandBase
                 }
             }
 
+            // For ILiving, also check aliases (e.g., "barnaby" for shopkeeper)
+            if (!matches && obj is ILiving livingObj)
+            {
+                foreach (var alias in livingObj.Aliases)
+                {
+                    if (alias.ToLowerInvariant().Contains(normalizedTarget) ||
+                        normalizedTarget.Contains(alias.ToLowerInvariant()))
+                    {
+                        matches = true;
+                        break;
+                    }
+                }
+            }
+
             if (matches)
             {
                 // Check object details first
@@ -167,11 +198,29 @@ public class LookCommand : CommandBase
                     context.Output(item.Description);
                     return Task.CompletedTask;
                 }
-                // For livings, show their description and HP
+                // For livings, show their description, HP, and inventory
                 if (obj is ILiving living)
                 {
                     context.Output(living.Description);
                     context.Output($"  HP: {living.HP}/{living.MaxHP}");
+
+                    // Show what they're carrying
+                    var inventory = context.State.Containers.GetContents(objId);
+                    var carriedItems = new List<string>();
+                    foreach (var carriedItemId in inventory)
+                    {
+                        var carriedItem = context.State.Objects?.Get<IItem>(carriedItemId);
+                        if (carriedItem is not null)
+                        {
+                            carriedItems.Add(carriedItem.ShortDescription);
+                        }
+                    }
+                    if (carriedItems.Count > 0)
+                    {
+                        var formatted = ItemFormatter.FormatGroupedList(carriedItems);
+                        context.Output($"  Carrying: {formatted}");
+                    }
+
                     return Task.CompletedTask;
                 }
                 context.Output($"You see {obj.Name}.");

@@ -2,43 +2,40 @@ using System;
 using System.Collections.Generic;
 using JitRealm.Mud;
 
-public sealed class StartRoom : IndoorRoomBase, ISpawner
+public sealed class StartRoom : OutdoorRoomBase, ISpawner
 {
-    protected override string GetDefaultName() => "The Starting Room";
+    protected override string GetDefaultName() => "A Worn Path";
 
-    protected override string GetDefaultDescription() => "A bare room with stone walls. A flickering terminal cursor seems to watch you. A cat lounges in the corner.";
+    protected override string GetDefaultDescription() =>
+        "A dusty path winds between rolling hills, the grass worn away by countless travelers. " +
+        "To the south, the sounds of village life drift on the breeze - the faint clang of a " +
+        "smithy's hammer, the murmur of voices, the creak of a waterwheel. A weathered wooden " +
+        "signpost points the way to Millbrook. The path continues north toward a misty meadow.";
 
     public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
     {
-        ["walls"] = "The stone walls are rough and ancient, covered in faint moss. " +
-                    "Mysterious symbols are barely visible, etched into the rock long ago.",
-        ["stone"] = "The stone walls are rough and ancient, covered in faint moss. " +
-                    "Mysterious symbols are barely visible, etched into the rock long ago.",
-        ["cursor"] = "A glowing terminal cursor blinks steadily in the air before you: > _ " +
-                     "It seems to be waiting for something... perhaps a command?",
-        ["terminal"] = "A glowing terminal cursor blinks steadily in the air before you: > _ " +
-                       "It seems to be waiting for something... perhaps a command?",
-        ["ground"] = "The floor is made of worn flagstones, smooth from countless footsteps. " +
-                     "Dust gathers in the cracks between them.",
-        ["floor"] = "The floor is made of worn flagstones, smooth from countless footsteps. " +
-                    "Dust gathers in the cracks between them.",
-        ["symbols"] = "Strange symbols are carved into the walls - angular runes that seem to " +
-                      "shimmer faintly when you look at them directly. Their meaning is unclear.",
-        ["cat"] = "A small domestic cat with soft fur. It watches you with keen, intelligent eyes, " +
-                  "its tail flicking lazily back and forth."
+        ["signpost"] = "A weathered wooden signpost with an arrow pointing south. 'Millbrook' is " +
+                       "carved into the wood in rough letters, the grain darkened by years of weather.",
+        ["sign"] = "A weathered wooden signpost with an arrow pointing south. 'Millbrook' is " +
+                   "carved into the wood in rough letters, the grain darkened by years of weather.",
+        ["path"] = "A well-worn dirt path, packed hard by countless feet over the years. " +
+                   "Tufts of grass grow along the edges, but the center is bare earth.",
+        ["hills"] = "Gentle rolling hills covered in wild grass and occasional wildflowers. " +
+                    "They stretch off toward the horizon in every direction.",
+        ["grass"] = "Wild grass waves gently in the breeze. Here and there, small wildflowers " +
+                    "add spots of color - yellow buttercups and white daisies."
     };
 
     public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
         ["north"] = "Rooms/meadow.cs",
-        ["east"] = "Rooms/shop.cs"
+        ["south"] = "Rooms/village_square.cs"
     };
 
-    // ISpawner implementation - spawn the rusty sword and a cat
+    // ISpawner implementation - spawn the rusty sword
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
-        ["Items/rusty_sword.cs"] = 1,
-        ["npcs/cat.cs"] = 1
+        ["Items/rusty_sword.cs"] = 1
     };
 
     public void Respawn(IMudContext ctx)
@@ -49,6 +46,6 @@ public sealed class StartRoom : IndoorRoomBase, ISpawner
     public override void Reset(IMudContext ctx)
     {
         // Room reset
-        ctx.Say("The room shimmers briefly.");
+        ctx.Say("The wind rustles through the grass.");
     }
 }

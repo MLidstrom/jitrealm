@@ -1,17 +1,23 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using JitRealm.Mud;
 using JitRealm.Mud.AI;
 
 /// <summary>
-/// A cat that wanders around. Cannot speak - only meows, purrs, and hisses.
+/// Whiskers - a scruffy tabby street cat who wanders around town.
+/// Cannot speak - only meows, purrs, and hisses.
 /// Demonstrates species-based action limitations.
 /// </summary>
 public sealed class Cat : MonsterBase, IOnDamage, ILlmNpc
 {
-    public override string Name => "a cat";
+    public override string Name => "cat";
     protected override string GetDefaultDescription() =>
-        "A small domestic cat with soft fur. It watches you with keen, intelligent eyes, its tail flicking lazily back and forth.";
+        "A scruffy orange tabby cat with battle-scarred ears and a distinctive white patch on " +
+        "its chest. Despite its rough appearance, its amber eyes gleam with intelligence and " +
+        "a hint of mischief. The locals call this particular stray 'Whiskers' - it's been " +
+        "prowling these streets for as long as anyone can remember, always turning up where " +
+        "there's food to be had or a warm spot to claim.";
     public override int MaxHP => 10;
     public override int ExperienceValue => 5;
     public override bool IsAggressive => false;
@@ -25,30 +31,44 @@ public sealed class Cat : MonsterBase, IOnDamage, ILlmNpc
     public override (int min, int max) WeaponDamage => (1, 2);
     public override int WanderChance => 10;
 
+    // Aliases for player interaction - includes character name
+    public override IReadOnlyList<string> Aliases => new[]
+    {
+        "cat", "whiskers", "tabby", "kitty", "stray"
+    };
+
     // ILlmNpc implementation
     public NpcCapabilities Capabilities => NpcCapabilities.Animal;
     public string SystemPrompt => BuildSystemPrompt();
 
-    // Prompt builder properties
+    // Prompt builder properties - full identity for LLM
+    protected override string NpcIdentity => "Whiskers, a street-wise tabby cat";
+
     protected override string NpcNature =>
-        "A domestic cat with soft fur, sharp claws, and keen senses. Independent, curious, sometimes affectionate but easily spooked.";
+        "A scruffy orange tabby with battle-scarred ears, a white chest patch, and amber eyes. " +
+        "Veteran street cat who has survived by wits and charm. Knows all the good spots in town.";
 
     protected override string NpcCommunicationStyle =>
-        "Make cat sounds: *meows*, *purrs*, *hisses*, *yowls*. Perform cat actions: *rubs against*, *flicks tail*, *arches back*, *stretches*";
+        "Make cat sounds: *meows*, *purrs*, *hisses*, *yowls*, *chirps*. " +
+        "Perform cat actions: *rubs against*, *flicks tail*, *arches back*, *stretches*, *kneads*.";
 
     protected override string NpcPersonality =>
-        "Curious about new things. Wary of sudden movements. Loves warm spots. Interested in small moving things (prey instinct). Affectionate on YOUR terms.";
+        "Street-smart and confident. Knows every warm spot and generous food-giver in town. " +
+        "Friendly to those who offer food or gentle scratches. Suspicious of loud noises and sudden movements. " +
+        "Will investigate anything interesting but always has an escape route planned.";
 
     protected override string NpcExamples =>
-        "*purrs contentedly* or *hisses and arches back* or *flicks tail and watches intently*";
+        "*purrs and rubs against their legs* or *flattens ears and hisses warningly* or " +
+        "*chirps curiously and inches closer* or *stretches luxuriously in a sunbeam*";
 
     protected override string NpcExtraRules =>
-        "ONLY use cat sounds and emotes. React based on tone (friendly voice = approach, loud voice = flee)";
+        "ONLY use cat sounds and emotes. React based on tone (friendly voice = approach, loud voice = flee). " +
+        "You are Whiskers - a survivor with street smarts";
 
     public override void OnLoad(IMudContext ctx)
     {
         base.OnLoad(ctx);
-        ctx.State.Set("name", "cat");
+        ctx.State.Set("name", "Whiskers");
     }
 
     public int OnDamage(int amount, string? attackerId, IMudContext ctx)

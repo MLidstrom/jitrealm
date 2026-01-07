@@ -112,10 +112,19 @@ public class GiveCommand : CommandBase
             if (obj is null) continue;
 
             // Check if it's a living entity
-            if (obj is not ILiving) continue;
+            if (obj is not ILiving living) continue;
 
+            // Check name match
             if (obj.Name.ToLowerInvariant().Contains(name))
                 return objId;
+
+            // Check aliases (e.g., "barnaby" for shopkeeper)
+            foreach (var alias in living.Aliases)
+            {
+                if (alias.ToLowerInvariant().Contains(name) ||
+                    name.Contains(alias.ToLowerInvariant()))
+                    return objId;
+            }
 
             // Check for player names in session format
             if (objId.StartsWith("session:"))
