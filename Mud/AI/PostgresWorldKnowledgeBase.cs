@@ -92,6 +92,12 @@ LIMIT $2;
 
         return results;
     }
+
+    public async Task DeleteAsync(string key, CancellationToken cancellationToken = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand("DELETE FROM world_kb WHERE key = $1;", conn);
+        cmd.Parameters.AddWithValue(key);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
 }
-
-

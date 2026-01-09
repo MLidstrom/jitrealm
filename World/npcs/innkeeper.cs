@@ -87,7 +87,22 @@ public sealed class Innkeeper : NPCBase, ILlmNpc
                 return "IMPORTANT: Customer wants gossip. You MUST reply with SPEECH in quotes. " +
                        "Share a rumor about goblins in the meadow or something about village life.";
             }
-            return "Someone spoke to you. You MUST reply with SPEECH in quotes. Be jovial and welcoming!";
+
+            // Detect questions and give explicit answer instructions
+            var isQuestion = msg.Contains("?") || msg.Contains("who") || msg.Contains("what") ||
+                            msg.Contains("where") || msg.Contains("why") || msg.Contains("how") ||
+                            msg.Contains("your name") || msg.Contains("are you");
+
+            if (isQuestion)
+            {
+                return $"QUESTION: \"{@event.Message}\" - You MUST ANSWER this question directly! " +
+                       "Reply with SPEECH in quotes. If asked who you are, introduce yourself as Bertram Stoutbarrel, innkeeper. " +
+                       "If asked about the dragon, tell about grandfather. Be jovial but answer the question!";
+            }
+
+            // For statements, respond conversationally
+            return $"Someone said: \"{@event.Message}\" - Reply with SPEECH in quotes. " +
+                   "Respond to what they said. Be jovial and welcoming!";
         }
         return base.GetLlmReactionInstructions(@event);
     }

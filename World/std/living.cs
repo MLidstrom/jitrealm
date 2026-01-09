@@ -693,14 +693,29 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         if (@event.Type == RoomEventType.Speech && this is ILlmNpc npc && npc.Capabilities.HasFlag(NpcCapabilities.CanSpeak))
         {
             var hasItems = npc.Capabilities.HasFlag(NpcCapabilities.CanManipulateItems);
+            var speechContent = @event.Message ?? "";
+            var lower = speechContent.ToLowerInvariant();
+
+            // Detect if this is a question
+            var isQuestion = lower.Contains("?") || lower.Contains("who") || lower.Contains("what") ||
+                            lower.Contains("where") || lower.Contains("why") || lower.Contains("how") ||
+                            lower.Contains("your name") || lower.Contains("are you");
+
+            if (isQuestion)
+            {
+                var itemNote = hasItems
+                    ? " If they ask for an item, include [cmd:give <item> to player]."
+                    : "";
+                return $"QUESTION ASKED: \"{speechContent}\" — ANSWER THIS QUESTION DIRECTLY in speech (quotes). " +
+                       $"Do NOT give a generic greeting. Respond to the specific question.{itemNote}";
+            }
+
             if (hasItems)
             {
-                return "Someone spoke to you. You MUST reply with SPEECH in quotes - do NOT use emotes! " +
-                       "CRITICAL: If they ask for an item, you MUST include [cmd:give <item> to player] in your response. " +
-                       "Saying 'here you go' or nodding does NOT transfer items - ONLY the [cmd:give] command works! " +
-                       "Example: \"Sure, here it is!\" [cmd:give sword to player]";
+                return $"They said: \"{speechContent}\". Reply with SPEECH in quotes. Respond to what they said. " +
+                       "If asking for an item, use [cmd:give <item> to player].";
             }
-            return "Someone spoke to you. You MUST reply with SPEECH in quotes - do NOT use emotes! Give ONE short response.";
+            return $"They said: \"{speechContent}\". Reply with SPEECH in quotes. Respond to what they said, not with a generic greeting.";
         }
 
         // When someone gives us an item, we might want to give it back or react

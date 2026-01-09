@@ -20,7 +20,8 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(settings.OllamaUrl),
-            Timeout = TimeSpan.FromMilliseconds(settings.TimeoutMs)
+            // Use the larger of NPC/story timeouts (story generations can take longer).
+            Timeout = TimeSpan.FromMilliseconds(Math.Max(settings.TimeoutMs, settings.StoryTimeoutMs))
         };
         _jsonOptions = new JsonSerializerOptions
         {
@@ -30,6 +31,8 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
     }
 
     public bool IsEnabled => _settings.Enabled;
+
+    public bool IsEmbeddingEnabled => _settings.Enabled && !string.IsNullOrWhiteSpace(_settings.EmbeddingModel);
 
     public async Task<string?> CompleteAsync(
         string systemPrompt,
@@ -43,9 +46,31 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
         return await CompleteWithHistoryAsync(systemPrompt, messages, cancellationToken);
     }
 
+    public async Task<string?> CompleteAsync(
+        string systemPrompt,
+        string userMessage,
+        LlmProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<(string role, string content)>
+        {
+            ("user", userMessage)
+        };
+        return await CompleteWithHistoryAsync(systemPrompt, messages, profile, cancellationToken);
+    }
+
     public async Task<string?> CompleteWithHistoryAsync(
         string systemPrompt,
         IReadOnlyList<(string role, string content)> messages,
+        CancellationToken cancellationToken = default)
+    {
+        return await CompleteWithHistoryAsync(systemPrompt, messages, LlmProfile.Npc, cancellationToken);
+    }
+
+    public async Task<string?> CompleteWithHistoryAsync(
+        string systemPrompt,
+        IReadOnlyList<(string role, string content)> messages,
+        LlmProfile profile,
         CancellationToken cancellationToken = default)
     {
         if (!_settings.Enabled)
@@ -53,16 +78,25 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
             return null;
         }
 
+        var (model, temperature, maxTokens) = profile switch
+        {
+            LlmProfile.Story => (
+                string.IsNullOrWhiteSpace(_settings.StoryModel) ? _settings.Model : _settings.StoryModel,
+                _settings.StoryTemperature,
+                _settings.StoryMaxTokens),
+            _ => (_settings.Model, _settings.Temperature, _settings.MaxTokens)
+        };
+
         try
         {
             var request = new OllamaChatRequest
             {
-                Model = _settings.Model,
+                Model = model,
                 Stream = false,
                 Options = new OllamaOptions
                 {
-                    Temperature = _settings.Temperature,
-                    NumPredict = _settings.MaxTokens
+                    Temperature = temperature,
+                    NumPredict = maxTokens
                 },
                 Messages = BuildMessages(systemPrompt, messages)
             };
@@ -120,6 +154,64 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
         return result;
     }
 
+    public async Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default)
+    {
+        if (!IsEmbeddingEnabled)
+        {
+            return null;
+        }
+
+        try
+        {
+            var request = new OllamaEmbedRequest
+            {
+                Model = _settings.EmbeddingModel,
+                Input = text
+            };
+
+            var response = await _httpClient.PostAsJsonAsync(
+                "/api/embed",
+                request,
+                _jsonOptions,
+                cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                Console.WriteLine($"[LLM] Ollama embed error: {response.StatusCode} - {error}");
+                return null;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>(
+                _jsonOptions,
+                cancellationToken);
+
+            // Ollama returns embeddings as array of arrays (for batch support)
+            // We only send one input, so take the first embedding
+            if (result?.Embeddings is { Count: > 0 })
+            {
+                return result.Embeddings[0];
+            }
+
+            return null;
+        }
+        catch (TaskCanceledException)
+        {
+            Console.WriteLine("[LLM] Embed request timed out");
+            return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"[LLM] Embed connection error: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LLM] Embed error: {ex.Message}");
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         _httpClient.Dispose();
@@ -150,5 +242,16 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
     {
         public OllamaMessage? Message { get; set; }
         public bool Done { get; set; }
+    }
+
+    private sealed class OllamaEmbedRequest
+    {
+        public required string Model { get; set; }
+        public required string Input { get; set; }
+    }
+
+    private sealed class OllamaEmbedResponse
+    {
+        public List<float[]>? Embeddings { get; set; }
     }
 }

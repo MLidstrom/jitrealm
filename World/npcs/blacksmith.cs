@@ -38,8 +38,8 @@ public sealed class BlacksmithNpc : NPCBase, ILlmNpc
         "and soot-darkened skin. Has been forging for 30 years.";
 
     protected override string NpcCommunicationStyle =>
-        "Speaks in short, direct sentences. Doesn't waste words. Grunts acknowledgment. " +
-        "Wipes hands on apron when thinking. Occasionally taps hammer against palm.";
+        "ALWAYS speaks in short, direct sentences. Doesn't waste words. " +
+        "Answers questions directly with speech. May add a brief emote after speaking.";
 
     protected override string NpcPersonality =>
         "No-nonsense and practical. Takes immense pride in her craft. Judges people by the quality " +
@@ -47,8 +47,9 @@ public sealed class BlacksmithNpc : NPCBase, ILlmNpc
         "than city smiths. Stamps all her work with 'G.I.' maker's mark.";
 
     protected override string NpcExamples =>
-        "\"*examines the blade critically* Decent edge. Could be sharper.\" or " +
-        "\"*grunts* Good steel costs good coin. You get what you pay for.\"";
+        "\"I'm Greta. Ironhand they call me.\" or " +
+        "\"Working on a sword. Good steel.\" or " +
+        "\"Decent edge. Could be sharper.\"";
 
     protected override string NpcExtraRules =>
         "Be gruff but fair. Talk about craftsmanship. Give blunt opinions on weapons/armor quality. " +
@@ -83,7 +84,23 @@ public sealed class BlacksmithNpc : NPCBase, ILlmNpc
                 return "IMPORTANT: Customer asking about smithing. You MUST reply with SPEECH in quotes. " +
                        "Talk about your craft with pride. Be brief but informative.";
             }
-            return "Someone spoke to you. You MUST reply with SPEECH in quotes. Be gruff but not rude.";
+
+            // Detect questions and give explicit answer instructions
+            var isQuestion = msg.Contains("?") || msg.Contains("who") || msg.Contains("what") ||
+                            msg.Contains("where") || msg.Contains("why") || msg.Contains("how") ||
+                            msg.Contains("your name") || msg.Contains("are you") || msg.Contains("working");
+
+            if (isQuestion)
+            {
+                return $"SPEECH REQUIRED. Say something in quotes like \"text here\". " +
+                       $"Question: \"{@event.Message}\" " +
+                       "Answer: \"I am Greta Ironhand\" or \"Working on a blade\" etc. " +
+                       "DO NOT just emote. You MUST speak.";
+            }
+
+            // For statements, respond conversationally
+            return $"SPEECH REQUIRED. Say something in quotes like \"text here\". " +
+                   $"They said: \"{@event.Message}\" - Reply with speech. DO NOT just emote.";
         }
         return base.GetLlmReactionInstructions(@event);
     }

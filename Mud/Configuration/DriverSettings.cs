@@ -303,9 +303,36 @@ public sealed class LlmSettings
     public int TimeoutMs { get; set; } = 30000;
 
     /// <summary>
+    /// Optional larger/slower model used for wizard/story generation (e.g. 29B creative prose model).
+    /// If blank, falls back to <see cref="Model"/>.
+    /// </summary>
+    public string StoryModel { get; set; } = "";
+
+    /// <summary>
+    /// Temperature for story generations. Higher tends to be more creative.
+    /// </summary>
+    public double StoryTemperature { get; set; } = 0.9;
+
+    /// <summary>
+    /// Max tokens for story generations (often much higher than NPC replies).
+    /// </summary>
+    public int StoryMaxTokens { get; set; } = 900;
+
+    /// <summary>
+    /// Timeout for story generations in milliseconds.
+    /// </summary>
+    public int StoryTimeoutMs { get; set; } = 120000;
+
+    /// <summary>
     /// Directory containing NPC prompt files (relative to World directory).
     /// </summary>
     public string PromptsDirectory { get; set; } = "npcs";
+
+    /// <summary>
+    /// Embedding model for semantic memory search (e.g., "nomic-embed-text", "mxbai-embed-large").
+    /// If empty, semantic search is disabled and memory retrieval falls back to importance/recency.
+    /// </summary>
+    public string EmbeddingModel { get; set; } = "";
 }
 
 /// <summary>

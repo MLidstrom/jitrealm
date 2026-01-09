@@ -40,6 +40,9 @@ flowchart TD
 
 ## Data model (Postgres + pgvector)
 
+### Installing pgvector (Windows)
+- If you're running PostgreSQL on Windows and want vector search, follow `docs/PGVECTOR_WINDOWS.md` (based on: https://dev.to/mehmetakar/install-pgvector-on-windows-6gl).
+
 ### Tables
 - **`npc_goals`** (small, frequently updated) ✅ **Updated for stackable goals**
   - `npc_id` (text) — part of composite PK
@@ -81,11 +84,26 @@ flowchart TD
 ### Current implementation notes
 - Schema/extension initialization runs at startup (idempotent) via `Mud/AI/PostgresMemorySchema.cs`.
 - If `CREATE EXTENSION vector` fails due to permissions, the driver continues without vector support.
-- Embeddings are stored as nullable; embedding generation and vector reranking are the next phase.
+- Embeddings are stored as nullable; if `EmbeddingModel` is not configured, memories are stored without vectors.
+- When embeddings are enabled, they are generated asynchronously in the background writer loop (non-blocking).
 
-### Embedding dimensions
-- Choose one embedding model and fix `N`.
-- Store embedding only for memory entries with `kind in ('dialogue_summary','preference','quest','lore_ref')` (skip high-churn trivial entries).
+### Embedding configuration ✅ IMPLEMENTED
+- **Embedding model** is configured in `appsettings.json` under `Llm.EmbeddingModel` (e.g., `mxbai-embed-large:latest`)
+- **Dimensions** must match in `Memory.EmbeddingDimensions` (e.g., 1024 for mxbai-embed-large)
+- Embeddings are generated **asynchronously** in the background writer loop via `ILlmService.EmbedAsync()`
+- If embedding fails or is disabled, memories are stored without vectors (falls back to importance/recency)
+
+| Embedding Model | Dimensions | Ollama Install |
+|----------------|------------|----------------|
+| `mxbai-embed-large` | 1024 | `ollama pull mxbai-embed-large` |
+| `nomic-embed-text` | 768 | `ollama pull nomic-embed-text` |
+| `all-minilm` | 384 | `ollama pull all-minilm` |
+
+**Key files:**
+- `ILlmService.EmbedAsync()` — embedding interface method
+- `OllamaLlmService.EmbedAsync()` — Ollama `/api/embed` implementation
+- `NpcMemorySystem.MemoryWriterLoopAsync()` — generates embeddings before storage
+- `NpcMemorySystem.EmbedQueryAsync()` — helper for query embedding
 
 ## Memory semantics
 
@@ -237,14 +255,15 @@ Files:
 - `Mud/Configuration/MemorySettings.cs`
 - `appsettings.json`
 
-### 7) Add wizard/system commands to manage world KB
-- Add wizard-only commands:
-  - `kb_get <key>`
-  - `kb_set <key> <json>`
-  - `kb_search <tag>`
+### 7) Add wizard/system commands to manage world KB ✅
+- Added wizard-only command `kb` with subcommands:
+  - `kb get <key>` — retrieve entry by key
+  - `kb set <key> <json> [tags...]` — create/update entry
+  - `kb search <tag1> [tag2...]` — search by tags
+  - `kb delete <key>` — delete entry
 
 Files:
-- `Mud/Commands/Wizard/*`
+- `Mud/Commands/Wizard/KbCommand.cs`
 
 ### 8) Tests and load checks
 - Unit tests:
@@ -268,7 +287,11 @@ Files:
 ## Rollout plan
 - Stage 1: Postgres store + no vectors (still write embeddings null) + tag/recency retrieval. ✅
 - Stage 1b: Stackable goals with importance-based priority + three-way goal setting + wizard `goal` command. ✅
-- Stage 2: Enable pgvector extension + embeddings + similarity rerank.
+- Stage 2: Enable pgvector extension + embeddings + similarity rerank. ✅
+  - Added `EmbeddingModel` config to `LlmSettings`
+  - Added `ILlmService.EmbedAsync()` + Ollama `/api/embed` implementation
+  - Embeddings generated asynchronously in `NpcMemorySystem.MemoryWriterLoopAsync()`
+  - Added `NpcMemorySystem.EmbedQueryAsync()` for query embedding
 - Stage 3: Add richer goal planning and memory summarization.
 - Stage 4: GraphRAG — combine vector search with knowledge graphs for relationship-aware retrieval.
 

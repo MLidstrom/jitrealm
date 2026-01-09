@@ -91,7 +91,21 @@ public sealed class Shopkeeper : NPCBase, ILlmNpc, IHasDefaultGoal
                 }
                 return $"IMPORTANT: The customer is asking about your merchandise. You MUST reply with SPEECH in quotes listing 2-3 items with prices. Your stock: {items}.";
             }
-            return "Someone spoke to you. You MUST reply with SPEECH in quotes. Reply warmly as Barnaby would - grandfatherly, friendly. Example: \"Ah, hello there friend!\"";
+            // Detect questions and give very explicit instructions
+            var isQuestion = msg.Contains("?") || msg.Contains("who") || msg.Contains("what") ||
+                            msg.Contains("where") || msg.Contains("why") || msg.Contains("how") ||
+                            msg.Contains("your name") || msg.Contains("are you");
+
+            if (isQuestion)
+            {
+                return $"QUESTION: \"{@event.Message}\" - You MUST ANSWER this question directly! " +
+                       "Reply with SPEECH in quotes. If asked who you are, introduce yourself as Barnaby Thimblewick, shopkeeper. " +
+                       "If asked about something else, answer that specific question. Do NOT ignore the question!";
+            }
+
+            // For statements, respond conversationally
+            return $"Someone said: \"{@event.Message}\" - Reply with SPEECH in quotes. " +
+                   "Respond to what they said, not with a generic greeting.";
         }
         return base.GetLlmReactionInstructions(@event);
     }

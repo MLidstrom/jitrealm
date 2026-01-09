@@ -27,6 +27,7 @@ internal static class PostgresMemorySchema
         }
 
         // Goals (stackable with importance-based priority)
+        // Create table first (without indexes that depend on new columns)
         await ExecAsync(conn, @"
 CREATE TABLE IF NOT EXISTS npc_goals (
   npc_id        text NOT NULL,
@@ -38,13 +39,17 @@ CREATE TABLE IF NOT EXISTS npc_goals (
   updated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (npc_id, goal_type)
 );
-CREATE INDEX IF NOT EXISTS idx_npc_goals_target_player ON npc_goals (target_player);
-CREATE INDEX IF NOT EXISTS idx_npc_goals_npc_importance ON npc_goals (npc_id, importance ASC);
 ", cancellationToken);
 
         // Migration: Add importance column if table already exists without it
+        // Must run BEFORE creating indexes on importance
         await ExecMigrationAsync(conn, @"
 ALTER TABLE npc_goals ADD COLUMN IF NOT EXISTS importance int NOT NULL DEFAULT 50;
+", cancellationToken);
+
+        // Migration: Add goal_type column if table has old schema
+        await ExecMigrationAsync(conn, @"
+ALTER TABLE npc_goals ADD COLUMN IF NOT EXISTS goal_type text NOT NULL DEFAULT 'default';
 ", cancellationToken);
 
         // Migration: Change primary key if old schema (npc_id only)
@@ -65,6 +70,12 @@ BEGIN
     END IF;
   END IF;
 END$$;
+", cancellationToken);
+
+        // Now create indexes (after migrations ensure columns exist)
+        await ExecAsync(conn, @"
+CREATE INDEX IF NOT EXISTS idx_npc_goals_target_player ON npc_goals (target_player);
+CREATE INDEX IF NOT EXISTS idx_npc_goals_npc_importance ON npc_goals (npc_id, importance ASC);
 ", cancellationToken);
 
         // Memories

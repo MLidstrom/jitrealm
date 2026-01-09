@@ -44,11 +44,12 @@ public sealed class VillageSquare : OutdoorRoomBase, ISpawner
     };
 
     /// <summary>
-    /// The village cat wanders through the square.
+    /// NPCs that spawn in the square - the village cat and Tom the farmer.
     /// </summary>
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
         ["npcs/cat.cs"] = 1,
+        ["npcs/villager_tom.cs"] = 1,
     };
 
     public void Respawn(IMudContext ctx)

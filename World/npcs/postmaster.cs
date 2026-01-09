@@ -82,7 +82,22 @@ public sealed class Postmaster : NPCBase, ILlmNpc
                 return "IMPORTANT: Customer asking about news. You MUST reply with SPEECH in quotes. " +
                        "Direct them to the notice board and mention you keep it updated.";
             }
-            return "Someone spoke to you. You MUST reply with SPEECH in quotes. Be officious but grudgingly helpful.";
+
+            // Detect questions and give explicit answer instructions
+            var isQuestion = msg.Contains("?") || msg.Contains("who") || msg.Contains("what") ||
+                            msg.Contains("where") || msg.Contains("why") || msg.Contains("how") ||
+                            msg.Contains("your name") || msg.Contains("are you");
+
+            if (isQuestion)
+            {
+                return $"QUESTION: \"{@event.Message}\" - You MUST ANSWER this question directly! " +
+                       "Reply with SPEECH in quotes. If asked who you are, introduce yourself as Cornelius Inksworth, postmaster. " +
+                       "Be officious but answer the question. Sigh if you must.";
+            }
+
+            // For statements, respond conversationally
+            return $"Someone said: \"{@event.Message}\" - Reply with SPEECH in quotes. " +
+                   "Respond to what they said. Be officious but grudgingly helpful.";
         }
         return base.GetLlmReactionInstructions(@event);
     }

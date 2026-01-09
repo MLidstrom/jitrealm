@@ -156,10 +156,20 @@ public class CommandContext
         if (obj.Name.ToLowerInvariant().Contains(normalizedName))
             return true;
 
-        // Check aliases if available
+        // Check aliases for items
         if (obj is IItem item)
         {
             foreach (var alias in item.Aliases)
+            {
+                if (alias.ToLowerInvariant().Contains(normalizedName))
+                    return true;
+            }
+        }
+
+        // Check aliases for living entities (NPCs, monsters, etc.)
+        if (obj is ILiving living)
+        {
+            foreach (var alias in living.Aliases)
             {
                 if (alias.ToLowerInvariant().Contains(normalizedName))
                     return true;

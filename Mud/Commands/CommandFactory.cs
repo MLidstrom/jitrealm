@@ -133,6 +133,8 @@ public static class CommandFactory
         registry.Register(new LeditCommand());
         registry.Register(new WhereCommand());
         registry.Register(new GoalCommand());
+        registry.Register(new KbCommand());
+        registry.Register(new StoryCommand());
         // Note: save/load commands are handled directly in CommandLoop
         // because they require access to _persistence which isn't in CommandContext
     }

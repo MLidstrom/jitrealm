@@ -1,6 +1,16 @@
 namespace JitRealm.Mud.AI;
 
 /// <summary>
+/// Which LLM "profile" to use for a completion.
+/// NPC should use a fast/cheap model; Story can use a larger, slower model.
+/// </summary>
+public enum LlmProfile
+{
+    Npc,
+    Story
+}
+
+/// <summary>
 /// Service interface for LLM completions.
 /// </summary>
 public interface ILlmService
@@ -20,6 +30,15 @@ public interface ILlmService
     Task<string?> CompleteAsync(string systemPrompt, string userMessage, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Generate a completion from the LLM using a specific model profile.
+    /// </summary>
+    Task<string?> CompleteAsync(
+        string systemPrompt,
+        string userMessage,
+        LlmProfile profile,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Generate a completion with conversation history.
     /// </summary>
     /// <param name="systemPrompt">The system prompt defining behavior.</param>
@@ -30,6 +49,29 @@ public interface ILlmService
         string systemPrompt,
         IReadOnlyList<(string role, string content)> messages,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Generate a completion with conversation history using a specific model profile.
+    /// </summary>
+    Task<string?> CompleteWithHistoryAsync(
+        string systemPrompt,
+        IReadOnlyList<(string role, string content)> messages,
+        LlmProfile profile,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether embedding generation is available.
+    /// </summary>
+    bool IsEmbeddingEnabled { get; }
+
+    /// <summary>
+    /// Generate an embedding vector for the given text.
+    /// Used for semantic similarity search in NPC memories.
+    /// </summary>
+    /// <param name="text">The text to embed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The embedding vector as float array, or null if disabled/failed.</returns>
+    Task<float[]?> EmbedAsync(string text, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

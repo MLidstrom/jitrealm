@@ -15,6 +15,7 @@ public sealed class NpcMemorySystem : IAsyncDisposable
     private readonly MemorySettings _settings;
     private readonly NpgsqlDataSource _dataSource;
     private readonly bool _pgvectorEnabled;
+    private readonly ILlmService? _llmService;
 
     public INpcMemoryStore NpcMemory { get; }
     public IWorldKnowledgeBase WorldKnowledge { get; }
@@ -28,11 +29,12 @@ public sealed class NpcMemorySystem : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _writerTask;
 
-    private NpcMemorySystem(MemorySettings settings, NpgsqlDataSource dataSource, bool pgvectorEnabled)
+    private NpcMemorySystem(MemorySettings settings, NpgsqlDataSource dataSource, bool pgvectorEnabled, ILlmService? llmService)
     {
         _settings = settings;
         _dataSource = dataSource;
         _pgvectorEnabled = pgvectorEnabled;
+        _llmService = llmService;
 
         NpcMemory = new PostgresNpcMemoryStore(_dataSource, _settings, _pgvectorEnabled);
         WorldKnowledge = new PostgresWorldKnowledgeBase(_dataSource);
@@ -48,7 +50,7 @@ public sealed class NpcMemorySystem : IAsyncDisposable
         _writerTask = Task.Run(() => MemoryWriterLoopAsync(_cts.Token));
     }
 
-    public static async Task<NpcMemorySystem> CreateAsync(MemorySettings settings, CancellationToken cancellationToken = default)
+    public static async Task<NpcMemorySystem> CreateAsync(MemorySettings settings, ILlmService? llmService = null, CancellationToken cancellationToken = default)
     {
         if (!settings.Enabled)
             throw new InvalidOperationException("Memory system is disabled.");
@@ -78,7 +80,7 @@ public sealed class NpcMemorySystem : IAsyncDisposable
         var pgvectorEnabled = await PostgresMemorySchema.EnsureAsync(dataSource, settings, cancellationToken);
         Console.WriteLine($"[Memory] Schema ready (pgvector: {(pgvectorEnabled ? "enabled" : "disabled")})");
 
-        return new NpcMemorySystem(settings, dataSource, pgvectorEnabled);
+        return new NpcMemorySystem(settings, dataSource, pgvectorEnabled, llmService);
     }
 
     private static string MaskPassword(string connectionString)
@@ -143,6 +145,27 @@ public sealed class NpcMemorySystem : IAsyncDisposable
     public bool TryEnqueueMemoryWrite(NpcMemoryWrite write) =>
         _writeQueue.Writer.TryWrite(write);
 
+    /// <summary>
+    /// Generate an embedding vector for query text (for semantic recall).
+    /// Returns null if embeddings are not enabled/available.
+    /// </summary>
+    public async Task<Vector?> EmbedQueryAsync(string text, CancellationToken cancellationToken = default)
+    {
+        if (!_pgvectorEnabled || _llmService?.IsEmbeddingEnabled != true)
+            return null;
+
+        var embedding = await _llmService.EmbedAsync(text, cancellationToken);
+        if (embedding is null)
+            return null;
+
+        return new Vector(embedding);
+    }
+
+    /// <summary>
+    /// Whether semantic embedding search is available.
+    /// </summary>
+    public bool IsSemanticSearchEnabled => _pgvectorEnabled && _llmService?.IsEmbeddingEnabled == true;
+
     public async ValueTask DisposeAsync()
     {
         try
@@ -183,6 +206,17 @@ public sealed class NpcMemorySystem : IAsyncDisposable
 
             try
             {
+                // Generate embedding if pgvector is enabled and LLM service supports embeddings
+                if (_pgvectorEnabled && _llmService?.IsEmbeddingEnabled == true && write.Embedding is null)
+                {
+                    var embedding = await _llmService.EmbedAsync(write.Content, cancellationToken);
+                    if (embedding is not null)
+                    {
+                        // Create new write record with embedding
+                        write = write with { Embedding = new Vector(embedding) };
+                    }
+                }
+
                 await NpcMemory.AddAsync(write, cancellationToken);
             }
             catch (Exception ex)

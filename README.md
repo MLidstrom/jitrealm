@@ -189,7 +189,7 @@ Edit `appsettings.json` to customize driver settings:
     "MaxConnections": 0,
     "WelcomeMessage": "Welcome to JitRealm, {PlayerName}!",
     "MudName": "JitRealm",
-    "Version": "0.19"
+    "Version": "0.20"
   },
   "Paths": {
     "WorldDirectory": "World",

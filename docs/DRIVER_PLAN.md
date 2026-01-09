@@ -998,6 +998,10 @@ Refactored LLM NPC support into `LivingBase` for minimal boilerplate:
 - Writes are buffered via a bounded in-process queue (DropOldest) to protect the game loop
 - Default memory promotion happens on salient room events (combat/death/item-given + directly-addressed speech)
 
+**Wizard Story-Builder Model ✅**
+- `appsettings.json` `Llm.StoryModel` can point at a larger creative GGUF (e.g. 29B) for lore/quest/scene generation.
+- Wizard command: `story <prompt>` (aliases: `lore`, `write`) uses the story model profile and does not affect NPC latency/cost.
+
 **Stackable Goals with Priority ✅**
 - Goals are now stackable (multiple goals per NPC) with importance-based priority
 - Lower importance = higher priority. Importance levels:
@@ -1041,6 +1045,7 @@ Smart speech detection to reduce spam and make NPCs feel more natural:
 | `Mud/AI/PostgresNpcMemoryStore.cs` | Postgres memory store (pgvector-aware) |
 | `Mud/AI/PostgresNpcGoalStore.cs` | Postgres goal store (stackable goals with importance) |
 | `Mud/Commands/Wizard/GoalCommand.cs` | Wizard command for viewing/setting NPC goals |
+| `Mud/Commands/Wizard/StoryCommand.cs` | Wizard story/lore generator using the configured StoryModel |
 | `Mud/AI/PostgresWorldKnowledgeBase.cs` | Postgres world KB store |
 | `Mud/AI/MemoryPromotionRules.cs` | Conservative memory promotion rules |
 | `Mud/MudContext.cs` | BuildNpcContext is async and retrieves goal/memory/KB for prompts |

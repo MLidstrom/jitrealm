@@ -83,9 +83,13 @@ if (settings.Memory.Enabled)
 {
     try
     {
-        memorySystem = await NpcMemorySystem.CreateAsync(settings.Memory);
+        memorySystem = await NpcMemorySystem.CreateAsync(settings.Memory, state.LlmService);
         state.MemorySystem = memorySystem;
         Console.WriteLine("[Memory] Persistent NPC memory/goals enabled (PostgreSQL).");
+        if (state.LlmService?.IsEmbeddingEnabled == true)
+        {
+            Console.WriteLine($"[Memory] Embeddings enabled: {settings.Llm.EmbeddingModel} ({settings.Memory.EmbeddingDimensions} dims)");
+        }
     }
     catch (Exception ex)
     {
