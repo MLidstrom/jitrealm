@@ -23,10 +23,9 @@ public class GoalCommand : WizardCommandBase
             context.Output("  goal <npc> <type> <importance>    - add/update goal with importance");
             context.Output("  goal <npc> <type> <imp> <target>  - add/update goal with target");
             context.Output("  goal <npc> clear <type>           - clear specific goal");
-            context.Output("  goal <npc> clearall               - clear all goals (keeps survive)");
-            context.Output("  goal <npc> clearall!              - clear ALL goals including survive");
+            context.Output("  goal <npc> clearall               - clear all goals");
             context.Output("\nImportance levels (lower = higher priority):");
-            context.Output("  1 = survive (highest), 5 = combat, 10 = urgent, 50 = default, 100 = background");
+            context.Output("  5 = combat, 10 = urgent, 50 = default, 100 = background");
             return;
         }
 
@@ -93,17 +92,10 @@ public class GoalCommand : WizardCommandBase
         }
 
         // Clear all goals
-        if (args[1].Equals("clearall!", StringComparison.OrdinalIgnoreCase))
-        {
-            await memorySystem.Goals.ClearAllAsync(npcId, preserveSurvival: false);
-            context.Output($"Cleared ALL goals for {npc.Name} (including survive)");
-            return;
-        }
-
         if (args[1].Equals("clearall", StringComparison.OrdinalIgnoreCase))
         {
-            await memorySystem.Goals.ClearAllAsync(npcId, preserveSurvival: true);
-            context.Output($"Cleared all goals for {npc.Name} (survive preserved)");
+            await memorySystem.Goals.ClearAllAsync(npcId, preserveSurvival: false);
+            context.Output($"Cleared all goals for {npc.Name}");
             return;
         }
 
@@ -123,6 +115,11 @@ public class GoalCommand : WizardCommandBase
 
         // Set/add goal
         var goalType = args[1].ToLowerInvariant();
+        if (goalType == "survive")
+        {
+            context.Output("'survive' is a drive (always-on) and cannot be set as a goal.");
+            return;
+        }
         var importance = GoalImportance.Default;
         string? targetPlayer = null;
 

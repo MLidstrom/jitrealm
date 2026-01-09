@@ -25,14 +25,15 @@ public interface INpcGoalStore
     Task ClearAsync(string npcId, string goalType, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Clear all goals for an NPC (except survival if preserveSurvival is true).
+    /// Clear all goals for an NPC.
+    /// Note: "survive" is treated as a drive (not a persisted goal) and is not required for gameplay.
     /// </summary>
     Task ClearAllAsync(string npcId, bool preserveSurvival = true, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// Represents an NPC goal with priority (importance).
-/// Lower importance = higher priority. Importance 1 = survival (highest priority).
+/// Lower importance = higher priority.
 /// </summary>
 public sealed record NpcGoal(
     string NpcId,
@@ -48,7 +49,6 @@ public sealed record NpcGoal(
 /// </summary>
 public static class GoalImportance
 {
-    public const int Survival = 1;      // Stay alive - highest priority
     public const int Combat = 5;        // Active combat situations
     public const int Urgent = 10;       // Urgent tasks
     public const int Default = 50;      // Normal priority

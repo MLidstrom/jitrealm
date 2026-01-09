@@ -8,6 +8,11 @@ using JitRealm.Mud;
 /// </summary>
 public class WeaponBase : ItemBase, IWeapon
 {
+    /// <summary>
+    /// Weapons don't stack - each is unique (can have different stats/enchantments).
+    /// </summary>
+    public override string StackKey => Id; // Unique per instance
+
     public virtual EquipmentSlot Slot => EquipmentSlot.MainHand;
     public virtual int MinDamage => Ctx?.State.Get<int>("min_damage") ?? 1;
     public virtual int MaxDamage => Ctx?.State.Get<int>("max_damage") ?? 4;

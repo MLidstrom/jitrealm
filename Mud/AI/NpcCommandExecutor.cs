@@ -1008,6 +1008,10 @@ public sealed class NpcCommandExecutor
         var goalType = parts[0].ToLowerInvariant();
         var targetPlayer = parts.Length > 1 ? parts[1].Trim() : null;
 
+        // "survive" is a drive, not a persisted goal.
+        if (goalType == "survive")
+            return;
+
         // Normalize "player" target to actual interactor if available
         if (targetPlayer?.Equals("player", StringComparison.OrdinalIgnoreCase) == true && _currentInteractorId is not null)
         {

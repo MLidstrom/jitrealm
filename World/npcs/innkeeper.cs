@@ -8,8 +8,18 @@ using JitRealm.Mud.AI;
 /// Bertram Stoutbarrel - a barrel-chested innkeeper with a magnificent red beard.
 /// Jovial and welcoming, proud of his dragon-slaying grandfather.
 /// </summary>
-public sealed class Innkeeper : NPCBase, ILlmNpc
+public sealed class Innkeeper : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
 {
+    // Default goal: serve customers and run the inn
+    public string? DefaultGoalType => "serve_customers";
+
+    // Default needs: innkeepers need to serve guests and keep the inn running
+    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    {
+        ("serve_guests", NeedLevel.Primary),
+        ("keep_inn_tidy", NeedLevel.Secondary)
+    };
+
     public override string Name => "innkeeper";
     protected override string GetDefaultDescription() =>
         "A barrel-chested man with a magnificent red beard braided into two thick ropes. " +

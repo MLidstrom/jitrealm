@@ -35,6 +35,7 @@ flowchart TD
 - **`INpcMemoryStore`** ✅: read/write per-NPC memories (`Mud/AI/INpcMemoryStore.cs`, `Mud/AI/PostgresNpcMemoryStore.cs`).
 - **`IWorldKnowledgeBase`** ✅: shared KB (`Mud/AI/IWorldKnowledgeBase.cs`, `Mud/AI/PostgresWorldKnowledgeBase.cs`). (Policy: NPCs should be read-only; wizard/system writes only.)
 - **`INpcGoalStore`** ✅: persist per-NPC goals (`Mud/AI/INpcGoalStore.cs`, `Mud/AI/PostgresNpcGoalStore.cs`).
+- **`INpcNeedStore`** ✅: persist per-NPC needs/drives (`Mud/AI/INpcNeedStore.cs`, `Mud/AI/PostgresNpcNeedStore.cs`).
 - **`MemoryWriteQueue` + background writer** ✅: bounded in-process queue with DropOldest (`Mud/AI/NpcMemorySystem.cs`).
 - **`ThinkScheduler`** (planned): global budgeting for LLM calls and memory retrieval.
 
@@ -53,6 +54,15 @@ flowchart TD
   - `importance` (int, default 50) — priority level (1=highest/survival, 50=default, 100=background)
   - `updated_at`
   - **PRIMARY KEY (npc_id, goal_type)** — allows multiple goals per NPC
+
+- **`npc_needs`** (small, frequently updated) ✅
+  - `npc_id` (text) — part of composite PK
+  - `need_type` (text) — part of composite PK (e.g. `survive`)
+  - `level` (int, default 1) — priority level (1 = top need)
+  - `params` (jsonb)
+  - `status` (text)
+  - `updated_at`
+  - **PRIMARY KEY (npc_id, need_type)** — allows multiple needs per NPC
 
 - **`npc_memories`** (append-mostly)
   - `id` (uuid PK)
@@ -178,6 +188,48 @@ Goals are LLM-driven completion — the NPC decides when a goal is done by outpu
 - `[goal:clear type]` — removes specific goal
 - `[goal:clear]` — clears all goals (except survival)
 
+## Needs/Drives system (per NPC) ✅ IMPLEMENTED
+
+### Representation
+- Need = (npc_id, need_type, level, status, params)
+- Needs are **always-on** — they never complete (unlike goals)
+- Needs are **prioritized** by level (lower number = higher priority)
+- Shown to LLM as "Drives" in the NPC context
+
+### Level constants (NeedLevel)
+| Level | Constant | Description |
+|-------|----------|-------------|
+| 1 | `Survival` | Auto-applied to all living entities |
+| 2 | `Primary` | Core motivation (e.g., hunt for predators) |
+| 3 | `Secondary` | Important but not core (e.g., rest) |
+| 4 | `Tertiary` | Nice to have |
+| 5 | `Background` | Lowest priority |
+
+### Two ways to set needs
+
+1. **Source code** — Implement `IHasDefaultNeeds` interface:
+```csharp
+public sealed class Cat : MonsterBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
+{
+    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    {
+        ("hunt", NeedLevel.Primary),
+        ("rest", NeedLevel.Secondary)
+    };
+}
+```
+
+2. **Programmatically** — Via `IMudContext` methods:
+   - `SetNeedAsync(needType, level, status)` — set/update need
+   - `ClearNeedAsync(needType)` — clear specific need
+   - `GetAllNeedsAsync()` — get all needs ordered by level
+
+### Key differences from goals
+- **Goals** = completable tasks (e.g., "sell item to customer")
+- **Needs** = ongoing drives that never complete (e.g., "maintain_shop", "hunt")
+- Goals support LLM markup for completion; needs are persistent
+- Both are provided to LLM as context for decision-making
+
 ### Execution
 - Fast loop: rule-based progression each heartbeat.
 - Slow loop: LLM used only to:
@@ -287,6 +339,7 @@ Files:
 ## Rollout plan
 - Stage 1: Postgres store + no vectors (still write embeddings null) + tag/recency retrieval. ✅
 - Stage 1b: Stackable goals with importance-based priority + three-way goal setting + wizard `goal` command. ✅
+- Stage 1c: NPC needs/drives system with `IHasDefaultNeeds` interface + `NeedLevel` constants. ✅
 - Stage 2: Enable pgvector extension + embeddings + similarity rerank. ✅
   - Added `EmbeddingModel` config to `LlmSettings`
   - Added `ILlmService.EmbedAsync()` + Ollama `/api/embed` implementation

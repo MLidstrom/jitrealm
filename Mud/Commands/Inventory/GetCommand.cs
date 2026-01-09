@@ -51,10 +51,33 @@ public class GetCommand : CommandBase
         }
 
         var playerName = context.Session.PlayerName ?? "Someone";
+        var itemDisplayName = item.ShortDescription;
 
-        // Move item to player inventory
-        ctx.Move(itemId, context.PlayerId);
-        context.Output($"You pick up {item.ShortDescription}.");
+        // Handle stackable items - merge with existing piles
+        if (item is IStackable stackable)
+        {
+            var amount = stackable.Amount;
+            var stackKey = stackable.StackKey;
+            var blueprintId = StackHelper.GetBlueprintId(itemId);
+
+            // Remove from room and destruct the item instance
+            context.State.Containers.Remove(itemId);
+            await context.State.Objects!.DestructAsync(itemId, context.State);
+
+            // Add to player inventory (will merge with existing pile)
+            await StackHelper.AddStackToContainerAsync(context.State, context.PlayerId, stackKey, blueprintId, amount);
+
+            // Format display name (coins have special formatting)
+            if (item is ICoin coin)
+                itemDisplayName = CoinHelper.FormatCoins(amount, coin.Material);
+        }
+        else
+        {
+            // Move non-stackable item to player inventory
+            ctx.Move(itemId, context.PlayerId);
+        }
+
+        context.Output($"You pick up {itemDisplayName}.");
 
         // Trigger room event for NPC reactions
         await context.TriggerRoomEventAsync(new RoomEvent

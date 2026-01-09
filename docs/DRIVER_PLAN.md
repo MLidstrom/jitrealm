@@ -1002,10 +1002,18 @@ Refactored LLM NPC support into `LivingBase` for minimal boilerplate:
 - `appsettings.json` `Llm.StoryModel` can point at a larger creative GGUF (e.g. 29B) for lore/quest/scene generation.
 - Wizard command: `story <prompt>` (aliases: `lore`, `write`) uses the story model profile and does not affect NPC latency/cost.
 
+**Autonomous Goal Pursuit + Semantic Memory Recall ✅**
+- NPCs with goals will periodically take **one** autonomous step toward an active goal even when the room is quiet (rate-limited).
+- Memory recall supports **semantic reranking** when both are enabled:
+  - PostgreSQL has `pgvector` installed (extension `vector`)
+  - `appsettings.json` has `Llm.EmbeddingModel` set (Ollama `/api/embed`), and `Memory.UsePgvector` is enabled
+- When semantic recall is available, NPC context building embeds a query derived from the current event/goal and uses pgvector distance (`<=>`) to select relevant memories.
+- Survival is implemented as a **need/drive** (`npc_needs`), not a goal (`npc_goals`), and is always the top drive for all living entities.
+
 **Stackable Goals with Priority ✅**
 - Goals are now stackable (multiple goals per NPC) with importance-based priority
 - Lower importance = higher priority. Importance levels:
-  - `GoalImportance.Survival` (1) — highest priority, auto-set for all living entities
+  - **Drive: survive** — highest priority for all living entities (always-on; not stored as a goal)
   - `GoalImportance.Combat` (5) — active combat situations
   - `GoalImportance.Urgent` (10) — urgent tasks
   - `GoalImportance.Default` (50) — normal priority (default for LLM-set goals)

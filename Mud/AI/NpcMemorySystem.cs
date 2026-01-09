@@ -20,6 +20,7 @@ public sealed class NpcMemorySystem : IAsyncDisposable
     public INpcMemoryStore NpcMemory { get; }
     public IWorldKnowledgeBase WorldKnowledge { get; }
     public INpcGoalStore Goals { get; }
+    public INpcNeedStore Needs { get; }
 
     public int DefaultMemoryTopK => _settings.DefaultMemoryTopK;
     public int DefaultKbTopK => _settings.DefaultKbTopK;
@@ -39,6 +40,7 @@ public sealed class NpcMemorySystem : IAsyncDisposable
         NpcMemory = new PostgresNpcMemoryStore(_dataSource, _settings, _pgvectorEnabled);
         WorldKnowledge = new PostgresWorldKnowledgeBase(_dataSource);
         Goals = new PostgresNpcGoalStore(_dataSource);
+        Needs = new PostgresNpcNeedStore(_dataSource);
 
         _writeQueue = Channel.CreateBounded<NpcMemoryWrite>(new BoundedChannelOptions(Math.Max(100, _settings.MaxWriteQueue))
         {

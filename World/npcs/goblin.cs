@@ -9,8 +9,18 @@ using JitRealm.Mud.AI;
 /// Aggressive and will attack players on sight.
 /// LLM-powered conversation.
 /// </summary>
-public sealed class Goblin : MonsterBase, IOnDamage, ILlmNpc
+public sealed class Goblin : MonsterBase, IOnDamage, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
 {
+    // Default goal: scavenge for shinies
+    public string? DefaultGoalType => "scavenge";
+
+    // Default needs: goblins need to hoard and stay safe
+    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    {
+        ("hoard_shinies", NeedLevel.Primary),
+        ("avoid_danger", NeedLevel.Secondary)
+    };
+
     public override string Name => "goblin";
     protected override string GetDefaultDescription() =>
         "A scrawny goblin barely three feet tall, with mottled green skin covered in old scars " +

@@ -8,8 +8,18 @@ using JitRealm.Mud.AI;
 /// Cornelius Inksworth - a fussy, bureaucratic postmaster.
 /// Thin, stooped, with ink-stained fingers and wire-rimmed spectacles.
 /// </summary>
-public sealed class Postmaster : NPCBase, ILlmNpc
+public sealed class Postmaster : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
 {
+    // Default goal: manage postal services
+    public string? DefaultGoalType => "manage_mail";
+
+    // Default needs: postmasters need to sort mail and maintain order
+    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    {
+        ("sort_mail", NeedLevel.Primary),
+        ("maintain_order", NeedLevel.Secondary)
+    };
+
     public override string Name => "postmaster";
     protected override string GetDefaultDescription() =>
         "A thin, stooped man with wire-rimmed spectacles perched on a beak-like nose. " +

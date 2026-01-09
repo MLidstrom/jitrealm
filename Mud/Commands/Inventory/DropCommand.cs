@@ -42,10 +42,33 @@ public class DropCommand : CommandBase
         }
 
         var playerName = context.Session.PlayerName ?? "Someone";
+        var itemDisplayName = item.ShortDescription;
 
-        // Move item to room
-        ctx.Move(itemId, roomId);
-        context.Output($"You drop {item.ShortDescription}.");
+        // Handle stackable items - merge with existing piles in room
+        if (item is IStackable stackable)
+        {
+            var amount = stackable.Amount;
+            var stackKey = stackable.StackKey;
+            var blueprintId = StackHelper.GetBlueprintId(itemId);
+
+            // Remove from player and destruct the item instance
+            context.State.Containers.Remove(itemId);
+            await context.State.Objects!.DestructAsync(itemId, context.State);
+
+            // Add to room (will merge with existing pile)
+            await StackHelper.AddStackToContainerAsync(context.State, roomId, stackKey, blueprintId, amount);
+
+            // Format display name (coins have special formatting)
+            if (item is ICoin coin)
+                itemDisplayName = CoinHelper.FormatCoins(amount, coin.Material);
+        }
+        else
+        {
+            // Move non-stackable item to room
+            ctx.Move(itemId, roomId);
+        }
+
+        context.Output($"You drop {itemDisplayName}.");
 
         // Trigger room event for NPC reactions
         await context.TriggerRoomEventAsync(new RoomEvent
@@ -53,7 +76,7 @@ public class DropCommand : CommandBase
             Type = RoomEventType.ItemDropped,
             ActorId = context.PlayerId,
             ActorName = playerName,
-            Target = item.ShortDescription
+            Target = itemDisplayName
         }, roomId);
     }
 }

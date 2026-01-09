@@ -9,8 +9,18 @@ using JitRealm.Mud.AI;
 /// Cannot speak - only meows, purrs, and hisses.
 /// Demonstrates species-based action limitations.
 /// </summary>
-public sealed class Cat : MonsterBase, IOnDamage, ILlmNpc
+public sealed class Cat : MonsterBase, IOnDamage, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
 {
+    // Default goal: wander and find warm spots
+    public string? DefaultGoalType => "wander";
+
+    // Default needs: cats need to hunt and rest
+    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    {
+        ("hunt", NeedLevel.Primary),
+        ("rest", NeedLevel.Secondary)
+    };
+
     public override string Name => "cat";
     protected override string GetDefaultDescription() =>
         "A scruffy orange tabby cat with battle-scarred ears and a distinctive white patch on " +

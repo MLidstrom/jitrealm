@@ -28,6 +28,11 @@ public sealed class Coin : JitRealm.World.Std.ItemBase, ICoin
     public int Amount => Ctx?.State.Get<int>("amount") ?? 1;
 
     /// <summary>
+    /// Coins stack by material (gold with gold, silver with silver, etc.).
+    /// </summary>
+    public string StackKey => $"coin:{Material}";
+
+    /// <summary>
     /// Dynamic name based on material and amount.
     /// </summary>
     public override string Name => FormatName();

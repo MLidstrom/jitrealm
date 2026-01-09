@@ -3,19 +3,15 @@ namespace JitRealm.Mud;
 /// <summary>
 /// Interface for coin items that support stacking and automatic merging.
 /// When coins of the same material are placed in the same container, they merge.
+/// Coins use their Material as the StackKey for merging.
 /// </summary>
-public interface ICoin : ICarryable
+public interface ICoin : IStackable
 {
     /// <summary>
     /// The material of this coin (Gold, Silver, or Copper).
     /// Determines the coin's value and how it merges with other coins.
     /// </summary>
     CoinMaterial Material { get; }
-
-    /// <summary>
-    /// The number of coins in this pile.
-    /// </summary>
-    int Amount { get; }
 }
 
 /// <summary>

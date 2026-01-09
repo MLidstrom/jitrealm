@@ -47,6 +47,7 @@ SET target_player = EXCLUDED.target_player,
 SELECT npc_id, goal_type, target_player, params, status, importance, updated_at
 FROM npc_goals
 WHERE npc_id = $1
+  AND goal_type != 'survive'
 ORDER BY importance ASC
 LIMIT 1;
 ", conn);
@@ -66,6 +67,7 @@ LIMIT 1;
 SELECT npc_id, goal_type, target_player, params, status, importance, updated_at
 FROM npc_goals
 WHERE npc_id = $1
+  AND goal_type != 'survive'
 ORDER BY importance ASC;
 ", conn);
         cmd.Parameters.AddWithValue(npcId);

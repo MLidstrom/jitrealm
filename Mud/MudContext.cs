@@ -1,5 +1,6 @@
 using JitRealm.Mud.AI;
 using JitRealm.Mud.Security;
+using Pgvector;
 
 namespace JitRealm.Mud;
 
@@ -281,7 +282,7 @@ public sealed class MudContext : IMudContext
         return await _llmService.CompleteAsync(systemPrompt, userMessage);
     }
 
-    public async Task<NpcContext> BuildNpcContextAsync(ILiving npc, string? focalPlayerName = null)
+    public async Task<NpcContext> BuildNpcContextAsync(ILiving npc, string? focalPlayerName = null, string? memoryQueryText = null)
     {
         var npcId = (npc as IMudObject)?.Id ?? CurrentObjectId ?? "unknown";
         var roomId = RoomId ?? _internalWorld.Containers.GetContainer(npcId);
@@ -375,6 +376,7 @@ public sealed class MudContext : IMudContext
         // Long-term per-NPC memory + world KB (optional)
         var longTermMemories = Array.Empty<string>();
         var worldFacts = Array.Empty<string>();
+        var drives = new List<string>();
         string? goalSummary = null;
 
         var memorySystem = _internalWorld.MemorySystem;
@@ -382,24 +384,41 @@ public sealed class MudContext : IMudContext
         {
             try
             {
-                // Goal (small, single-row)
-                var goal = await memorySystem.Goals.GetAsync(npcId);
-                if (goal is not null)
+                // Goals (small; include a few top priorities)
+                var goals = await memorySystem.Goals.GetAllAsync(npcId);
+                if (goals.Count > 0)
                 {
-                    goalSummary = string.IsNullOrWhiteSpace(goal.TargetPlayer)
-                        ? $"{goal.GoalType} ({goal.Status})"
-                        : $"{goal.GoalType} -> {goal.TargetPlayer} ({goal.Status})";
+                    var goalParts = goals
+                        .Where(g => string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(g => g.Importance)
+                        .Take(3)
+                        .Select(g =>
+                            string.IsNullOrWhiteSpace(g.TargetPlayer)
+                                ? $"{g.GoalType} ({g.Status})"
+                                : $"{g.GoalType} -> {g.TargetPlayer} ({g.Status})")
+                        .ToList();
+
+                    if (goalParts.Count > 0)
+                        goalSummary = string.Join("; ", goalParts);
                 }
 
                 // Memories (bounded)
                 var memTopK = memorySystem.DefaultMemoryTopK;
+
+                // Semantic query embedding (optional)
+                Vector? queryEmbedding = null;
+                if (!string.IsNullOrWhiteSpace(memoryQueryText) && memorySystem.IsSemanticSearchEnabled)
+                {
+                    queryEmbedding = await memorySystem.EmbedQueryAsync(memoryQueryText);
+                }
+
                 var mems = await memorySystem.NpcMemory.RecallAsync(new NpcMemoryRecallQuery(
                     NpcId: npcId,
                     SubjectPlayer: focalPlayerName,
                     Tags: Array.Empty<string>(),
                     TopK: memTopK,
                     CandidateLimit: memorySystem.CandidateLimit,
-                    QueryEmbedding: null));
+                    QueryEmbedding: queryEmbedding));
                 if (mems.Count > 0)
                 {
                     longTermMemories = mems
@@ -428,6 +447,37 @@ public sealed class MudContext : IMudContext
             }
         }
 
+        // Drives / needs
+        // Always include survive as top drive, but prefer persisted needs list when available.
+        try
+        {
+            var memorySystem2 = _internalWorld.MemorySystem;
+            if (memorySystem2 is not null)
+            {
+                var needs = await memorySystem2.Needs.GetAllAsync(npcId);
+                foreach (var n in needs.OrderBy(n => n.Level))
+                {
+                    drives.Add($"{n.NeedType} (level {n.Level})");
+                }
+            }
+        }
+        catch
+        {
+            // Ignore; fall back below
+        }
+
+        // Ensure survive shows urgency based on combat/health (even if needs aren't available yet).
+        var hpPercent2 = npc.MaxHP > 0 ? (npc.HP * 100 / npc.MaxHP) : 100;
+        var surviveUrgency = (inCombat || hpPercent2 <= 25)
+            ? "survive: critical (seek safety, flee/defend)"
+            : hpPercent2 <= 50
+                ? "survive: injured (be cautious, avoid risk)"
+                : "survive: stable";
+
+        // Put survive first, de-duping any persisted "survive (level 1)" entry.
+        drives.RemoveAll(d => d.StartsWith("survive", StringComparison.OrdinalIgnoreCase));
+        drives.Insert(0, surviveUrgency);
+
         return new NpcContext
         {
             NpcId = npcId,
@@ -449,6 +499,7 @@ public sealed class MudContext : IMudContext
             RecentEvents = recentEvents.ToList(),
             LongTermMemories = longTermMemories,
             WorldKnowledge = worldFacts,
+            Drives = drives,
             GoalSummary = goalSummary
         };
     }
@@ -535,6 +586,10 @@ public sealed class MudContext : IMudContext
         if (memorySystem is null || CurrentObjectId is null)
             return false;
 
+        // Drives are not persisted as goals.
+        if (string.Equals(goalType, "survive", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var goal = new NpcGoal(
             NpcId: CurrentObjectId,
             GoalType: goalType,
@@ -564,7 +619,8 @@ public sealed class MudContext : IMudContext
         if (memorySystem is null || CurrentObjectId is null)
             return false;
 
-        await memorySystem.Goals.ClearAllAsync(CurrentObjectId, preserveSurvival);
+        // Survive is a drive, not a goal. Clear all goals (including any legacy survive rows).
+        await memorySystem.Goals.ClearAllAsync(CurrentObjectId, preserveSurvival: false);
         return true;
     }
 
@@ -584,5 +640,44 @@ public sealed class MudContext : IMudContext
             return Array.Empty<NpcGoal>();
 
         return await memorySystem.Goals.GetAllAsync(CurrentObjectId);
+    }
+
+    // Need/drive methods
+
+    public async Task<bool> SetNeedAsync(string needType, int level = 1, string status = "active")
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        var need = new NpcNeed(
+            NpcId: CurrentObjectId,
+            NeedType: needType,
+            Level: Math.Max(1, level),
+            Params: System.Text.Json.JsonDocument.Parse("{}"),
+            Status: status,
+            UpdatedAt: DateTimeOffset.UtcNow);
+
+        await memorySystem.Needs.UpsertAsync(need);
+        return true;
+    }
+
+    public async Task<bool> ClearNeedAsync(string needType)
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        await memorySystem.Needs.ClearAsync(CurrentObjectId, needType);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<NpcNeed>> GetAllNeedsAsync()
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return Array.Empty<NpcNeed>();
+
+        return await memorySystem.Needs.GetAllAsync(CurrentObjectId);
     }
 }

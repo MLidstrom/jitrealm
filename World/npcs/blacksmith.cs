@@ -8,8 +8,18 @@ using JitRealm.Mud.AI;
 /// Greta Ironhand - a powerfully built master blacksmith.
 /// Gruff, no-nonsense, takes immense pride in her craft.
 /// </summary>
-public sealed class BlacksmithNpc : NPCBase, ILlmNpc
+public sealed class BlacksmithNpc : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
 {
+    // Default goal: work at the forge
+    public string? DefaultGoalType => "forge_items";
+
+    // Default needs: blacksmiths need to work the forge and maintain quality
+    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    {
+        ("work_forge", NeedLevel.Primary),
+        ("craft_quality", NeedLevel.Secondary)
+    };
+
     public override string Name => "blacksmith";
     protected override string GetDefaultDescription() =>
         "A powerfully built woman in her forties with arms like tree trunks and hands " +

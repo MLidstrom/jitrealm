@@ -133,8 +133,9 @@ public interface IMudContext
     /// </summary>
     /// <param name="npc">The NPC living object to build context for.</param>
     /// <param name="focalPlayerName">Optional stable player account/name the NPC is interacting with (for memory retrieval).</param>
+    /// <param name="memoryQueryText">Optional text used to semantically recall relevant memories (pgvector + embeddings).</param>
     /// <returns>NpcContext with complete environmental information.</returns>
-    Task<NpcContext> BuildNpcContextAsync(ILiving npc, string? focalPlayerName = null);
+    Task<NpcContext> BuildNpcContextAsync(ILiving npc, string? focalPlayerName = null, string? memoryQueryText = null);
 
     /// <summary>
     /// Record an event that NPCs in the room can observe.
@@ -194,7 +195,7 @@ public interface IMudContext
     /// Set a goal for the current NPC. Goals are stackable with priority based on importance.
     /// Lower importance = higher priority. Use GoalImportance constants.
     /// </summary>
-    /// <param name="goalType">Type of goal (e.g., "help_customer", "patrol", "survive").</param>
+    /// <param name="goalType">Type of goal (e.g., "help_customer", "patrol").</param>
     /// <param name="targetPlayer">Optional player the goal relates to.</param>
     /// <param name="status">Goal status (default "active").</param>
     /// <param name="importance">Priority level (1=highest/survival, 50=default, 100=background).</param>
@@ -211,7 +212,7 @@ public interface IMudContext
     /// <summary>
     /// Clear all goals for the current NPC (except survival goal by default).
     /// </summary>
-    /// <param name="preserveSurvival">If true, keeps the survival goal.</param>
+    /// <param name="preserveSurvival">Deprecated: survive is a drive (not a goal). This flag has no effect.</param>
     /// <returns>True if cleared, false if memory system unavailable.</returns>
     Task<bool> ClearAllGoalsAsync(bool preserveSurvival = true);
 
@@ -226,4 +227,21 @@ public interface IMudContext
     /// </summary>
     /// <returns>List of goals ordered by importance.</returns>
     Task<IReadOnlyList<NpcGoal>> GetAllGoalsAsync();
+
+    // Need/drive methods (for NPC needs)
+
+    /// <summary>
+    /// Set a need/drive for the current NPC. Level 1 is the top need (e.g., survive).
+    /// </summary>
+    Task<bool> SetNeedAsync(string needType, int level = 1, string status = "active");
+
+    /// <summary>
+    /// Clear a need/drive for the current NPC.
+    /// </summary>
+    Task<bool> ClearNeedAsync(string needType);
+
+    /// <summary>
+    /// Get all needs for the current NPC, ordered by level (lowest first).
+    /// </summary>
+    Task<IReadOnlyList<NpcNeed>> GetAllNeedsAsync();
 }

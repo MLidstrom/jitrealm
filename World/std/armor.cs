@@ -8,6 +8,11 @@ using JitRealm.Mud;
 /// </summary>
 public class ArmorBase : ItemBase, IArmor
 {
+    /// <summary>
+    /// Armor doesn't stack - each piece is unique (can have different stats/enchantments).
+    /// </summary>
+    public override string StackKey => Id; // Unique per instance
+
     public virtual EquipmentSlot Slot => EquipmentSlot.Body;
     public virtual int ArmorClass => Ctx?.State.Get<int>("armor_class") ?? 1;
     public virtual string ArmorType => Ctx?.State.Get<string>("armor_type") ?? "cloth";

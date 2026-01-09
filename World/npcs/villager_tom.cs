@@ -8,10 +8,17 @@ using JitRealm.Mud.AI;
 /// Tom the Farmer - an advanced wandering villager with goals and environmental awareness.
 /// Demonstrates the full NPC capability system with persistent goals.
 /// </summary>
-public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal
+public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
 {
     public override string Name => "farmer";
     public override IReadOnlyList<string> Aliases => new[] { "tom", "farmer", "villager", "man" };
+
+    // Default needs: farmers need to tend their farm and care for family
+    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    {
+        ("tend_farm", NeedLevel.Primary),
+        ("care_for_family", NeedLevel.Secondary)
+    };
 
     protected override string GetDefaultDescription() =>
         "A weathered farmer in his middle years, with sun-browned skin and calloused hands. " +

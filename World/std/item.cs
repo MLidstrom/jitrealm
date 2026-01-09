@@ -5,12 +5,25 @@ using JitRealm.Mud;
 /// <summary>
 /// Base class for all carryable items.
 /// Extend this class to create items that can be picked up, dropped, and traded.
+/// Items are stackable by default - identical items merge when placed in the same container.
 /// </summary>
-public class ItemBase : MudObjectBase, ICarryable, IOnLoad
+public class ItemBase : MudObjectBase, ICarryable, IStackable, IOnLoad
 {
     protected IMudContext? Ctx { get; private set; }
 
     public override string Name => Ctx?.State.Get<string>("name") ?? GetDefaultName();
+
+    /// <summary>
+    /// Number of items in this stack. Default 1.
+    /// </summary>
+    public virtual int Amount => Ctx?.State.Get<int>("amount") ?? 1;
+
+    /// <summary>
+    /// Key used to identify items that can stack together.
+    /// Default uses the blueprint ID, so identical items stack.
+    /// Override to prevent stacking (return unique value like Id).
+    /// </summary>
+    public virtual string StackKey => GetBlueprintId();
 
     /// <summary>
     /// Default name when not overridden in state. Override in subclasses.
@@ -33,8 +46,49 @@ public class ItemBase : MudObjectBase, ICarryable, IOnLoad
     public virtual int Value => Ctx?.State.Get<int>("value") ?? GetDefaultValue();
     protected virtual int GetDefaultValue() => 0;
 
-    public virtual string ShortDescription => Ctx?.State.Get<string>("short_desc") ?? GetDefaultShortDescription();
+    public virtual string ShortDescription => FormatShortDescription();
+
     protected virtual string GetDefaultShortDescription() => Name;
+
+    /// <summary>
+    /// Format the short description, including count for stacked items.
+    /// </summary>
+    protected virtual string FormatShortDescription()
+    {
+        var baseDesc = Ctx?.State.Get<string>("short_desc") ?? GetDefaultShortDescription();
+        if (Amount <= 1)
+            return baseDesc;
+
+        // For stacked items, pluralize
+        return $"{Amount} {ItemFormatter.Pluralize(StripArticle(baseDesc))}";
+    }
+
+    /// <summary>
+    /// Remove leading article (a/an/the) from a string.
+    /// </summary>
+    private static string StripArticle(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        var lower = text.ToLowerInvariant();
+        if (lower.StartsWith("a "))
+            return text[2..];
+        if (lower.StartsWith("an "))
+            return text[3..];
+        if (lower.StartsWith("the "))
+            return text[4..];
+        return text;
+    }
+
+    /// <summary>
+    /// Get the blueprint ID from this item's instance ID.
+    /// </summary>
+    protected string GetBlueprintId()
+    {
+        var hashIndex = Id.IndexOf('#');
+        return hashIndex >= 0 ? Id[..hashIndex] : Id;
+    }
 
     /// <summary>
     /// Alternative names/keywords for looking up this item.
@@ -67,6 +121,10 @@ public class ItemBase : MudObjectBase, ICarryable, IOnLoad
         if (!ctx.State.Has("description"))
         {
             ctx.State.Set("description", GetDefaultDescription());
+        }
+        if (!ctx.State.Has("amount"))
+        {
+            ctx.State.Set("amount", 1);
         }
     }
 

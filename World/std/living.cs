@@ -25,6 +25,11 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     private DateTime _lastLlmResponseTime = DateTime.MinValue;
 
     /// <summary>
+    /// Timestamp of last autonomous goal "think" tick to prevent background spam.
+    /// </summary>
+    private DateTime _lastGoalThinkTime = DateTime.MinValue;
+
+    /// <summary>
     /// Whether we're currently processing an LLM request (prevent concurrent calls).
     /// </summary>
     private bool _isProcessingLlm;
@@ -245,6 +250,18 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     protected virtual double EngagementTimeoutSeconds => 60.0;
 
     /// <summary>
+    /// Enable autonomous goal pursuit (background "think" ticks).
+    /// This is separate from reacting to room events.
+    /// </summary>
+    protected virtual bool AutonomousGoalPursuitEnabled => true;
+
+    /// <summary>
+    /// How often (seconds) this NPC may take an autonomous goal step when idle.
+    /// Keep this relatively slow for scalability.
+    /// </summary>
+    protected virtual double GoalThinkIntervalSeconds => 20.0;
+
+    /// <summary>
     /// The direction this living last came from.
     /// Used to avoid immediately returning to the previous room.
     /// </summary>
@@ -317,12 +334,50 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         }
 
         // Apply survival goal and any default goals
+        ApplyDefaultNeedsIfNeeded(ctx);
         ApplyDefaultGoalsIfNeeded(ctx);
     }
 
     /// <summary>
-    /// Apply survival goal (all living entities) and default goals from IHasDefaultGoal.
-    /// Goals are stackable by type - survival is always highest priority.
+    /// Apply default needs/drives (all living entities).
+    /// Survive is always level 1. Additional needs from IHasDefaultNeeds are also applied.
+    /// </summary>
+    private async void ApplyDefaultNeedsIfNeeded(IMudContext ctx)
+    {
+        try
+        {
+            // Ensure survive need exists at level 1 (all living entities).
+            await ctx.SetNeedAsync("survive", level: NeedLevel.Survival, status: "active");
+
+            // Apply additional needs from IHasDefaultNeeds if implemented
+            if (this is IHasDefaultNeeds hasNeeds)
+            {
+                // Get existing needs to check what's already set
+                var existingNeeds = await ctx.GetAllNeedsAsync();
+                var existingTypes = new HashSet<string>(existingNeeds.Select(n => n.NeedType), StringComparer.OrdinalIgnoreCase);
+
+                foreach (var (needType, level) in hasNeeds.DefaultNeeds)
+                {
+                    // Skip survive (already handled above) and skip if already exists
+                    if (string.Equals(needType, "survive", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (!existingTypes.Contains(needType))
+                    {
+                        await ctx.SetNeedAsync(needType, level, "active");
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Silently ignore errors (need store may not be available)
+        }
+    }
+
+    /// <summary>
+    /// Apply default goals from IHasDefaultGoal.
+    /// Note: "survive" is a drive (always-on priority), not a persisted goal.
     /// </summary>
     private async void ApplyDefaultGoalsIfNeeded(IMudContext ctx)
     {
@@ -335,16 +390,6 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             // Get existing goals to avoid duplicates
             var existingGoals = await ctx.GetAllGoalsAsync();
             var existingTypes = new HashSet<string>(existingGoals.Select(g => g.GoalType));
-
-            // Always set survival goal if not present (highest priority)
-            if (!existingTypes.Contains("survive"))
-            {
-                await ctx.SetGoalAsync(
-                    "survive",
-                    targetPlayer: null,
-                    status: "active",
-                    importance: GoalImportance.Survival);
-            }
 
             // Apply default goal from IHasDefaultGoal if not present
             if (this is IHasDefaultGoal hasDefault &&
@@ -382,8 +427,113 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         // Process pending LLM event (if this NPC implements ILlmNpc)
         ProcessPendingLlmEvent(ctx);
 
+        // Autonomous goal pursuit tick (best-effort, bounded)
+        ProcessAutonomousGoalThink(ctx);
+
         // Try to wander if enabled
         TryWander(ctx);
+    }
+
+    /// <summary>
+    /// Autonomous goal pursuit: when idle, periodically call the LLM to take one step toward goals.
+    /// This is intentionally conservative and rate-limited.
+    /// </summary>
+    private async void ProcessAutonomousGoalThink(IMudContext ctx)
+    {
+        try
+        {
+            if (!AutonomousGoalPursuitEnabled)
+                return;
+
+            if (this is not ILlmNpc llmNpc)
+                return;
+
+            if (!IsAlive)
+                return;
+
+            if (!ctx.IsLlmEnabled)
+                return;
+
+            // Don't compete with event reactions
+            if (_pendingLlmEvent is not null)
+                return;
+
+            if (_isProcessingLlm)
+                return;
+
+            // Rate-limit background thinking
+            var sinceThink = (DateTime.UtcNow - _lastGoalThinkTime).TotalSeconds;
+            if (sinceThink < GoalThinkIntervalSeconds)
+                return;
+
+            // Fetch goals (if memory/goals system is unavailable, this will return empty)
+            var goals = await ctx.GetAllGoalsAsync();
+
+            // Choose a goal to pursue, or pursue the survive drive if in danger.
+            // We can't directly query CombatScheduler from sandboxed world access,
+            // so treat "danger" as primarily low HP for goal selection.
+            var isHurt = MaxHP > 0 && HP * 100 / MaxHP <= 50;
+
+            NpcGoal? goalToPursue = null;
+            if (isHurt)
+            {
+                // Survive is a drive, not a persisted goal. If hurt, prioritize survival behavior even with no goals.
+                goalToPursue = goals.FirstOrDefault(g => string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                goalToPursue = goals.FirstOrDefault(g =>
+                    string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!isHurt && goalToPursue is null)
+                return;
+
+            _lastGoalThinkTime = DateTime.UtcNow;
+
+            // Build context with semantic memory recall (if enabled).
+            var goalText = isHurt
+                ? "drive: survive"
+                : string.IsNullOrWhiteSpace(goalToPursue!.TargetPlayer)
+                    ? $"{goalToPursue.GoalType} ({goalToPursue.Status})"
+                    : $"{goalToPursue.GoalType} -> {goalToPursue.TargetPlayer} ({goalToPursue.Status})";
+
+            var memoryQuery = $"Goal: {goalText}. NPC: {Name}. Room: {ctx.World.GetObjectLocation(ctx.CurrentObjectId ?? string.Empty)}";
+
+            var npcContext = await ctx.BuildNpcContextAsync(
+                this,
+                focalPlayerName: isHurt ? null : goalToPursue!.TargetPlayer,
+                memoryQueryText: memoryQuery);
+
+            var environmentDesc = npcContext.BuildEnvironmentDescription();
+            var actionInstructions = npcContext.BuildActionInstructions();
+
+            var pursueInstructions =
+                $"[Autonomous drive/goal pursuit]\n" +
+                $"- Current priority: {goalText}\n" +
+                "- Take ONE concrete step toward this priority.\n" +
+                "- Prefer real game actions using [cmd:...] markup.\n" +
+                "- If the goal is complete, use [goal:done <type>] or [goal:clear <type>].\n" +
+                "- If you need to set a new goal, use [goal:<type> <optional target>].\n" +
+                "- If players are present, keep it natural and non-spammy (often a brief emote is enough).";
+
+            var userPrompt = $"{environmentDesc}\n\n{actionInstructions}\n\n{pursueInstructions}";
+
+            var response = await ctx.LlmCompleteAsync(llmNpc.SystemPrompt, userPrompt);
+            if (string.IsNullOrWhiteSpace(response))
+                return;
+
+            // Treat as a normal NPC response: execute bounded commands then optional speech/emote.
+            _lastLlmResponseTime = DateTime.UtcNow;
+            await ctx.ExecuteLlmResponseAsync(response,
+                canSpeak: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanSpeak),
+                canEmote: llmNpc.Capabilities.HasFlag(NpcCapabilities.CanEmote),
+                interactorId: null);
+        }
+        catch
+        {
+            // Best-effort only; never crash heartbeat
+        }
     }
 
     /// <summary>
@@ -776,7 +926,11 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         try
         {
             // Build full environmental context (pass 'this' as ILiving)
-            var npcContext = await ctx.BuildNpcContextAsync(this, focalPlayerName: eventToProcess.ActorName);
+            var memoryQuery = $"{eventToProcess.Description}\n{eventToProcess.Message}".Trim();
+            var npcContext = await ctx.BuildNpcContextAsync(
+                this,
+                focalPlayerName: eventToProcess.ActorName,
+                memoryQueryText: memoryQuery);
             var environmentDesc = npcContext.BuildEnvironmentDescription();
             var actionInstructions = npcContext.BuildActionInstructions();
             var reactionInstructions = GetLlmReactionInstructions(eventToProcess);

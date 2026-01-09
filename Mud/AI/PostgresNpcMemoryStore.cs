@@ -77,17 +77,17 @@ VALUES
         var subject = NormalizePlayer(query.SubjectPlayer);
 
         var baseWhere = @"
-npc_id = $1
+npc_id = @npc_id
 AND (expires_at IS NULL OR expires_at > now())
 ";
         if (!string.IsNullOrEmpty(subject))
-            baseWhere += "AND subject_player = $2\n";
+            baseWhere += "AND subject_player = @subject\n";
 
-        // tag filtering is optional; applied as overlap (tags && $tags)
+        // tag filtering is optional; applied as overlap (tags && @tags)
         var tags = query.Tags?.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToArray() ?? Array.Empty<string>();
         var hasTags = tags.Length > 0;
         if (hasTags)
-            baseWhere += "AND tags && $tags\n";
+            baseWhere += "AND tags && @tags\n";
 
         var sql = hasVectorQuery
             ? $@"
@@ -101,7 +101,7 @@ WITH candidates AS (
 SELECT id, npc_id, subject_player, room_id, area_id, kind, importance, tags, content, created_at, expires_at
 FROM candidates
 WHERE embedding IS NOT NULL
-ORDER BY embedding <=> $embedding
+ORDER BY embedding <=> @embedding
 LIMIT {topK};
 "
             : $@"
@@ -119,13 +119,11 @@ LIMIT {topK};
 ";
 
         await using var cmd = new NpgsqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue(query.NpcId);
+        cmd.Parameters.AddWithValue("npc_id", query.NpcId);
 
-        var paramIndex = 2;
         if (!string.IsNullOrEmpty(subject))
         {
-            cmd.Parameters.AddWithValue(subject);
-            paramIndex++;
+            cmd.Parameters.AddWithValue("subject", subject);
         }
 
         if (hasTags)

@@ -112,6 +112,7 @@ public sealed class NpcContext
     // Persistent memory and goals (optional)
     public IReadOnlyList<string> LongTermMemories { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> WorldKnowledge { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> Drives { get; init; } = Array.Empty<string>();
     public string? GoalSummary { get; init; }
 
     /// <summary>
@@ -188,9 +189,18 @@ public sealed class NpcContext
             }
         }
 
+        if (Drives.Count > 0)
+        {
+            lines.Add($"\n[Drives (always-on priorities):]");
+            foreach (var d in Drives.Take(5))
+            {
+                lines.Add($"- {d}");
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(GoalSummary))
         {
-            lines.Add($"\n[Current goal:]");
+            lines.Add($"\n[Goals:]");
             lines.Add($"- {GoalSummary}");
         }
 

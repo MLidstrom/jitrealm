@@ -69,14 +69,35 @@ public class GiveCommand : CommandBase
         var playerName = context.Session.PlayerName ?? "Someone";
         var itemDisplayName = item.ShortDescription;
 
-        // Move item to target's inventory
-        context.State.Containers.Move(itemId, targetId);
-
-        // Call OnGive hook if item is carryable
-        if (item is ICarryable carryable)
+        // Handle stackable items - merge with existing piles
+        if (item is IStackable stackable)
         {
-            var itemCtx = context.CreateContext(itemId);
-            carryable.OnGive(itemCtx, context.PlayerId, targetId);
+            var amount = stackable.Amount;
+            var stackKey = stackable.StackKey;
+            var blueprintId = StackHelper.GetBlueprintId(itemId);
+
+            // Remove from player and destruct the item instance
+            context.State.Containers.Remove(itemId);
+            await context.State.Objects!.DestructAsync(itemId, context.State);
+
+            // Add to target's inventory (will merge with existing pile)
+            await StackHelper.AddStackToContainerAsync(context.State, targetId, stackKey, blueprintId, amount);
+
+            // Format display name (coins have special formatting)
+            if (item is ICoin coin)
+                itemDisplayName = CoinHelper.FormatCoins(amount, coin.Material);
+        }
+        else
+        {
+            // Move non-stackable item to target's inventory
+            context.State.Containers.Move(itemId, targetId);
+
+            // Call OnGive hook if item is carryable
+            if (item is ICarryable carryable)
+            {
+                var itemCtx = context.CreateContext(itemId);
+                carryable.OnGive(itemCtx, context.PlayerId, targetId);
+            }
         }
 
         context.Output($"You give {itemDisplayName} to {target.Name}.");
