@@ -1025,6 +1025,21 @@ Refactored LLM NPC support into `LivingBase` for minimal boilerplate:
 - Database schema: composite primary key `(npc_id, goal_type)` with `importance` column
 - IMudContext methods: `SetGoalAsync`, `ClearGoalAsync`, `ClearAllGoalsAsync`, `GetGoalAsync`, `GetAllGoalsAsync`
 
+**Goal Plans (Step-by-Step Tasks) ✅**
+- Goals can have plans — ordered lists of steps NPCs work through
+- Plans stored in goal's `params` JSONB field as `{plan: {steps: [...], currentStep: N, completedSteps: [...]}}`
+- NPCs are instructed about plan markup in their system prompt (via `LivingBase.BuildSystemPrompt()`)
+- LLM markup:
+  - `[plan:step1|step2|step3]` — set plan for highest priority goal (pipe-separated)
+  - `[step:done]` / `[step:complete]` — complete current step, advance to next
+  - `[step:skip]` / `[step:next]` — skip current step without completing
+- Wizard commands:
+  - `goal <npc> plan <type> <step1|step2|...>` — set plan
+  - `goal <npc> plan <type> clear` — clear plan
+- LLM context shows: `[50] sell_items (step 2/4: "show_items")`
+- Auto-completion: when all steps complete, goal is cleared and default restored if applicable
+- Key files: `Mud/AI/GoalPlan.cs`, `Mud/AI/NpcCommandExecutor.cs`, `World/std/living.cs`
+
 **NPC Engagement System:**
 Smart speech detection to reduce spam and make NPCs feel more natural:
 - **1:1 conversation** — If only NPC and player in room, all speech is directed
@@ -1298,3 +1313,144 @@ web/
 - Guilds/classes
 - Visual room/map editor
 - GraphRAG for NPC memory (knowledge graph + vector search)
+
+---
+
+## Daemon System ✅ COMPLETE
+
+**Goal**: Provide long-lived singleton service objects for shared game systems.
+
+### What Are Daemons?
+
+Daemons are inspired by lpMUD's daemon pattern - central service objects that provide shared game systems like time, weather, economy, etc. Unlike regular world objects:
+
+- **Singletons**: One instance per daemon type
+- **Long-lived**: Loaded on startup, persist until shutdown
+- **Globally accessible**: Any world code can query via `ctx.World.GetDaemon<T>()`
+- **Heartbeat-enabled**: Support periodic updates
+
+### Implementation
+
+**New files created:**
+
+| File | Purpose |
+|------|---------|
+| `Mud/IDaemon.cs` | Interface for daemon service objects + ITimeDaemon, IWeatherDaemon |
+| `Mud/DaemonRegistry.cs` | Singleton lookup registry |
+| `World/std/daemon.cs` | DaemonBase and ShutdownDaemonBase classes |
+| `World/daemons/time_d.cs` | TIME_D - world time simulation (implements ITimeDaemon) |
+| `World/daemons/weather_d.cs` | WEATHER_D - weather simulation (implements IWeatherDaemon) |
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `Mud/WorldState.cs` | Added DaemonRegistry, LoadDaemonsAsync(), ShutdownDaemons() |
+| `Mud/Security/ISandboxedWorldAccess.cs` | Added GetDaemon<T>(), GetDaemon(), ListDaemonIds() |
+| `Mud/Security/SandboxedWorldAccess.cs` | Implemented daemon query methods |
+| `Mud/Room.cs` | Added IsOutdoors, IsLit to IRoom interface |
+| `Mud/Commands/Navigation/LookCommand.cs` | Integrated time/weather display for outdoor rooms |
+| `Program.cs` | Added daemon loading on startup, shutdown on exit |
+
+### Daemon Interfaces
+
+Driver-defined interfaces for type-safe daemon access:
+
+```csharp
+public interface ITimeDaemon : IDaemon
+{
+    int Hour { get; }
+    int Minute { get; }
+    string TimeString { get; }
+    bool IsNight { get; }
+    bool IsDay { get; }
+    string PeriodDescription { get; }
+}
+
+public interface IWeatherDaemon : IDaemon
+{
+    bool IsRaining { get; }
+    bool IsLowVisibility { get; }
+    bool IsDangerous { get; }
+    string WeatherDescription { get; }
+}
+```
+
+### Outdoor Room Integration
+
+Rooms with `IsOutdoors = true` automatically show time and weather in the `look` command:
+
+```
+A Worn Path
+A dusty path winds between rolling hills...
+The sky begins to lighten as dawn approaches. The sky is clear and calm.
+Exits: north, south
+```
+
+- `OutdoorRoomBase` sets `IsOutdoors = true` by default
+- `IndoorRoomBase` sets `IsOutdoors = false`
+- No changes needed to individual rooms - integration is automatic
+
+### Built-in Daemons
+
+**TIME_D** - World time daemon:
+- Tracks hour, minute, day, month, year
+- Time periods: Dawn, Morning, Midday, Afternoon, Evening, Dusk, Night
+- Classic LPMud timing: 1 game day = 1 real hour (TimeMultiplier = 24)
+- Properties: Hour, Minute, Day, Month, Year, Period, IsDay, IsNight, PeriodDescription
+
+**WEATHER_D** - Weather simulation daemon:
+- Weather conditions: Clear, Cloudy, Overcast, LightRain, Rain, HeavyRain, Thunderstorm, Fog, Snow, Blizzard
+- Temperature and wind strength tracking
+- Gradual weather transitions
+- Properties: CurrentWeather, Temperature, WindStrength, IsRaining, IsLowVisibility, IsDangerous
+
+### Creating Custom Daemons
+
+```csharp
+// World/daemons/my_daemon.cs
+public sealed class MyDaemon : DaemonBase
+{
+    public override string DaemonId => "MY_D";
+    public override TimeSpan HeartbeatInterval => TimeSpan.FromMinutes(1);
+
+    protected override void OnInitialize(IMudContext ctx)
+    {
+        // Setup initial state
+    }
+
+    protected override void OnHeartbeat(IMudContext ctx)
+    {
+        // Periodic updates
+    }
+}
+```
+
+### Accessing Daemons from World Code
+
+```csharp
+// Use interfaces for type-safe access
+var timeD = ctx.World.GetDaemon<ITimeDaemon>("TIME_D");
+if (timeD?.IsNight == true)
+{
+    ctx.Tell(playerId, "It's dark outside.");
+}
+
+var weatherD = ctx.World.GetDaemon<IWeatherDaemon>("WEATHER_D");
+if (weatherD?.IsRaining == true)
+{
+    ctx.Tell(playerId, "Rain falls steadily.");
+}
+```
+
+### Acceptance Criteria ✅
+
+- [x] Daemons auto-load from World/daemons/ on startup
+- [x] DaemonRegistry provides singleton lookup
+- [x] Daemons support heartbeat for periodic updates
+- [x] World code can query daemons via ISandboxedWorldAccess
+- [x] TIME_D tracks world time with classic LPMud timing
+- [x] WEATHER_D simulates weather conditions
+- [x] ITimeDaemon and IWeatherDaemon interfaces for type-safe access
+- [x] Outdoor rooms automatically display time/weather in `look` command
+- [x] IRoom interface extended with IsOutdoors and IsLit properties

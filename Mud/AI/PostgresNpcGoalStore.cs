@@ -82,6 +82,23 @@ ORDER BY importance ASC;
         return results;
     }
 
+    public async Task UpdateParamsAsync(string npcId, string goalType, JsonDocument newParams, CancellationToken cancellationToken = default)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var cmd = new NpgsqlCommand(@"
+UPDATE npc_goals
+SET params = $3::jsonb, updated_at = now()
+WHERE npc_id = $1 AND goal_type = $2;
+", conn);
+        cmd.Parameters.AddWithValue(npcId);
+        cmd.Parameters.AddWithValue(goalType);
+
+        var json = newParams.RootElement.GetRawText();
+        cmd.Parameters.Add(new NpgsqlParameter { Value = json, NpgsqlDbType = NpgsqlDbType.Jsonb });
+
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task ClearAsync(string npcId, string goalType, CancellationToken cancellationToken = default)
     {
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);

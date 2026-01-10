@@ -75,6 +75,13 @@ if (settings.Llm.Enabled)
     var llmService = new OllamaLlmService(settings.Llm);
     state.LlmService = llmService;
     Console.WriteLine($"LLM service enabled: {settings.Llm.Provider} ({settings.Llm.Model})");
+
+    // Set up debug logging if enabled
+    if (settings.Llm.DebugEnabled)
+    {
+        state.LlmDebugger = new LlmDebugLogger(settings.Llm);
+        Console.WriteLine($"LLM debug logging enabled: {settings.Llm.DebugLogPath}");
+    }
 }
 
 // Set up persistent NPC memory/goals system (Postgres + optional pgvector)
@@ -103,6 +110,13 @@ if (settings.Memory.Enabled)
 // Set up persistence
 var provider = new JsonPersistenceProvider(savePath);
 var persistence = new WorldStatePersistence(provider);
+
+// Load daemons (long-lived service objects like TIME_D, WEATHER_D)
+var daemonCount = await state.LoadDaemonsAsync(worldDir);
+if (daemonCount > 0)
+{
+    Console.WriteLine($"[Daemons] Loaded {daemonCount} daemon(s)");
+}
 
 if (perfBenchMode)
 {
@@ -150,6 +164,9 @@ else
     var loop = new CommandLoop(state, persistence, settings, autoPlayer, autoPassword);
     await loop.RunAsync();
 }
+
+// Shutdown daemons
+state.ShutdownDaemons();
 
 if (memorySystem is not null)
 {

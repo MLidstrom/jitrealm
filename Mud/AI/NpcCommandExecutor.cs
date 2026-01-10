@@ -30,6 +30,12 @@ public sealed class NpcCommandExecutor
     // Captures the full content after goal: for patterns starting with clear/done/complete/none
     private static readonly Regex GoalClearPattern = new(@"[\[{]goal:((?:clear|done|complete|none)(?:\s+[^\]}]*)?)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // Regex to match plan markup: [plan:step1|step2|step3]
+    private static readonly Regex PlanMarkupPattern = new(@"[\[{]plan:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Regex to match step actions: [step:done], [step:skip], [step:next]
+    private static readonly Regex StepActionPattern = new(@"[\[{]step:(done|skip|next|complete)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // Commands that NPCs are forbidden from using via [cmd:...] markup
     private static readonly HashSet<string> ForbiddenCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -94,9 +100,14 @@ public sealed class NpcCommandExecutor
             // Process goal markups [goal:type] or [goal:clear]
             await ProcessGoalMarkupsAsync(npcId, response);
 
-            // Remove command and goal markups from response for further parsing
+            // Process plan/step markups [plan:...] or [step:done/skip]
+            await ProcessPlanMarkupsAsync(npcId, response);
+
+            // Remove command, goal, and plan markups from response for further parsing
             var cleanResponse = CommandMarkupPattern.Replace(response, "").Trim();
             cleanResponse = GoalMarkupPattern.Replace(cleanResponse, "").Trim();
+            cleanResponse = PlanMarkupPattern.Replace(cleanResponse, "").Trim();
+            cleanResponse = StepActionPattern.Replace(cleanResponse, "").Trim();
             if (string.IsNullOrWhiteSpace(cleanResponse))
                 return;
 
@@ -326,7 +337,7 @@ public sealed class NpcCommandExecutor
             ? llmNpc.Capabilities
             : NpcCapabilities.Humanoid;
 
-        return cmd switch
+        var result = cmd switch
         {
             // Communication
             "say" => ExecuteSay(npcId, npcName, roomId, args, capabilities),
@@ -359,6 +370,11 @@ public sealed class NpcCommandExecutor
 
             _ => false
         };
+
+        // Log command execution
+        _state.LlmDebugger?.LogCommand(npcId, command, result);
+
+        return result;
     }
 
     private bool ExecuteSay(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
@@ -973,16 +989,25 @@ public sealed class NpcCommandExecutor
         {
             var clearContent = clearMatch.Groups[1].Value.Trim().ToLowerInvariant();
 
-            // [goal:clear type] - clear specific goal type
+            // [goal:clear type] or [goal:done type] - clear specific goal type
             var clearParts = clearContent.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             if (clearParts.Length > 1)
             {
-                await memorySystem.Goals.ClearAsync(npcId, clearParts[1]);
+                var clearedGoalType = clearParts[1];
+                await memorySystem.Goals.ClearAsync(npcId, clearedGoalType);
+                _state.LlmDebugger?.LogGoalChange(npcId, "cleared", clearedGoalType);
+
+                // Restore default goal if the cleared goal was the default
+                await RestoreDefaultGoalIfNeededAsync(npcId, clearedGoalType);
             }
             else
             {
                 // [goal:clear] - clear all goals except survival
                 await memorySystem.Goals.ClearAllAsync(npcId, preserveSurvival: true);
+                _state.LlmDebugger?.LogGoalChange(npcId, "cleared_all", "all");
+
+                // Restore the default goal after clearing all
+                await RestoreDefaultGoalIfNeededAsync(npcId, goalTypeCleared: null);
             }
             return;
         }
@@ -1031,6 +1056,142 @@ public sealed class NpcCommandExecutor
             UpdatedAt: DateTimeOffset.UtcNow);
 
         await memorySystem.Goals.UpsertAsync(goal);
+        _state.LlmDebugger?.LogGoalChange(npcId, "set", goalType, targetPlayer);
+    }
+
+    /// <summary>
+    /// Restore the default goal for an NPC after a goal has been completed or cleared.
+    /// Uses the NPC's IHasDefaultGoal interface to determine the default goal.
+    /// If goalTypeCleared is specified, only restores if it matches the default goal type.
+    /// </summary>
+    private async Task RestoreDefaultGoalIfNeededAsync(string npcId, string? goalTypeCleared)
+    {
+        var memorySystem = _state.MemorySystem;
+        if (memorySystem is null)
+            return;
+
+        // Get the NPC object to check if it implements IHasDefaultGoal
+        var npc = _state.Objects?.Get<IMudObject>(npcId);
+        if (npc is not IHasDefaultGoal hasDefaultGoal)
+            return;
+
+        var defaultGoalType = hasDefaultGoal.DefaultGoalType;
+        if (string.IsNullOrWhiteSpace(defaultGoalType))
+            return;
+
+        // If a specific goal type was cleared, only restore if it matches the default
+        if (goalTypeCleared is not null &&
+            !goalTypeCleared.Equals(defaultGoalType, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Check if the default goal already exists (don't duplicate)
+        var existingGoals = await memorySystem.Goals.GetAllAsync(npcId);
+        if (existingGoals.Any(g => g.GoalType.Equals(defaultGoalType, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        // Restore the default goal
+        var goal = new NpcGoal(
+            NpcId: npcId,
+            GoalType: defaultGoalType,
+            TargetPlayer: hasDefaultGoal.DefaultGoalTarget,
+            Params: System.Text.Json.JsonDocument.Parse("{}"),
+            Status: "active",
+            Importance: hasDefaultGoal.DefaultGoalImportance,
+            UpdatedAt: DateTimeOffset.UtcNow);
+
+        await memorySystem.Goals.UpsertAsync(goal);
+        _state.LlmDebugger?.LogGoalChange(npcId, "restored_default", defaultGoalType, hasDefaultGoal.DefaultGoalTarget);
+    }
+
+    /// <summary>
+    /// Process plan markups in the LLM response.
+    /// [plan:step1|step2|step3] sets a plan for the highest priority goal.
+    /// [step:done] completes the current step and advances to the next.
+    /// [step:skip] skips the current step without completing it.
+    /// </summary>
+    private async Task ProcessPlanMarkupsAsync(string npcId, string response)
+    {
+        var memorySystem = _state.MemorySystem;
+        if (memorySystem is null)
+            return;
+
+        // Get the highest priority active goal
+        var goals = await memorySystem.Goals.GetAllAsync(npcId);
+        var topGoal = goals.FirstOrDefault(g =>
+            string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase));
+
+        if (topGoal is null)
+            return;
+
+        // Check for plan set: [plan:step1|step2|step3]
+        var planMatch = PlanMarkupPattern.Match(response);
+        if (planMatch.Success)
+        {
+            var planContent = planMatch.Groups[1].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(planContent))
+            {
+                var plan = GoalPlan.FromSteps(planContent);
+                if (plan.HasPlan)
+                {
+                    var newParams = plan.ToParams(topGoal.Params);
+                    await memorySystem.Goals.UpdateParamsAsync(npcId, topGoal.GoalType, newParams);
+                    _state.LlmDebugger?.LogGoalChange(npcId, "plan_set", topGoal.GoalType,
+                        $"{plan.Steps.Count} steps");
+                }
+            }
+        }
+
+        // Check for step action: [step:done], [step:skip], [step:next]
+        var stepMatch = StepActionPattern.Match(response);
+        if (stepMatch.Success)
+        {
+            var action = stepMatch.Groups[1].Value.ToLowerInvariant();
+            var plan = GoalPlan.FromParams(topGoal.Params);
+
+            if (!plan.HasPlan)
+                return;
+
+            bool hasMoreSteps;
+            string actionTaken;
+
+            switch (action)
+            {
+                case "done":
+                case "complete":
+                    hasMoreSteps = plan.CompleteCurrentStep();
+                    actionTaken = "step_done";
+                    break;
+                case "skip":
+                case "next":
+                    hasMoreSteps = plan.SkipCurrentStep();
+                    actionTaken = "step_skip";
+                    break;
+                default:
+                    return;
+            }
+
+            // Update the plan in the goal
+            var newParams = plan.ToParams(topGoal.Params);
+            await memorySystem.Goals.UpdateParamsAsync(npcId, topGoal.GoalType, newParams);
+
+            if (plan.IsComplete)
+            {
+                _state.LlmDebugger?.LogGoalChange(npcId, "plan_complete", topGoal.GoalType);
+                // Goal plan is complete - mark goal as done
+                await memorySystem.Goals.ClearAsync(npcId, topGoal.GoalType);
+                _state.LlmDebugger?.LogGoalChange(npcId, "cleared", topGoal.GoalType);
+                await RestoreDefaultGoalIfNeededAsync(npcId, topGoal.GoalType);
+            }
+            else
+            {
+                _state.LlmDebugger?.LogGoalChange(npcId, actionTaken, topGoal.GoalType,
+                    plan.CurrentStepText ?? "unknown");
+            }
+        }
     }
 
     /// <summary>

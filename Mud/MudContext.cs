@@ -279,7 +279,18 @@ public sealed class MudContext : IMudContext
             return null;
         }
 
-        return await _llmService.CompleteAsync(systemPrompt, userMessage);
+        var debugger = _internalWorld.LlmDebugger;
+        var npcId = CurrentObjectId ?? "unknown";
+
+        debugger?.LogRequest(npcId, null, systemPrompt, userMessage);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        var response = await _llmService.CompleteAsync(systemPrompt, userMessage);
+
+        sw.Stop();
+        debugger?.LogResponse(npcId, response, (int)sw.ElapsedMilliseconds);
+
+        return response;
     }
 
     public async Task<NpcContext> BuildNpcContextAsync(ILiving npc, string? focalPlayerName = null, string? memoryQueryText = null)
@@ -378,6 +389,7 @@ public sealed class MudContext : IMudContext
         var worldFacts = Array.Empty<string>();
         var drives = new List<string>();
         string? goalSummary = null;
+        int goalCount = 0;
 
         var memorySystem = _internalWorld.MemorySystem;
         if (memorySystem is not null)
@@ -388,18 +400,26 @@ public sealed class MudContext : IMudContext
                 var goals = await memorySystem.Goals.GetAllAsync(npcId);
                 if (goals.Count > 0)
                 {
-                    var goalParts = goals
+                    var activeGoals = goals
                         .Where(g => string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase))
                         .OrderBy(g => g.Importance)
-                        .Take(3)
-                        .Select(g =>
-                            string.IsNullOrWhiteSpace(g.TargetPlayer)
-                                ? $"{g.GoalType} ({g.Status})"
-                                : $"{g.GoalType} -> {g.TargetPlayer} ({g.Status})")
+                        .Take(5)  // Show up to 5 goals to LLM
                         .ToList();
 
-                    if (goalParts.Count > 0)
+                    goalCount = activeGoals.Count;
+                    if (goalCount > 0)
+                    {
+                        var goalParts = activeGoals.Select(g =>
+                        {
+                            var plan = GoalPlan.FromParams(g.Params);
+                            var planSummary = plan.HasPlan ? $" ({plan.GetContextSummary()})" : "";
+
+                            return string.IsNullOrWhiteSpace(g.TargetPlayer)
+                                ? $"[{g.Importance}] {g.GoalType}{planSummary}"
+                                : $"[{g.Importance}] {g.GoalType} -> {g.TargetPlayer}{planSummary}";
+                        });
                         goalSummary = string.Join("; ", goalParts);
+                    }
                 }
 
                 // Memories (bounded)
@@ -477,6 +497,14 @@ public sealed class MudContext : IMudContext
         // Put survive first, de-duping any persisted "survive (level 1)" entry.
         drives.RemoveAll(d => d.StartsWith("survive", StringComparison.OrdinalIgnoreCase));
         drives.Insert(0, surviveUrgency);
+
+        // Log context retrieval statistics
+        _internalWorld.LlmDebugger?.LogContext(
+            npcId,
+            memoryCount: longTermMemories.Length,
+            goalCount: goalCount,
+            needCount: drives.Count,
+            kbCount: worldFacts.Length);
 
         return new NpcContext
         {

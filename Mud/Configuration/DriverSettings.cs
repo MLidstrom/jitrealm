@@ -333,6 +333,21 @@ public sealed class LlmSettings
     /// If empty, semantic search is disabled and memory retrieval falls back to importance/recency.
     /// </summary>
     public string EmbeddingModel { get; set; } = "";
+
+    /// <summary>
+    /// Enable debug logging for LLM operations.
+    /// </summary>
+    public bool DebugEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Path to the debug log file. Relative paths are relative to the working directory.
+    /// </summary>
+    public string DebugLogPath { get; set; } = "llm_debug.log";
+
+    /// <summary>
+    /// Log full prompts and responses (verbose mode). Otherwise just logs summaries.
+    /// </summary>
+    public bool DebugVerbose { get; set; } = false;
 }
 
 /// <summary>

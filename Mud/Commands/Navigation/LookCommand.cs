@@ -45,6 +45,16 @@ public class LookCommand : CommandBase
         context.Output(room.Name);
         context.Output(room.Description);
 
+        // Show time and weather for outdoor rooms
+        if (room.IsOutdoors)
+        {
+            var timeWeatherLine = GetTimeWeatherDescription(context);
+            if (!string.IsNullOrEmpty(timeWeatherLine))
+            {
+                context.Output(timeWeatherLine);
+            }
+        }
+
         if (room.Exits.Count > 0)
             context.Output("Exits: " + string.Join(", ", room.Exits.Keys));
 
@@ -274,5 +284,29 @@ public class LookCommand : CommandBase
                 context.Output($"    {slot}: {eqItem?.ShortDescription ?? eqItemId}");
             }
         }
+    }
+
+    /// <summary>
+    /// Gets a combined time and weather description for outdoor rooms.
+    /// </summary>
+    private static string GetTimeWeatherDescription(CommandContext context)
+    {
+        var parts = new List<string>();
+
+        // Get time from TIME_D daemon (using interface for runtime type resolution)
+        var timeD = context.State.Daemons.Get<ITimeDaemon>("TIME_D");
+        if (timeD is not null)
+        {
+            parts.Add(timeD.PeriodDescription);
+        }
+
+        // Get weather from WEATHER_D daemon (using interface for runtime type resolution)
+        var weatherD = context.State.Daemons.Get<IWeatherDaemon>("WEATHER_D");
+        if (weatherD is not null)
+        {
+            parts.Add(weatherD.WeatherDescription);
+        }
+
+        return string.Join(" ", parts);
     }
 }

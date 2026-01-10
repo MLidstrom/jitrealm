@@ -64,4 +64,19 @@ public sealed class SandboxedWorldAccess : ISandboxedWorldAccess
     {
         return _state.Objects?.GetStateStore(objectId);
     }
+
+    public T? GetDaemon<T>(string daemonId) where T : class, IDaemon
+    {
+        return _state.Daemons.Get<T>(daemonId);
+    }
+
+    public IDaemon? GetDaemon(string daemonId)
+    {
+        return _state.Daemons.Get(daemonId);
+    }
+
+    public IEnumerable<string> ListDaemonIds()
+    {
+        return _state.Daemons.ListDaemonIds();
+    }
 }

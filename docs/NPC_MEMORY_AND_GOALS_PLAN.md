@@ -188,6 +188,54 @@ Goals are LLM-driven completion — the NPC decides when a goal is done by outpu
 - `[goal:clear type]` — removes specific goal
 - `[goal:clear]` — clears all goals (except survival)
 
+### Goal restoration ✅ IMPLEMENTED
+When a goal is cleared or completed:
+1. System checks if the NPC implements `IHasDefaultGoal`
+2. If the cleared goal matches the `DefaultGoalType`, it is automatically restored
+3. This enables cyclical goals (e.g., shopkeeper sells item → goal restored → ready for next sale)
+4. NPCs always maintain their default motivation even after completing tasks
+5. Non-default goals (e.g., player-targeted goals) are not auto-restored
+
+### Goal plans ✅ IMPLEMENTED
+Goals can have step-by-step plans that NPCs work through to achieve the goal.
+
+**Data model:**
+- Plans stored in goal's `params` JSONB field as `{plan: {steps: [...], currentStep: N, completedSteps: [...]}}`
+- `GoalPlan` class provides parsing, step advancement, and serialization
+
+**NPC system prompt instructions:** ✅ ADDED
+NPCs are now instructed about plan markup in their system prompt via `LivingBase.BuildSystemPrompt()`:
+```
+Plan Management:
+- Create a plan for your current goal: [plan:step1|step2|step3]
+- Steps are separated by | (pipe character)
+- Mark current step complete: [step:done] or [step:complete]
+- Skip current step: [step:skip] or [step:next]
+- Example: [plan:find customer|show wares|negotiate price|complete sale]
+- Plans help you break down goals into actionable steps
+```
+
+**LLM markup:**
+- `[plan:step1|step2|step3]` — set plan for highest priority goal
+- `[step:done]` — complete current step, advance to next
+- `[step:skip]` — skip current step without completing
+
+**Wizard commands:**
+- `goal <npc> plan <type> <step1|step2|...>` — set plan
+- `goal <npc> plan <type> clear` — clear plan
+
+**LLM context display:**
+Goals with plans show: `[50] sell_items (step 2/4: "show_items")`
+
+**Auto-completion:**
+When all plan steps are completed, the goal is automatically cleared and default goal restored if applicable.
+
+**Key files:**
+- `World/std/living.cs` — `BuildSystemPrompt()` includes Plan Management section
+- `Mud/AI/GoalPlan.cs` — Plan data model and step management
+- `Mud/AI/INpcGoalStore.cs` — `UpdateParamsAsync` for plan updates
+- `Mud/AI/NpcCommandExecutor.cs` — Plan/step markup parsing
+
 ## Needs/Drives system (per NPC) ✅ IMPLEMENTED
 
 ### Representation
@@ -329,6 +377,39 @@ Files:
 - `JitRealm.Tests/*`
 
 ## Observability
+
+### LLM Debug Logging ✅ IMPLEMENTED
+File-based debug logging for real-time monitoring of LLM operations.
+
+**Configuration (`appsettings.json`):**
+```json
+"Llm": {
+  "DebugEnabled": true,
+  "DebugLogPath": "llm_debug.log",
+  "DebugVerbose": false
+}
+```
+
+**Key files:**
+- `Mud/AI/LlmDebugLogger.cs` — Logger class with auto-flush file output
+- `Mud/WorldState.cs` — `LlmDebugger` property
+- `Mud/MudContext.cs` — Logs requests, responses, and context stats
+- `Mud/AI/NpcCommandExecutor.cs` — Logs command execution and goal changes
+
+**Log entry types:**
+| Type | Description |
+|------|-------------|
+| `REQUEST` | LLM prompts (NPC ID, event info, prompt sizes) |
+| `RESPONSE` | LLM responses with timing (ms) |
+| `CONTEXT` | Memory/goal/need/KB retrieval counts |
+| `COMMAND` | NPC command execution (OK/FAILED) |
+| `GOAL` | Goal set/cleared/restored_default |
+| `MEMORY` | Memory operations |
+| `EVENT` | Room event processing |
+
+**Usage:** `tail -f llm_debug.log`
+
+### Metrics (planned)
 - Add counters:
   - memory writes/sec, queue depth
   - retrieval latency
@@ -345,7 +426,17 @@ Files:
   - Added `ILlmService.EmbedAsync()` + Ollama `/api/embed` implementation
   - Embeddings generated asynchronously in `NpcMemorySystem.MemoryWriterLoopAsync()`
   - Added `NpcMemorySystem.EmbedQueryAsync()` for query embedding
-- Stage 3: Add richer goal planning and memory summarization.
+- Stage 2b: LLM debug logging for development and troubleshooting. ✅
+  - `LlmDebugLogger` class with file-based auto-flush logging
+  - Logs requests, responses, timing, context stats, commands, and goal changes
+  - Configurable via `Llm.DebugEnabled`, `DebugLogPath`, `DebugVerbose`
+- Stage 2c: Goal planning with step-by-step tasks. ✅
+  - `GoalPlan` class for plan data model and step management
+  - LLM markup: `[plan:step1|step2|...]`, `[step:done]`, `[step:skip]`
+  - Wizard command: `goal <npc> plan <type> <steps>`
+  - Plans shown in LLM context with current step
+  - Auto-completion when all steps done
+- Stage 3: Add memory summarization and more advanced planning.
 - Stage 4: GraphRAG — combine vector search with knowledge graphs for relationship-aware retrieval.
 
 ## Risks and mitigations

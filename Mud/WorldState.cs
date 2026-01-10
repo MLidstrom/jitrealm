@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using JitRealm.Mud.AI;
 using JitRealm.Mud.Diagnostics;
@@ -36,6 +37,12 @@ public sealed class WorldState
     public NpcMemorySystem? MemorySystem { get; set; }
 
     /// <summary>
+    /// Optional debug logger for LLM operations.
+    /// Set during server initialization if debug logging is enabled.
+    /// </summary>
+    public LlmDebugLogger? LlmDebugger { get; set; }
+
+    /// <summary>
     /// The clock backing schedulers and time-based systems.
     /// Prefer reusing this clock instead of allocating new clocks per operation.
     /// </summary>
@@ -61,6 +68,12 @@ public sealed class WorldState
     /// Event log for NPC awareness. Stores recent events per room.
     /// </summary>
     public RoomEventLog EventLog { get; } = new();
+
+    /// <summary>
+    /// Registry for daemon singleton instances.
+    /// Daemons are long-lived service objects providing shared game systems.
+    /// </summary>
+    public DaemonRegistry Daemons { get; } = new();
 
     /// <summary>
     /// Create a MudContext for a specific object.
@@ -94,6 +107,92 @@ public sealed class WorldState
             CurrentObjectId = objectId,
             RoomId = roomIdOverride ?? Containers.GetContainer(objectId)
         };
+    }
+
+    /// <summary>
+    /// Load all daemons from the World/daemons/ directory.
+    /// Daemons are singleton service objects that provide shared game systems.
+    /// </summary>
+    /// <param name="worldRoot">Path to the World directory.</param>
+    /// <returns>Number of daemons loaded.</returns>
+    public async Task<int> LoadDaemonsAsync(string worldRoot)
+    {
+        if (Objects is null)
+            return 0;
+
+        var daemonsDir = Path.Combine(worldRoot, "daemons");
+        if (!Directory.Exists(daemonsDir))
+        {
+            // Create the directory if it doesn't exist
+            Directory.CreateDirectory(daemonsDir);
+            return 0;
+        }
+
+        int loaded = 0;
+        var daemonFiles = Directory.GetFiles(daemonsDir, "*.cs", SearchOption.AllDirectories);
+
+        foreach (var filePath in daemonFiles)
+        {
+            try
+            {
+                // Convert to relative path for blueprint ID
+                var relativePath = Path.GetRelativePath(worldRoot, filePath)
+                    .Replace(Path.DirectorySeparatorChar, '/');
+
+                // Load the daemon as a singleton
+                var obj = await Objects.LoadAsync<IMudObject>(relativePath, this);
+
+                if (obj is IDaemon daemon)
+                {
+                    // Register in daemon registry
+                    Daemons.Register(daemon, obj.Id);
+
+                    // Initialize the daemon
+                    var ctx = CreateContext(obj.Id);
+                    daemon.Initialize(ctx);
+
+                    loaded++;
+                    Console.WriteLine($"Loaded daemon: {daemon.DaemonId}");
+                }
+                else
+                {
+                    Console.WriteLine($"Warning: {relativePath} does not implement IDaemon");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to load daemon from {filePath}: {ex.Message}");
+            }
+        }
+
+        return loaded;
+    }
+
+    /// <summary>
+    /// Shutdown all daemons that implement IDaemonShutdown.
+    /// Call this when the server is shutting down.
+    /// </summary>
+    public void ShutdownDaemons()
+    {
+        foreach (var daemon in Daemons.ListDaemons())
+        {
+            if (daemon is IDaemonShutdown shutdownDaemon)
+            {
+                try
+                {
+                    var instanceId = Daemons.GetInstanceId(daemon.DaemonId);
+                    if (instanceId is not null)
+                    {
+                        var ctx = CreateContext(instanceId);
+                        shutdownDaemon.Shutdown(ctx);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error shutting down daemon {daemon.DaemonId}: {ex.Message}");
+                }
+            }
+        }
     }
 
     /// <summary>

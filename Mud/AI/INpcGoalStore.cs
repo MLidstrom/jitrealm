@@ -20,6 +20,11 @@ public interface INpcGoalStore
     Task<IReadOnlyList<NpcGoal>> GetAllAsync(string npcId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Update just the params (plan data) for a specific goal.
+    /// </summary>
+    Task UpdateParamsAsync(string npcId, string goalType, JsonDocument newParams, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Clear a specific goal type for an NPC.
     /// </summary>
     Task ClearAsync(string npcId, string goalType, CancellationToken cancellationToken = default);

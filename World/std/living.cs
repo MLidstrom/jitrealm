@@ -1135,6 +1135,16 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         sb.AppendLine("- Goals persist across sessions - use them for long-term objectives");
         sb.AppendLine();
 
+        // Plan markup section
+        sb.AppendLine("Plan Management:");
+        sb.AppendLine("- Create a plan for your current goal: [plan:step1|step2|step3]");
+        sb.AppendLine("- Steps are separated by | (pipe character)");
+        sb.AppendLine("- Mark current step complete: [step:done] or [step:complete]");
+        sb.AppendLine("- Skip current step: [step:skip] or [step:next]");
+        sb.AppendLine("- Example: [plan:find customer|show wares|negotiate price|complete sale]");
+        sb.AppendLine("- Plans help you break down goals into actionable steps");
+        sb.AppendLine();
+
         // Core rules (always included)
         sb.AppendLine("Rules:");
         sb.AppendLine("- NEVER break character");

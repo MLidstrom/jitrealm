@@ -68,4 +68,25 @@ public interface ISandboxedWorldAccess
     /// <param name="objectId">The object ID.</param>
     /// <returns>The state store or null if object not found.</returns>
     IStateStore? GetStateStore(string objectId);
+
+    /// <summary>
+    /// Gets a daemon by its ID.
+    /// Daemons are singleton service objects providing shared game systems.
+    /// </summary>
+    /// <typeparam name="T">The expected daemon type (must implement IDaemon).</typeparam>
+    /// <param name="daemonId">The daemon ID (e.g., "TIME_D", "WEATHER_D").</param>
+    /// <returns>The daemon or null if not found.</returns>
+    T? GetDaemon<T>(string daemonId) where T : class, IDaemon;
+
+    /// <summary>
+    /// Gets a daemon by its ID (non-generic version).
+    /// </summary>
+    /// <param name="daemonId">The daemon ID.</param>
+    /// <returns>The daemon or null if not found.</returns>
+    IDaemon? GetDaemon(string daemonId);
+
+    /// <summary>
+    /// Lists all registered daemon IDs.
+    /// </summary>
+    IEnumerable<string> ListDaemonIds();
 }
