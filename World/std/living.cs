@@ -232,16 +232,15 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
     /// <summary>
     /// Minimum time between LLM responses for non-speech events (in seconds).
-    /// Override to customize. Default is 2 seconds.
+    /// Override to customize. Default is 0 (no artificial delay - LLM latency is sufficient).
     /// </summary>
-    protected virtual double LlmCooldownSeconds => 2.0;
+    protected virtual double LlmCooldownSeconds => 0;
 
     /// <summary>
     /// Minimum time between speech responses (in seconds).
-    /// Much shorter than general cooldown for responsive conversation.
-    /// Override to customize. Default is 0.5 seconds.
+    /// Override to customize. Default is 0 (no artificial delay - LLM latency is sufficient).
     /// </summary>
-    protected virtual double SpeechCooldownSeconds => 0.5;
+    protected virtual double SpeechCooldownSeconds => 0;
 
     /// <summary>
     /// How long engagement lasts without interaction (seconds).
@@ -893,16 +892,16 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         if (!IsAlive) return;
         if (!ctx.IsLlmEnabled) return;
 
-        // Check cooldown based on event priority
+        // Check cooldown based on event priority (default is 0 - no artificial delay)
         var timeSinceLastResponse = (DateTime.UtcNow - _lastLlmResponseTime).TotalSeconds;
         var cooldown = _pendingEventPriority switch
         {
             EventPriority.Directed => SpeechCooldownSeconds,
-            EventPriority.Arrival => 1.0,
+            EventPriority.Arrival => SpeechCooldownSeconds, // Use same cooldown as speech
             _ => LlmCooldownSeconds
         };
 
-        if (timeSinceLastResponse < cooldown)
+        if (cooldown > 0 && timeSinceLastResponse < cooldown)
         {
             return;
         }
