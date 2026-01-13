@@ -153,6 +153,31 @@ CREATE TABLE IF NOT EXISTS world_kb (
 CREATE INDEX IF NOT EXISTS idx_world_kb_tags_gin ON world_kb USING GIN (tags);
 ", cancellationToken);
 
+        // Migration: Add NPC-specific knowledge and semantic search columns
+        await ExecMigrationAsync(conn, @"
+ALTER TABLE world_kb ADD COLUMN IF NOT EXISTS npc_ids text[] NULL;
+ALTER TABLE world_kb ADD COLUMN IF NOT EXISTS summary text NULL;
+", cancellationToken);
+
+        await ExecAsync(conn, @"
+CREATE INDEX IF NOT EXISTS idx_world_kb_npc_ids_gin ON world_kb USING GIN (npc_ids);
+", cancellationToken);
+
+        if (usePgvector)
+        {
+            await ExecAsync(conn,
+                $"ALTER TABLE world_kb ADD COLUMN IF NOT EXISTS embedding vector({settings.EmbeddingDimensions}) NULL;",
+                cancellationToken);
+
+            // IVFFlat index for semantic search - conditional creation
+            // Note: IVFFlat requires at least 1 row with embedding, so we use a partial index
+            await ExecMigrationAsync(conn, @"
+CREATE INDEX IF NOT EXISTS idx_world_kb_embedding_cosine ON world_kb
+  USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
+  WHERE embedding IS NOT NULL;
+", cancellationToken);
+        }
+
         return usePgvector;
     }
 

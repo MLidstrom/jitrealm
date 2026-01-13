@@ -38,7 +38,7 @@ public sealed class NpcMemorySystem : IAsyncDisposable
         _llmService = llmService;
 
         NpcMemory = new PostgresNpcMemoryStore(_dataSource, _settings, _pgvectorEnabled);
-        WorldKnowledge = new PostgresWorldKnowledgeBase(_dataSource);
+        WorldKnowledge = new PostgresWorldKnowledgeBase(_dataSource, _pgvectorEnabled, _llmService);
         Goals = new PostgresNpcGoalStore(_dataSource);
         Needs = new PostgresNpcNeedStore(_dataSource);
 

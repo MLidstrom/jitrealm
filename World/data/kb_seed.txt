@@ -1,0 +1,95 @@
+# World Knowledge Base Seed Commands
+# Run these as a wizard in-game to populate common knowledge
+# Or use: dotnet run -- --seed-kb (if implemented)
+
+# ============================================
+# VILLAGE SQUARE - Central Hub
+# ============================================
+
+kb set location:village_square {"name":"Millbrook Village Square","type":"outdoor","features":["well","benches","millstream","bridge"]} --summary "The central hub of Millbrook village with a well and millstream" millbrook village square hub directions
+
+kb set location:village_square:services {"draw_water":"Fill bucket from well","rest":"Sit on benches"} --summary "Village square services: draw water from well, rest on benches" millbrook village square services
+
+# ============================================
+# DIRECTIONS FROM VILLAGE SQUARE
+# ============================================
+
+kb set directions:square_to_shop {"from":"Village Square","to":"General Store","direction":"east","description":"Go east from the village square to reach the general store"} --summary "From village square, go east to reach the general store" millbrook directions shop store
+
+kb set directions:square_to_tavern {"from":"Village Square","to":"Sleepy Dragon Inn","direction":"south","description":"Go south from the village square to reach the tavern"} --summary "From village square, go south to reach the Sleepy Dragon Inn" millbrook directions tavern inn
+
+kb set directions:square_to_blacksmith {"from":"Village Square","to":"Blacksmith","direction":"southwest","description":"Go southwest from the village square to reach the blacksmith"} --summary "From village square, go southwest to reach the blacksmith forge" millbrook directions blacksmith smithy forge
+
+kb set directions:square_to_postoffice {"from":"Village Square","to":"Post Office","direction":"west","description":"Go west from the village square to reach the post office"} --summary "From village square, go west to reach the post office" millbrook directions postoffice mail
+
+kb set directions:square_to_meadow {"from":"Village Square","to":"Meadow","direction":"north","description":"Go north from the village square along the worn path to reach the meadow"} --summary "From village square, go north to the worn path, then north again to the meadow" millbrook directions meadow north path
+
+kb set directions:square_to_farmhouse {"from":"Village Square","to":"Tom's Farmhouse","direction":"north then west","description":"Go north from village square to the worn path, north to the meadow, then west to reach Tom's farmhouse"} --summary "From village square, go north twice to meadow, then west to Tom's farmhouse" millbrook directions farmhouse farm tom
+
+# ============================================
+# RETURN DIRECTIONS TO VILLAGE SQUARE
+# ============================================
+
+kb set directions:shop_to_square {"from":"General Store","to":"Village Square","direction":"west","description":"Go west from the shop to return to village square"} --summary "From the general store, go west to return to village square" millbrook directions shop
+
+kb set directions:tavern_to_square {"from":"Sleepy Dragon Inn","to":"Village Square","direction":"north","description":"Go north from the tavern to return to village square"} --summary "From the tavern, go north to return to village square" millbrook directions tavern
+
+kb set directions:blacksmith_to_square {"from":"Blacksmith","to":"Village Square","direction":"northeast","description":"Go northeast from the blacksmith to return to village square"} --summary "From the blacksmith, go northeast to return to village square" millbrook directions blacksmith
+
+kb set directions:postoffice_to_square {"from":"Post Office","to":"Village Square","direction":"east","description":"Go east from the post office to return to village square"} --summary "From the post office, go east to return to village square" millbrook directions postoffice
+
+kb set directions:meadow_to_square {"from":"Meadow","to":"Village Square","direction":"south","description":"Go south from the meadow to the worn path, then south again to village square"} --summary "From the meadow, go south twice to return to village square" millbrook directions meadow
+
+kb set directions:farmhouse_to_square {"from":"Tom's Farmhouse","to":"Village Square","direction":"east then south","description":"Go east from farmhouse to meadow, then south twice to village square"} --summary "From Tom's farmhouse, go east then south twice to return to village square" millbrook directions farmhouse
+
+# ============================================
+# LOCATION DESCRIPTIONS
+# ============================================
+
+kb set location:shop {"name":"The General Store","type":"indoor","owner":"Barnaby Thimblewick","services":["buy items","sell items"],"items":["supplies","potions","tools"]} --summary "The general store is run by Barnaby Thimblewick, sells supplies and potions" millbrook shop store barnaby
+
+kb set location:tavern {"name":"The Sleepy Dragon Inn","type":"indoor","owner":"Bertram Stoutbarrel","services":["buy food","buy drinks","rest"],"features":["mounted dragon head","fireplace","bar"]} --summary "The Sleepy Dragon Inn is run by Bertram the innkeeper, serves food and drinks" millbrook tavern inn bertram dragon
+
+kb set location:blacksmith {"name":"Millbrook Blacksmith","type":"indoor","owner":"Greta Ironhand","services":["buy weapons","buy armor","sell gear"],"features":["forge","anvil","bellows"]} --summary "The blacksmith forge is run by Greta Ironhand, sells weapons and armor" millbrook blacksmith smithy greta weapons armor
+
+kb set location:postoffice {"name":"Millbrook Post Office","type":"indoor","owner":"Postmaster","services":["mail","notices","gossip"],"features":["notice board","pigeonholes","counter"]} --summary "The post office has a notice board and handles mail, good place for news and gossip" millbrook postoffice mail gossip news
+
+kb set location:meadow {"name":"The Meadow","type":"outdoor","features":["wildflowers","rolling hills","farmland"],"dangers":["goblins"],"nearby":"Tom's farmhouse to the west"} --summary "Open meadow with wildflowers, beware of goblins lurking here" millbrook meadow field outdoor goblin
+
+kb set location:farmhouse {"name":"Tom's Farmhouse","type":"indoor","owner":"Tom Greenfield","features":["hearth","table","cottage"],"description":"A cozy cottage belonging to farmer Tom"} --summary "Tom Greenfield's cozy farmhouse cottage on the edge of the meadow" millbrook farmhouse farm tom cottage
+
+kb set location:start {"name":"A Worn Path","type":"outdoor","features":["signpost","hills","grass"],"description":"A dusty path between rolling hills leading to Millbrook"} --summary "The worn path leads north to the meadow and south to Millbrook village" millbrook path start entrance
+
+# ============================================
+# NPC INFORMATION
+# ============================================
+
+kb set npc:shopkeeper {"name":"Barnaby Thimblewick","role":"shopkeeper","location":"General Store","personality":"friendly merchant","sells":"supplies, potions, tools"} --summary "Barnaby Thimblewick runs the general store, sells supplies and potions" millbrook npc shopkeeper barnaby
+
+kb set npc:innkeeper {"name":"Bertram Stoutbarrel","role":"innkeeper","location":"Sleepy Dragon Inn","personality":"jovial barkeep","sells":"food and drinks","story":"grandson of a dragon slayer"} --summary "Bertram Stoutbarrel runs the Sleepy Dragon Inn, proud of his dragon-slaying grandfather" millbrook npc innkeeper bertram tavern
+
+kb set npc:blacksmith {"name":"Greta Ironhand","role":"blacksmith","location":"Blacksmith","personality":"gruff but fair","sells":"weapons and armor"} --summary "Greta Ironhand is the blacksmith, sells weapons and armor" millbrook npc blacksmith greta weapons
+
+kb set npc:postmaster {"name":"The Postmaster","role":"postmaster","location":"Post Office","personality":"knows everyone's business","services":"mail, notices, gossip"} --summary "The postmaster knows all the local gossip and handles mail" millbrook npc postmaster gossip mail
+
+kb set npc:tom {"name":"Tom Greenfield","role":"farmer","location":"Village Square or Farmhouse","personality":"friendly farmer","activities":"tends crops, visits shops, socializes"} --summary "Tom Greenfield is a friendly farmer who lives in the farmhouse by the meadow" millbrook npc farmer tom greenfield
+
+kb set npc:cat {"name":"Whiskers","role":"stray cat","location":"Village Square","personality":"scruffy but friendly","description":"orange tabby with battle-scarred ears"} --summary "Whiskers is a scruffy orange tabby that roams the village square" millbrook npc cat whiskers stray
+
+kb set npc:goblin {"name":"Skrix","role":"hostile creature","location":"Meadow","personality":"aggressive, greedy","description":"green-skinned goblin with rusty dagger","danger":"will attack on sight"} --summary "Skrix is an aggressive goblin lurking in the meadow, attacks travelers" millbrook npc goblin skrix danger meadow
+
+# ============================================
+# COMMERCE INFORMATION
+# ============================================
+
+kb set commerce:shops {"shops":["General Store","Sleepy Dragon Inn","Blacksmith"],"commands":["buy <item>","sell <item>"],"tips":"Compare prices, inn has highest markup"} --summary "Three shops in Millbrook: general store, inn, and blacksmith. Use buy and sell commands." millbrook commerce shops buy sell
+
+kb set commerce:currency {"types":["gold coins (gc)","silver coins (sc)","copper coins (cc)"],"exchange":"1 gc = 100 sc = 10000 cc","command":"exchange <amount> <from> to <to>"} --summary "Currency: gold, silver, copper coins. 1 gold = 100 silver = 10000 copper" millbrook commerce currency coins money
+
+# ============================================
+# VILLAGE LORE
+# ============================================
+
+kb set lore:millbrook {"name":"Millbrook","type":"village","features":["millstream","waterwheel","well"],"population":"small farming community"} --summary "Millbrook is a small farming village built around a millstream" millbrook lore village history
+
+kb set lore:sleepy_dragon {"name":"The Sleepy Dragon Inn","story":"Named after a dragon slain by Bertram's grandfather, the dragon head is mounted above the bar"} --summary "The Sleepy Dragon Inn is named for a dragon Bertram's grandfather killed, head mounted inside" millbrook lore tavern inn dragon bertram

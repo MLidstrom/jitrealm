@@ -4,13 +4,14 @@ using JitRealm.Mud.AI;
 namespace JitRealm.Mud.Commands.Wizard;
 
 /// <summary>
-/// Manage the world knowledge base (KB) - shared facts accessible to all NPCs.
+/// Manage the world knowledge base (KB) - shared facts accessible to NPCs.
+/// Supports semantic search and NPC-specific knowledge filtering.
 /// </summary>
 public class KbCommand : WizardCommandBase
 {
     public override string Name => "kb";
     public override IReadOnlyList<string> Aliases => new[] { "knowledge" };
-    public override string Usage => "kb <get|set|search|delete> ...";
+    public override string Usage => "kb <get|set|search|delete|list> ...";
     public override string Description => "Manage world knowledge base";
 
     public override async Task ExecuteAsync(CommandContext context, string[] args)
@@ -45,6 +46,9 @@ public class KbCommand : WizardCommandBase
             case "del":
                 await HandleDelete(context, args, memorySystem);
                 break;
+            case "list":
+                await HandleList(context, args, memorySystem);
+                break;
             default:
                 context.Output($"Unknown subcommand: {subCommand}");
                 ShowHelp(context);
@@ -57,16 +61,24 @@ public class KbCommand : WizardCommandBase
         context.Output("Usage: kb <subcommand> [args]");
         context.Output("");
         context.Output("Subcommands:");
-        context.Output("  kb get <key>                    - Get entry by key");
-        context.Output("  kb set <key> <json> [tags...]   - Set/update entry");
-        context.Output("  kb search <tag1> [tag2...]      - Search by tags");
-        context.Output("  kb delete <key>                 - Delete entry");
+        context.Output("  kb get <key>                              - Get entry by key");
+        context.Output("  kb set <key> <json> [options] [tags...]   - Set/update entry");
+        context.Output("     Options:");
+        context.Output("       --npcs npc1,npc2    Restrict to specific NPCs (comma-separated)");
+        context.Output("       --summary \"text\"    Text summary for embedding (optional)");
+        context.Output("  kb search <query> [options]               - Search with semantic + filters");
+        context.Output("     Options:");
+        context.Output("       --npc <npcid>       Filter by NPC (includes common + NPC-specific)");
+        context.Output("       --tags tag1,tag2    Filter by tags");
+        context.Output("       --limit <N>         Max results (default 10)");
+        context.Output("  kb delete <key>                           - Delete entry");
+        context.Output("  kb list [--limit N]                       - List all entries");
         context.Output("");
         context.Output("Examples:");
-        context.Output("  kb set village:millbrook {\"population\":127} village location");
-        context.Output("  kb get village:millbrook");
-        context.Output("  kb search village");
-        context.Output("  kb delete village:millbrook");
+        context.Output("  kb set village:millbrook {\"population\":127} millbrook village location");
+        context.Output("  kb set secret:shopkeeper:safe {\"combo\":\"1234\"} --npcs npcs/shopkeeper.cs");
+        context.Output("  kb search \"directions to blacksmith\" --tags millbrook");
+        context.Output("  kb search \"shop prices\" --npc npcs/shopkeeper.cs#000001");
     }
 
     private static async Task HandleGet(CommandContext context, string[] args, NpcMemorySystem memorySystem)
@@ -90,6 +102,12 @@ public class KbCommand : WizardCommandBase
         context.Output($"  Value: {entry.Value.RootElement}");
         context.Output($"  Tags: [{string.Join(", ", entry.Tags)}]");
         context.Output($"  Visibility: {entry.Visibility}");
+        if (entry.NpcIds is { Count: > 0 })
+            context.Output($"  NPCs: [{string.Join(", ", entry.NpcIds)}]");
+        else
+            context.Output($"  NPCs: (common knowledge - all NPCs)");
+        if (!string.IsNullOrWhiteSpace(entry.Summary))
+            context.Output($"  Summary: {entry.Summary}");
         context.Output($"  Updated: {entry.UpdatedAt:u}");
     }
 
@@ -97,7 +115,7 @@ public class KbCommand : WizardCommandBase
     {
         if (args.Length < 3)
         {
-            context.Output("Usage: kb set <key> <json> [tags...]");
+            context.Output("Usage: kb set <key> <json> [--npcs npc1,npc2] [--summary \"text\"] [tags...]");
             context.Output("  Example: kb set npc:tom:home {\"room\":\"farm\"} npc location tom");
             return;
         }
@@ -118,38 +136,92 @@ public class KbCommand : WizardCommandBase
             return;
         }
 
-        // Remaining args are tags
-        var tags = args.Length > 3
-            ? args.Skip(3).Select(t => t.ToLowerInvariant()).ToArray()
-            : Array.Empty<string>();
+        // Parse options and remaining tags
+        string[]? npcIds = null;
+        string? summary = null;
+        var tags = new List<string>();
+
+        for (int i = 3; i < args.Length; i++)
+        {
+            if (args[i] == "--npcs" && i + 1 < args.Length)
+            {
+                npcIds = args[++i].Split(',', StringSplitOptions.RemoveEmptyEntries);
+            }
+            else if (args[i] == "--summary" && i + 1 < args.Length)
+            {
+                summary = args[++i];
+            }
+            else if (!args[i].StartsWith("--"))
+            {
+                tags.Add(args[i].ToLowerInvariant());
+            }
+        }
+
+        var visibility = npcIds is { Length: > 0 } ? "npc" : "public";
 
         var entry = new WorldKbEntry(
             Key: key,
             Value: json,
             Tags: tags,
-            Visibility: "public",
-            UpdatedAt: DateTimeOffset.UtcNow);
+            Visibility: visibility,
+            UpdatedAt: DateTimeOffset.UtcNow,
+            NpcIds: npcIds,
+            Summary: summary);
 
         await memorySystem.WorldKnowledge.UpsertAsync(entry);
 
         context.Output($"Set KB entry: {key}");
         context.Output($"  Value: {json.RootElement}");
-        if (tags.Length > 0)
+        if (tags.Count > 0)
             context.Output($"  Tags: [{string.Join(", ", tags)}]");
+        if (npcIds is { Length: > 0 })
+            context.Output($"  NPCs: [{string.Join(", ", npcIds)}]");
+        if (!string.IsNullOrWhiteSpace(summary))
+            context.Output($"  Summary: {summary}");
     }
 
     private static async Task HandleSearch(CommandContext context, string[] args, NpcMemorySystem memorySystem)
     {
         if (args.Length < 2)
         {
-            context.Output("Usage: kb search <tag1> [tag2...]");
+            context.Output("Usage: kb search <query> [--npc <npcid>] [--tags tag1,tag2] [--limit N]");
             return;
         }
 
-        var tags = args.Skip(1).Select(t => t.ToLowerInvariant()).ToArray();
-        var entries = await memorySystem.WorldKnowledge.SearchByTagsAsync(tags, topK: 20);
+        var query = args[1];
+        string? npcId = null;
+        string[]? tags = null;
+        int limit = 10;
 
-        context.Output($"=== KB Search: [{string.Join(", ", tags)}] ===");
+        for (int i = 2; i < args.Length; i++)
+        {
+            if (args[i] == "--npc" && i + 1 < args.Length)
+            {
+                npcId = args[++i];
+            }
+            else if (args[i] == "--tags" && i + 1 < args.Length)
+            {
+                tags = args[++i].Split(',', StringSplitOptions.RemoveEmptyEntries);
+            }
+            else if (args[i] == "--limit" && i + 1 < args.Length)
+            {
+                int.TryParse(args[++i], out limit);
+            }
+        }
+
+        var searchQuery = new WorldKbSearchQuery(
+            QueryText: query,
+            Tags: tags,
+            NpcId: npcId,
+            TopK: limit);
+
+        var entries = await memorySystem.WorldKnowledge.SearchAsync(searchQuery);
+
+        context.Output($"=== KB Search: \"{query}\" ===");
+        if (npcId is not null)
+            context.Output($"  NPC filter: {npcId}");
+        if (tags is { Length: > 0 })
+            context.Output($"  Tag filter: [{string.Join(", ", tags)}]");
 
         if (entries.Count == 0)
         {
@@ -162,6 +234,8 @@ public class KbCommand : WizardCommandBase
             context.Output($"\n  {entry.Key}");
             context.Output($"    Value: {entry.Value.RootElement}");
             context.Output($"    Tags: [{string.Join(", ", entry.Tags)}]");
+            if (entry.NpcIds is { Count: > 0 })
+                context.Output($"    NPCs: [{string.Join(", ", entry.NpcIds)}] (restricted)");
         }
 
         context.Output($"\n({entries.Count} entries found)");
@@ -187,5 +261,40 @@ public class KbCommand : WizardCommandBase
 
         await memorySystem.WorldKnowledge.DeleteAsync(key);
         context.Output($"Deleted KB entry: {key}");
+    }
+
+    private static async Task HandleList(CommandContext context, string[] args, NpcMemorySystem memorySystem)
+    {
+        int limit = 20;
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--limit" && i + 1 < args.Length)
+            {
+                int.TryParse(args[++i], out limit);
+            }
+        }
+
+        // Search with no filters to get all common knowledge entries
+        var entries = await memorySystem.WorldKnowledge.SearchAsync(new WorldKbSearchQuery(
+            QueryText: null,
+            Tags: null,
+            NpcId: null,
+            TopK: limit));
+
+        context.Output($"=== KB Entries (common knowledge, up to {limit}) ===");
+
+        if (entries.Count == 0)
+        {
+            context.Output("  No entries found");
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            var tagList = entry.Tags.Count > 0 ? $" [{string.Join(",", entry.Tags)}]" : "";
+            context.Output($"  {entry.Key}{tagList}");
+        }
+
+        context.Output($"\n({entries.Count} entries shown)");
     }
 }

@@ -538,19 +538,43 @@ public sealed class MudContext : IMudContext
                         .ToArray();
                 }
 
-                // World KB (tagged by room/area, best-effort)
-                var kbTags = roomId is not null
-                    ? new[] { $"room:{roomId}", $"area:{roomId.Split('/').FirstOrDefault() ?? roomId}" }
-                    : Array.Empty<string>();
-                if (kbTags.Length > 0)
+                // World KB (semantic search with NPC + area filtering)
+                var kbTags = new List<string>();
+                if (roomId is not null)
                 {
-                    var kb = await memorySystem.WorldKnowledge.SearchByTagsAsync(kbTags, memorySystem.DefaultKbTopK);
-                    if (kb.Count > 0)
-                    {
-                        worldFacts = kb
-                            .Select(e => $"{e.Key}: {e.Value.RootElement.ToString()}")
-                            .ToArray();
-                    }
+                    kbTags.Add($"room:{roomId}");
+                    // Extract area from path (e.g., "Rooms/shop.cs" -> "rooms")
+                    var pathParts = roomId.Split('/');
+                    if (pathParts.Length > 0)
+                        kbTags.Add($"area:{pathParts[0].ToLowerInvariant()}");
+                }
+
+                // Add room aliases as tags (e.g., "shop", "store", "general store")
+                if (room?.Aliases is { Count: > 0 } aliases)
+                {
+                    foreach (var alias in aliases)
+                        kbTags.Add(alias.ToLowerInvariant());
+                }
+
+                // Build semantic query text from focal point or room context
+                var kbQueryText = memoryQueryText ?? focalPlayerName;
+                if (string.IsNullOrWhiteSpace(kbQueryText) && room is not null)
+                {
+                    kbQueryText = $"knowledge about {room.Name}";
+                }
+
+                var kbQuery = new WorldKbSearchQuery(
+                    QueryText: kbQueryText,
+                    Tags: kbTags.Count > 0 ? kbTags : null,
+                    NpcId: npcId,
+                    TopK: memorySystem.DefaultKbTopK);
+
+                var kb = await memorySystem.WorldKnowledge.SearchAsync(kbQuery);
+                if (kb.Count > 0)
+                {
+                    worldFacts = kb
+                        .Select(e => $"{e.Key}: {e.Value.RootElement.ToString()}")
+                        .ToArray();
                 }
             }
             catch (Exception ex)

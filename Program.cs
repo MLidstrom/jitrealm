@@ -37,6 +37,7 @@ configuration.Bind(settings);
 // Parse command-line arguments (override settings)
 var serverMode = args.Contains("--server") || args.Contains("-s");
 var perfBenchMode = args.Contains("--perfbench");
+var seedKbMode = args.Contains("--seed-kb");
 string? autoPlayer = null;
 string? autoPassword = null;
 
@@ -124,6 +125,28 @@ if (perfBenchMode)
     // Example:
     //   dotnet run -- --perfbench --blueprint std/perf_dummy.cs --count 2000 --ticks 5000
     await PerfHarness.RunAsync(baseDir, settings, args);
+    return;
+}
+
+if (seedKbMode)
+{
+    // Seed the world knowledge base from a seed file and exit.
+    // Example:
+    //   dotnet run -- --seed-kb
+    if (memorySystem is null)
+    {
+        Console.WriteLine("Error: Memory system is not available. Cannot seed KB.");
+        Console.WriteLine("Check that Postgres is configured in appsettings.json.");
+        return;
+    }
+
+    var seedFile = Path.Combine(worldDir, "data", "kb_seed.txt");
+    await KbSeeder.SeedFromFileAsync(seedFile, memorySystem.WorldKnowledge);
+
+    if (memorySystem is not null)
+    {
+        await memorySystem.DisposeAsync();
+    }
     return;
 }
 
