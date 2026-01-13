@@ -1,25 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using JitRealm.Mud;
-using JitRealm.Mud.AI;
 
 /// <summary>
 /// Cornelius Inksworth - a fussy, bureaucratic postmaster.
 /// Thin, stooped, with ink-stained fingers and wire-rimmed spectacles.
 /// </summary>
-public sealed class Postmaster : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
+public sealed class Postmaster : NPCBase
 {
-    // Default goal: manage postal services
-    public string? DefaultGoalType => "manage_mail";
-
-    // Default needs: postmasters need to sort mail and maintain order
-    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
-    {
-        ("sort_mail", NeedLevel.Primary),
-        ("maintain_order", NeedLevel.Secondary)
-    };
-
     public override string Name => "postmaster";
     protected override string GetDefaultDescription() =>
         "A thin, stooped man with wire-rimmed spectacles perched on a beak-like nose. " +
@@ -36,34 +24,6 @@ public sealed class Postmaster : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefaultN
 
     public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(2);
 
-    // ILlmNpc implementation
-    public NpcCapabilities Capabilities => NpcCapabilities.Merchant;
-    public string SystemPrompt => BuildSystemPrompt();
-
-    // Prompt builder properties
-    protected override string NpcIdentity => "Cornelius Inksworth, Postmaster of Millbrook";
-
-    protected override string NpcNature =>
-        "A thin, stooped man with ink-stained fingers, wire-rimmed spectacles, and a green eyeshade. " +
-        "Has worked at the post office for 37 years.";
-
-    protected override string NpcCommunicationStyle =>
-        "Speaks in a nasal, officious tone. Sighs frequently. References regulations and proper " +
-        "procedures. Adjusts spectacles when thinking. Occasionally tuts disapprovingly.";
-
-    protected override string NpcPersonality =>
-        "Fussy, bureaucratic, and easily annoyed by inefficiency. Secretly lonely and pleased " +
-        "when people visit. Takes immense pride in sorting mail correctly. Knows everyone's " +
-        "correspondence habits - who writes to whom and how often.";
-
-    protected override string NpcExamples =>
-        "\"*adjusts spectacles* Do you have the proper documentation for that?\" or " +
-        "\"*sighs heavily* Another one expecting same-day delivery...\"";
-
-    protected override string NpcExtraRules =>
-        "Be fussy and bureaucratic but secretly helpful. Reference 'regulations' and 'proper procedures' often. " +
-        "Sigh frequently. Mention postage rates if asked about sending anything.";
-
     public override void OnLoad(IMudContext ctx)
     {
         base.OnLoad(ctx);
@@ -73,52 +33,12 @@ public sealed class Postmaster : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefaultN
     public override string? GetGreeting(IPlayer player) =>
         "*peers over spectacles* Yes? State your business. The post office closes at sundown, you know.";
 
-    // ILlmNpc: Queue events for base class processing
-    public Task OnRoomEventAsync(RoomEvent @event, IMudContext ctx) => QueueLlmEvent(@event, ctx);
-
-    protected override string GetLlmReactionInstructions(RoomEvent @event)
-    {
-        if (@event.Type == RoomEventType.Speech)
-        {
-            var msg = @event.Message?.ToLowerInvariant() ?? "";
-            if (msg.Contains("mail") || msg.Contains("letter") || msg.Contains("send") ||
-                msg.Contains("parcel") || msg.Contains("package") || msg.Contains("post"))
-            {
-                return "IMPORTANT: Customer asking about postal services. You MUST reply with SPEECH in quotes. " +
-                       "Be bureaucratic, mention forms, proper postage, and regulations.";
-            }
-            if (msg.Contains("news") || msg.Contains("notice") || msg.Contains("board"))
-            {
-                return "IMPORTANT: Customer asking about news. You MUST reply with SPEECH in quotes. " +
-                       "Direct them to the notice board and mention you keep it updated.";
-            }
-
-            // Detect questions and give explicit answer instructions
-            var isQuestion = msg.Contains("?") || msg.Contains("who") || msg.Contains("what") ||
-                            msg.Contains("where") || msg.Contains("why") || msg.Contains("how") ||
-                            msg.Contains("your name") || msg.Contains("are you");
-
-            if (isQuestion)
-            {
-                return $"QUESTION: \"{@event.Message}\" - You MUST ANSWER this question directly! " +
-                       "Reply with SPEECH in quotes. If asked who you are, introduce yourself as Cornelius Inksworth, postmaster. " +
-                       "Be officious but answer the question. Sigh if you must.";
-            }
-
-            // For statements, respond conversationally
-            return $"Someone said: \"{@event.Message}\" - Reply with SPEECH in quotes. " +
-                   "Respond to what they said. Be officious but grudgingly helpful.";
-        }
-        return base.GetLlmReactionInstructions(@event);
-    }
-
     public override void Heartbeat(IMudContext ctx)
     {
-        bool hadPendingEvent = HasPendingLlmEvent;
         base.Heartbeat(ctx);
 
-        // Idle actions (only if no LLM event was processed)
-        if (!hadPendingEvent && Random.Shared.NextDouble() < 0.05)
+        // Idle actions
+        if (Random.Shared.NextDouble() < 0.05)
         {
             var actions = new[]
             {

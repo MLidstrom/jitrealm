@@ -235,37 +235,88 @@ public sealed class MudContext : IMudContext
         if (_internalWorld.Objects is null)
             return null;
 
-        var normalizedName = name.ToLowerInvariant();
+        // Strip leading quantity from search (e.g., "5 gold coins" -> "gold coins")
+        var normalizedName = StripQuantityPrefix(name.ToLowerInvariant());
         var contents = _internalWorld.Containers.GetContents(containerId);
 
+        // Multi-pass search: prioritize better matches
+        // Pass 1: Exact name or alias match
         foreach (var itemId in contents)
         {
             var obj = _internalWorld.Objects.Get<IMudObject>(itemId);
-            if (obj is null)
-                continue;
+            if (obj is null) continue;
 
-            // Check if item name contains the search term (case-insensitive)
+            if (obj.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase))
+                return itemId;
+
+            if (obj is IItem item)
+            {
+                foreach (var alias in item.Aliases)
+                {
+                    if (alias.Equals(normalizedName, StringComparison.OrdinalIgnoreCase))
+                        return itemId;
+                }
+            }
+        }
+
+        // Pass 2: Name/alias contains search term (e.g., "gold" matches "gold coin")
+        foreach (var itemId in contents)
+        {
+            var obj = _internalWorld.Objects.Get<IMudObject>(itemId);
+            if (obj is null) continue;
+
             if (obj.Name.ToLowerInvariant().Contains(normalizedName))
                 return itemId;
 
-            // For IItem, also check Aliases and ShortDescription
             if (obj is IItem item)
             {
-                // Check aliases first (preferred lookup method)
                 foreach (var alias in item.Aliases)
                 {
-                    if (alias.ToLowerInvariant().Contains(normalizedName) ||
-                        normalizedName.Contains(alias.ToLowerInvariant()))
+                    if (alias.ToLowerInvariant().Contains(normalizedName))
                         return itemId;
                 }
 
-                // Fall back to ShortDescription
                 if (item.ShortDescription.ToLowerInvariant().Contains(normalizedName))
                     return itemId;
             }
         }
 
+        // Pass 3: Search term contains alias (weakest match, but skip generic terms like "coin")
+        // Only allow this for longer, more specific aliases (4+ chars)
+        foreach (var itemId in contents)
+        {
+            var obj = _internalWorld.Objects.Get<IMudObject>(itemId);
+            if (obj is not IItem item) continue;
+
+            foreach (var alias in item.Aliases)
+            {
+                var lowerAlias = alias.ToLowerInvariant();
+                // Only match if alias is specific enough (not generic like "coin")
+                if (lowerAlias.Length >= 4 && normalizedName.Contains(lowerAlias))
+                    return itemId;
+            }
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Strip a leading numeric quantity from a search string.
+    /// E.g., "5 gold coins" -> "gold coins", "1 silver coin" -> "silver coin"
+    /// </summary>
+    private static string StripQuantityPrefix(string input)
+    {
+        var trimmed = input.TrimStart();
+        var spaceIndex = trimmed.IndexOf(' ');
+        if (spaceIndex > 0)
+        {
+            var firstWord = trimmed[..spaceIndex];
+            if (int.TryParse(firstWord, out _))
+            {
+                return trimmed[(spaceIndex + 1)..].TrimStart();
+            }
+        }
+        return input;
     }
 
     // LLM methods
@@ -303,6 +354,11 @@ public sealed class MudContext : IMudContext
         var roomName = room?.Name ?? "Unknown Location";
         var roomDescription = room?.Description ?? "You cannot see anything.";
         var roomExits = room?.Exits.Keys.ToList() ?? new List<string>();
+
+        // Get local room commands (e.g., "draw" for well)
+        var localRoomCommands = (room is IHasCommands roomWithCommands)
+            ? roomWithCommands.LocalCommands.ToList()
+            : new List<LocalCommandInfo>();
 
         // Get combat info
         var inCombat = _internalWorld.Combat.IsInCombat(npcId);
@@ -398,6 +454,39 @@ public sealed class MudContext : IMudContext
             {
                 // Goals (small; include a few top priorities)
                 var goals = await memorySystem.Goals.GetAllAsync(npcId);
+
+                // Initialize default goal if none exist and NPC has a default
+                if (goals.Count == 0 && npc is IHasDefaultGoal hasDefaultGoal && !string.IsNullOrWhiteSpace(hasDefaultGoal.DefaultGoalType))
+                {
+                    // Build goal params - include plan from template if available
+                    System.Text.Json.JsonDocument goalParams;
+                    var planTemplate = hasDefaultGoal.DefaultPlanTemplate;
+                    if (!string.IsNullOrWhiteSpace(planTemplate))
+                    {
+                        var plan = GoalPlan.FromSteps(planTemplate);
+                        goalParams = plan.ToParams();
+                    }
+                    else
+                    {
+                        goalParams = System.Text.Json.JsonDocument.Parse("{}");
+                    }
+
+                    var defaultGoal = new NpcGoal(
+                        NpcId: npcId,
+                        GoalType: hasDefaultGoal.DefaultGoalType,
+                        TargetPlayer: hasDefaultGoal.DefaultGoalTarget,
+                        Params: goalParams,
+                        Status: "active",
+                        Importance: hasDefaultGoal.DefaultGoalImportance,
+                        UpdatedAt: DateTimeOffset.UtcNow);
+
+                    await memorySystem.Goals.UpsertAsync(defaultGoal);
+                    _internalWorld.LlmDebugger?.LogGoalChange(npcId, "initialized_default", hasDefaultGoal.DefaultGoalType, hasDefaultGoal.DefaultGoalTarget);
+
+                    // Re-fetch goals after initialization
+                    goals = await memorySystem.Goals.GetAllAsync(npcId);
+                }
+
                 if (goals.Count > 0)
                 {
                     var activeGoals = goals
@@ -405,6 +494,9 @@ public sealed class MudContext : IMudContext
                         .OrderBy(g => g.Importance)
                         .Take(5)  // Show up to 5 goals to LLM
                         .ToList();
+
+                    // Note: Plan templates from IHasDefaultNeeds are now applied in living.cs
+                    // at the correct time (before HasPlan check) using SetGoalPlanAsync
 
                     goalCount = activeGoals.Count;
                     if (goalCount > 0)
@@ -506,6 +598,10 @@ public sealed class MudContext : IMudContext
             needCount: drives.Count,
             kbCount: worldFacts.Length);
 
+        // Get last command results for feedback (and clear them so they're only shown once)
+        var npcStateStore = _internalWorld.Objects?.GetStateStore(npcId);
+        var lastActionResults = NpcCommandExecutor.GetAndClearCommandResults(npcStateStore);
+
         return new NpcContext
         {
             NpcId = npcId,
@@ -524,11 +620,13 @@ public sealed class MudContext : IMudContext
             PlayersInRoom = players,
             NpcsInRoom = npcs,
             ItemsInRoom = items,
+            LocalRoomCommands = localRoomCommands,
             RecentEvents = recentEvents.ToList(),
             LongTermMemories = longTermMemories,
             WorldKnowledge = worldFacts,
             Drives = drives,
-            GoalSummary = goalSummary
+            GoalSummary = goalSummary,
+            LastActionResults = lastActionResults
         };
     }
 
@@ -670,6 +768,102 @@ public sealed class MudContext : IMudContext
         return await memorySystem.Goals.GetAllAsync(CurrentObjectId);
     }
 
+    public StepEvaluation? EvaluateGoalStep(NpcGoal goal, string stepText)
+    {
+        if (CurrentObjectId is null)
+            return null;
+
+        return _internalWorld.GoalEvaluators.TryEvaluate(CurrentObjectId, goal, stepText, _internalWorld);
+    }
+
+    public async Task<bool> AdvanceGoalStepAsync(string goalType)
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        var goal = (await memorySystem.Goals.GetAllAsync(CurrentObjectId))
+            .FirstOrDefault(g => string.Equals(g.GoalType, goalType, StringComparison.OrdinalIgnoreCase));
+
+        if (goal is null)
+            return false;
+
+        var plan = GoalPlan.FromParams(goal.Params);
+        if (!plan.HasPlan || plan.IsComplete)
+            return false;
+
+        plan.CompleteCurrentStep();
+        var newParams = plan.ToParams(goal.Params);
+        await memorySystem.Goals.UpdateParamsAsync(CurrentObjectId, goalType, newParams);
+
+        // If plan is complete, clear the goal
+        if (plan.IsComplete)
+        {
+            await memorySystem.Goals.ClearAsync(CurrentObjectId, goalType);
+            _internalWorld.LlmDebugger?.LogGoalChange(CurrentObjectId, "plan_complete", goalType);
+        }
+        else
+        {
+            _internalWorld.LlmDebugger?.LogGoalChange(CurrentObjectId, "step_done_auto", goalType, plan.CurrentStepText ?? "next");
+        }
+
+        return true;
+    }
+
+    public async Task<bool> SkipGoalStepAsync(string goalType)
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        var goal = (await memorySystem.Goals.GetAllAsync(CurrentObjectId))
+            .FirstOrDefault(g => string.Equals(g.GoalType, goalType, StringComparison.OrdinalIgnoreCase));
+
+        if (goal is null)
+            return false;
+
+        var plan = GoalPlan.FromParams(goal.Params);
+        if (!plan.HasPlan || plan.IsComplete)
+            return false;
+
+        plan.SkipCurrentStep();
+        var newParams = plan.ToParams(goal.Params);
+        await memorySystem.Goals.UpdateParamsAsync(CurrentObjectId, goalType, newParams);
+
+        if (plan.IsComplete)
+        {
+            await memorySystem.Goals.ClearAsync(CurrentObjectId, goalType);
+            _internalWorld.LlmDebugger?.LogGoalChange(CurrentObjectId, "plan_complete", goalType);
+        }
+        else
+        {
+            _internalWorld.LlmDebugger?.LogGoalChange(CurrentObjectId, "step_skip_auto", goalType, plan.CurrentStepText ?? "next");
+        }
+
+        return true;
+    }
+
+    public async Task<bool> SetGoalPlanAsync(string goalType, string planSteps)
+    {
+        var memorySystem = _internalWorld.MemorySystem;
+        if (memorySystem is null || CurrentObjectId is null)
+            return false;
+
+        var goal = (await memorySystem.Goals.GetAllAsync(CurrentObjectId))
+            .FirstOrDefault(g => string.Equals(g.GoalType, goalType, StringComparison.OrdinalIgnoreCase));
+
+        if (goal is null)
+            return false;
+
+        var plan = GoalPlan.FromSteps(planSteps);
+        var newParams = plan.ToParams(goal.Params);
+        await memorySystem.Goals.UpdateParamsAsync(CurrentObjectId, goalType, newParams);
+
+        _internalWorld.LlmDebugger?.LogGoalChange(CurrentObjectId, "plan_set_template", goalType, $"{plan.Steps.Count} steps");
+
+        return true;
+    }
+
     // Need/drive methods
 
     public async Task<bool> SetNeedAsync(string needType, int level = 1, string status = "active")
@@ -707,5 +901,10 @@ public sealed class MudContext : IMudContext
             return Array.Empty<NpcNeed>();
 
         return await memorySystem.Needs.GetAllAsync(CurrentObjectId);
+    }
+
+    public void LogDebug(string message)
+    {
+        _internalWorld.LlmDebugger?.Log(message);
     }
 }

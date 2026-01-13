@@ -87,6 +87,14 @@ public interface IHasDefaultGoal
     /// Default is 50 (normal priority). Use GoalImportance constants.
     /// </summary>
     int DefaultGoalImportance => GoalImportance.Default;
+
+    /// <summary>
+    /// Optional suggested plan template for the default goal.
+    /// When the NPC has no plan, this template is shown as a suggestion.
+    /// Format: pipe-separated steps (e.g., "greet customer|show wares|negotiate|complete sale").
+    /// Return null or empty to not suggest a template.
+    /// </summary>
+    string? DefaultPlanTemplate => null;
 }
 
 

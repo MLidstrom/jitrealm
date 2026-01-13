@@ -65,11 +65,17 @@ public class GetCommand : CommandBase
             await context.State.Objects!.DestructAsync(itemId, context.State);
 
             // Add to player inventory (will merge with existing pile)
-            await StackHelper.AddStackToContainerAsync(context.State, context.PlayerId, stackKey, blueprintId, amount);
+            // For coins, preserve the material in the new stack
+            Dictionary<string, object>? initialState = null;
+            if (item is ICoin coin)
+            {
+                initialState = new Dictionary<string, object> { ["material"] = coin.Material.ToString() };
+            }
+            await StackHelper.AddStackToContainerAsync(context.State, context.PlayerId, stackKey, blueprintId, amount, initialState);
 
             // Format display name (coins have special formatting)
-            if (item is ICoin coin)
-                itemDisplayName = CoinHelper.FormatCoins(amount, coin.Material);
+            if (item is ICoin coinForDisplay)
+                itemDisplayName = CoinHelper.FormatCoins(amount, coinForDisplay.Material);
         }
         else
         {

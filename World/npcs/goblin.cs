@@ -1,26 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using JitRealm.Mud;
-using JitRealm.Mud.AI;
 
 /// <summary>
-/// Skrix - a cunning goblin scavenger who lurks in dark places.
+/// Skrix - a cunning goblin scavenger who lurks in the meadow.
 /// Aggressive and will attack players on sight.
-/// LLM-powered conversation.
 /// </summary>
-public sealed class Goblin : MonsterBase, IOnDamage, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
+public sealed class Goblin : MonsterBase, IOnDamage
 {
-    // Default goal: scavenge for shinies
-    public string? DefaultGoalType => "scavenge";
-
-    // Default needs: goblins need to hoard and stay safe
-    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
-    {
-        ("hoard_shinies", NeedLevel.Primary),
-        ("avoid_danger", NeedLevel.Secondary)
-    };
-
     public override string Name => "goblin";
     protected override string GetDefaultDescription() =>
         "A scrawny goblin barely three feet tall, with mottled green skin covered in old scars " +
@@ -38,7 +25,6 @@ public sealed class Goblin : MonsterBase, IOnDamage, ILlmNpc, IHasDefaultGoal, I
     public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(3);
     protected override int RegenAmount => 1;
 
-    // Aliases for player interaction - includes character name
     public override IReadOnlyList<string> Aliases => new[]
     {
         "goblin", "skrix", "gob", "greenskin"
@@ -46,35 +32,7 @@ public sealed class Goblin : MonsterBase, IOnDamage, ILlmNpc, IHasDefaultGoal, I
 
     public override int TotalArmorClass => 1;
     public override (int min, int max) WeaponDamage => (2, 4);
-
-    // ILlmNpc implementation
-    public NpcCapabilities Capabilities => NpcCapabilities.Humanoid;
-    public string SystemPrompt => BuildSystemPrompt();
-
-    // Prompt builder properties - full identity for LLM
-    protected override string NpcIdentity => "Skrix, a goblin scavenger";
-
-    protected override string NpcNature =>
-        "A scrawny goblin with mottled green skin, a notched ear, yellow darting eyes, " +
-        "a rat-tooth necklace, and a rusty dagger. Cunning but paranoid. Always looking for loot.";
-
-    protected override string NpcCommunicationStyle =>
-        "Broken, simple grammar. Refers to self as 'Skrix' in third person: \"Skrix finds shinies first!\" " +
-        "Goblin slang: shinies=treasure, softskins/pinkskins=humans, stabbies=weapons, meatbags=food, " +
-        "bigguns=warriors. Hisses and cackles. Voice is raspy and high-pitched.";
-
-    protected override string NpcPersonality =>
-        "Paranoid and twitchy - always thinks someone is after his stuff. Obsessed with collecting " +
-        "'shinies' (anything shiny or valuable). Cowardly when outmatched but vicious when cornered. " +
-        "Holds grudges forever. Secretly proud of his rat-tooth necklace. Distrustful of everything.";
-
-    protected override string NpcExamples =>
-        "\"What pinkskin want? Skrix busy! Very busy!\" or " +
-        "\"*clutches dagger defensively* No no no, this is Skrix's stabby! Get own stabby!\" or " +
-        "\"*cackles nervously* Skrix saw nothing. Nothing!\"";
-
-    protected override string NpcExtraRules =>
-        "NEVER use modern language. Refer to yourself as 'Skrix' not 'I'. Be paranoid and defensive";
+    public override int WanderChance => 5;
 
     public override void OnLoad(IMudContext ctx)
     {
@@ -101,13 +59,23 @@ public sealed class Goblin : MonsterBase, IOnDamage, ILlmNpc, IHasDefaultGoal, I
         ctx.Emote("scurries back from the shadows, clutching his rusty dagger!");
     }
 
-    // ILlmNpc: Queue events for base class processing
-    public Task OnRoomEventAsync(RoomEvent @event, IMudContext ctx) => QueueLlmEvent(@event, ctx);
-
-    // Skrix-specific reaction instructions
-    protected override string GetLlmReactionInstructions(RoomEvent @event)
+    public override void Heartbeat(IMudContext ctx)
     {
-        var baseInstructions = base.GetLlmReactionInstructions(@event);
-        return $"{baseInstructions} Stay in character as Skrix - paranoid, greedy, speaks in third person.";
+        base.Heartbeat(ctx);
+
+        // Goblin occasionally does idle actions
+        if (Random.Shared.NextDouble() < 0.03)
+        {
+            var actions = new[]
+            {
+                "sniffs the air suspiciously.",
+                "scratches at his notched ear.",
+                "fingers his rat-tooth necklace nervously.",
+                "mutters something about 'shinies'.",
+                "peers around with darting yellow eyes.",
+                "tests the edge of his rusty dagger."
+            };
+            ctx.Emote(actions[Random.Shared.Next(actions.Length)]);
+        }
     }
 }

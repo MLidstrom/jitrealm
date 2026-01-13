@@ -101,10 +101,18 @@ public sealed class NpcContext
     public required string RoomDescription { get; init; }
     public required IReadOnlyList<string> RoomExits { get; init; }
 
+    /// <summary>
+    /// Maps direction to destination room name (e.g., "north" → "General Store").
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ExitDestinations { get; init; } = new Dictionary<string, string>();
+
     // Entities in the room
     public required IReadOnlyList<EntityInfo> PlayersInRoom { get; init; }
     public required IReadOnlyList<EntityInfo> NpcsInRoom { get; init; }
     public required IReadOnlyList<string> ItemsInRoom { get; init; }
+
+    // Local room commands (e.g., "draw water" from well)
+    public IReadOnlyList<LocalCommandInfo> LocalRoomCommands { get; init; } = Array.Empty<LocalCommandInfo>();
 
     // Recent events the NPC witnessed
     public required IReadOnlyList<string> RecentEvents { get; init; }
@@ -114,6 +122,9 @@ public sealed class NpcContext
     public IReadOnlyList<string> WorldKnowledge { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Drives { get; init; } = Array.Empty<string>();
     public string? GoalSummary { get; init; }
+
+    // Last action feedback (shows results of recent commands)
+    public IReadOnlyList<string> LastActionResults { get; init; } = Array.Empty<string>();
 
     /// <summary>
     /// Check if this NPC has a specific capability.
@@ -189,6 +200,16 @@ public sealed class NpcContext
             }
         }
 
+        // Last action feedback - tell NPC what happened with their previous commands
+        if (LastActionResults.Count > 0)
+        {
+            lines.Add($"\n[Your last action results:]");
+            foreach (var result in LastActionResults)
+            {
+                lines.Add($"- {result}");
+            }
+        }
+
         if (Drives.Count > 0)
         {
             lines.Add($"\n[Drives (always-on priorities):]");
@@ -248,7 +269,16 @@ public sealed class NpcContext
             actions.Add("FLEE (if outmatched)");
 
         if (Can(NpcCapabilities.CanWander) && RoomExits.Count > 0)
-            actions.Add($"MOVE to: {string.Join(", ", RoomExits)}");
+        {
+            // Show exits with destinations when available
+            var exitInfos = RoomExits.Select(dir =>
+            {
+                if (ExitDestinations.TryGetValue(dir, out var destName))
+                    return $"{dir} → {destName}";
+                return dir;
+            });
+            actions.Add($"MOVE via [cmd:go <direction>]: {string.Join(", ", exitInfos)}");
+        }
 
         var lines = new List<string> { "[Available actions:]" };
         lines.AddRange(actions.Select(a => $"- {a}"));
@@ -274,17 +304,26 @@ public sealed class NpcContext
 
             if (Can(NpcCapabilities.CanManipulateItems))
             {
-                lines.Add("- [cmd:get <item>] - pick up an item");
-                lines.Add("- [cmd:drop <item>] - drop an item");
-                lines.Add("- [cmd:give <item> to <person>] - give item to someone");
-                lines.Add("- [cmd:equip <item>] - equip/wear an item");
-                lines.Add("- [cmd:unequip <item or slot>] - remove equipped item");
-                lines.Add("- [cmd:use <item>] - use/consume an item");
+                // Show available items and targets for commands
+                var roomItems = ItemsInRoom.Count > 0 ? string.Join(", ", ItemsInRoom) : "none";
+                var invItems = Inventory.Count > 0 ? string.Join(", ", Inventory) : "none";
+                var peopleHere = new List<string>();
+                peopleHere.AddRange(PlayersInRoom.Select(p => p.Name));
+                peopleHere.AddRange(NpcsInRoom.Select(n => n.Name));
+                var targets = peopleHere.Count > 0 ? string.Join(", ", peopleHere) : "no one";
+
+                lines.Add($"- [cmd:get <item>] - pick up (room items: {roomItems})");
+                lines.Add($"- [cmd:drop <item>] - drop (carrying: {invItems})");
+                lines.Add($"- [cmd:give <item> to <name>] - give to someone (here: {targets})");
+                lines.Add("- [cmd:equip <item>] - equip/wield item");
+                lines.Add("- [cmd:unequip <slot>] - remove equipped item");
+                lines.Add("- [cmd:use <item>] - use/consume item");
+                lines.Add("  IMPORTANT: Use EXACT names only. No extra words.");
             }
 
             if (Can(NpcCapabilities.CanWander) && RoomExits.Count > 0)
             {
-                lines.Add($"- [cmd:go <direction>] - move to adjacent room");
+                lines.Add($"- [cmd:go <direction>] - move (valid directions: {string.Join(", ", RoomExits)})");
             }
 
             if (Can(NpcCapabilities.CanAttack))
@@ -295,6 +334,15 @@ public sealed class NpcContext
             if (Can(NpcCapabilities.CanFlee))
             {
                 lines.Add("- [cmd:flee] - flee from combat");
+            }
+
+            // Local room commands (e.g., well, forge)
+            if (Can(NpcCapabilities.CanManipulateItems) && LocalRoomCommands.Count > 0)
+            {
+                foreach (var localCmd in LocalRoomCommands)
+                {
+                    lines.Add($"- [cmd:{localCmd.Name}] - {localCmd.Description}");
+                }
             }
         }
 

@@ -53,5 +53,68 @@ public interface IHasDefaultNeeds
     /// Example: new[] { ("hunt", 2), ("rest", 3) }
     /// </summary>
     IReadOnlyList<(string NeedType, int Level)> DefaultNeeds { get; }
+
+    /// <summary>
+    /// Get a plan template for a goal type. Return null to not auto-apply a template.
+    /// Plan steps are pipe-separated: "step1|step2|step3"
+    /// </summary>
+    /// <param name="goalType">The goal type to get a template for.</param>
+    /// <returns>Pipe-separated plan steps, or null.</returns>
+    string? GetPlanTemplateForGoal(string goalType) => null;
+}
+
+/// <summary>
+/// Optional interface for NPCs that map needs to goals.
+/// When no active goals exist, the system derives a goal from the NPC's top need.
+/// </summary>
+public interface IHasNeedGoalMapping
+{
+    /// <summary>
+    /// Get a goal type for a given need type.
+    /// Return null to use default convention (need type becomes goal type).
+    /// </summary>
+    /// <param name="needType">The need type to derive a goal from.</param>
+    /// <returns>The goal type, or null to use convention.</returns>
+    string? GetGoalForNeed(string needType);
+
+    /// <summary>
+    /// Get a plan template for a goal derived from a need.
+    /// Return null to not suggest a template.
+    /// </summary>
+    /// <param name="goalType">The derived goal type.</param>
+    /// <returns>Pipe-separated plan steps, or null.</returns>
+    string? GetPlanTemplateForGoal(string goalType) => null;
+}
+
+/// <summary>
+/// Interface for NPCs that wander between key locations instead of randomly.
+/// NPCs stay at each location for a configurable dwell time before moving on.
+/// </summary>
+public interface IHasKeyLocations
+{
+    /// <summary>
+    /// Default key locations this NPC patrols between. Room names (for fuzzy matching).
+    /// Used when no goal-specific locations are defined.
+    /// </summary>
+    IReadOnlyList<string> DefaultKeyLocations { get; }
+
+    /// <summary>
+    /// Get locations for a specific goal type. Return null to use DefaultKeyLocations.
+    /// </summary>
+    /// <param name="goalType">The current goal type.</param>
+    /// <returns>List of room names, or null to use defaults.</returns>
+    IReadOnlyList<string>? GetLocationsForGoal(string goalType) => null;
+
+    /// <summary>
+    /// How long to stay at each location (min/max in seconds).
+    /// Default: (300, 600) = 5-10 minutes
+    /// </summary>
+    (int MinSeconds, int MaxSeconds) DwellDuration => (300, 600);
+
+    /// <summary>
+    /// Whether to visit locations in random order or sequentially.
+    /// Default: true (random)
+    /// </summary>
+    bool RandomizeOrder => true;
 }
 

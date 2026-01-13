@@ -1,13 +1,19 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using JitRealm.Mud;
 
 /// <summary>
 /// Millbrook Village Square - the central hub connecting all village locations.
 /// Features a well, benches, and a waterwheel by the millstream.
 /// </summary>
-public sealed class VillageSquare : OutdoorRoomBase, ISpawner
+public sealed class VillageSquare : OutdoorRoomBase, ISpawner, IHasCommands
 {
     protected override string GetDefaultName() => "Millbrook Village Square";
+
+    /// <summary>
+    /// Room aliases for location matching in NPC plans.
+    /// </summary>
+    public override IReadOnlyList<string> Aliases => new[] { "square", "village", "villagers", "plaza", "millbrook", "well", "water" };
 
     protected override string GetDefaultDescription() =>
         "A cobblestone square at the heart of Millbrook village. A weathered stone well " +
@@ -44,16 +50,74 @@ public sealed class VillageSquare : OutdoorRoomBase, ISpawner
     };
 
     /// <summary>
-    /// NPCs that spawn in the square - the village cat and Tom the farmer.
+    /// NPCs and items that spawn in the square.
     /// </summary>
     public IReadOnlyDictionary<string, int> Spawns => new Dictionary<string, int>
     {
         ["npcs/cat.cs"] = 1,
         ["npcs/villager_tom.cs"] = 1,
+        ["Items/bucket.cs"] = 1,
     };
 
     public void Respawn(IMudContext ctx)
     {
         // Called by driver to replenish spawns
+    }
+
+    // IHasCommands implementation - draw water from the well
+    public IReadOnlyList<LocalCommandInfo> LocalCommands => new LocalCommandInfo[]
+    {
+        new("draw", new[] { "fill" }, "draw water", "Draw water from the well into a bucket"),
+    };
+
+    public Task HandleLocalCommandAsync(string command, string[] args, string playerId, IMudContext ctx)
+    {
+        switch (command)
+        {
+            case "draw":
+            case "fill":
+                HandleDrawWater(playerId, ctx);
+                break;
+        }
+        return Task.CompletedTask;
+    }
+
+    private void HandleDrawWater(string playerId, IMudContext ctx)
+    {
+        // Find a bucket in the player's inventory
+        var bucketId = ctx.FindItem("bucket", playerId);
+        if (bucketId is null)
+        {
+            ctx.Tell(playerId, "You need to be holding a bucket to draw water from the well.");
+            return;
+        }
+
+        // Check if it's actually a bucket
+        var bucket = ctx.World.GetObject<IMudObject>(bucketId);
+        if (bucket is null || !bucket.Id.Contains("bucket"))
+        {
+            ctx.Tell(playerId, "You need a bucket to draw water.");
+            return;
+        }
+
+        // Get the bucket's state and fill it
+        var bucketState = ctx.World.GetStateStore(bucketId);
+        if (bucketState is null)
+        {
+            ctx.Tell(playerId, "Something went wrong with the bucket.");
+            return;
+        }
+
+        // Check if already full
+        if (bucketState.Get<bool>("has_water"))
+        {
+            ctx.Tell(playerId, "The bucket is already full of water.");
+            return;
+        }
+
+        // Fill the bucket
+        bucketState.Set("has_water", true);
+        ctx.Tell(playerId, "You lower the bucket into the well and draw up cool, clear water.");
+        ctx.Emote("draws water from the well.");
     }
 }

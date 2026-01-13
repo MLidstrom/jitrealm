@@ -13,6 +13,11 @@ public sealed class Tavern : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedR
 {
     protected override string GetDefaultName() => "The Sleepy Dragon Inn";
 
+    /// <summary>
+    /// Room aliases for location matching in NPC plans.
+    /// </summary>
+    public override IReadOnlyList<string> Aliases => new[] { "tavern", "inn", "pub", "sleepy dragon" };
+
     protected override string GetDefaultDescription() =>
         "A warm, low-ceilinged common room filled with the smell of roasting meat and " +
         "pipe smoke. Rough-hewn tables and chairs crowd the sawdust floor. A stone " +

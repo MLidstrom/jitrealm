@@ -14,6 +14,12 @@ public sealed class NpcCommandExecutor
     // Track the current interactor during command execution (who the NPC is responding to)
     private string? _currentInteractorId;
 
+    // Track the last failure reason for command feedback
+    private string? _lastFailureReason;
+
+    // State key for storing last command results
+    private const string LastCommandResultsKey = "_npc_last_cmd_results";
+
     // Regex to match *emote* or [emote] patterns (LLMs use both)
     private static readonly Regex EmotePattern = new(@"(\*([^*]+)\*|\[([^\]]+)\])", RegexOptions.Compiled);
 
@@ -23,18 +29,23 @@ public sealed class NpcCommandExecutor
     // Regex to match command markup: [cmd:command args] or {cmd:command args}
     private static readonly Regex CommandMarkupPattern = new(@"[\[{]cmd:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Regex to match goal markup: [goal:type] or [goal:type target] or {goal:type}
-    private static readonly Regex GoalMarkupPattern = new(@"[\[{]goal:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    // Regex to match goal markup: [goal:type] or goal:type (brackets optional)
+    // Also supports [goal:type target]
+    private static readonly Regex GoalMarkupPattern = new(@"(?:[\[{])?goal:([^\]}\r\n]+)(?:[\]}])?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Regex to match goal clear: [goal:clear], [goal:done], [goal:clear type], etc.
+    // Regex to match goal clear: [goal:clear], [goal:done], goal:clear, etc. (brackets optional)
     // Captures the full content after goal: for patterns starting with clear/done/complete/none
-    private static readonly Regex GoalClearPattern = new(@"[\[{]goal:((?:clear|done|complete|none)(?:\s+[^\]}]*)?)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex GoalClearPattern = new(@"(?:[\[{])?goal:((?:clear|done|complete|none)(?:\s+[^\]}\r\n]*)?)(?:[\]}])?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Regex to match plan markup: [plan:step1|step2|step3]
-    private static readonly Regex PlanMarkupPattern = new(@"[\[{]plan:([^\]}]+)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    // Regex to match plan markup: [plan:step1|step2|step3] or plan:step1|step2|step3 (brackets optional)
+    // Also supports [plan:goalType:step1|step2|step3]
+    // Captures full content after "plan:" for further parsing
+    private static readonly Regex PlanMarkupPattern = new(@"(?:[\[{])?plan:([^\]}\r\n]+)(?:[\]}])?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Regex to match step actions: [step:done], [step:skip], [step:next]
-    private static readonly Regex StepActionPattern = new(@"[\[{]step:(done|skip|next|complete)[\]}]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    // Regex to match step actions: [step:done], [step:skip], step:done, step:skip (brackets optional)
+    // Also supports [step:goalType:done], [step:goalType:skip]
+    // Captures full content after "step:" for further parsing
+    private static readonly Regex StepActionPattern = new(@"(?:[\[{])?step:([^\]}\r\n]+)(?:[\]}])?", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Commands that NPCs are forbidden from using via [cmd:...] markup
     private static readonly HashSet<string> ForbiddenCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -52,11 +63,9 @@ public sealed class NpcCommandExecutor
     }
 
     /// <summary>
-    /// Parse an LLM response and execute actions.
-    /// Command markups [cmd:...] are executed first, then emotes/speech.
-    /// Emotes are wrapped in *asterisks*, everything else is speech.
-    /// Speech before an emote is combined with the emote (up to 2 actions).
-    /// Long speech responses are allowed up to a reasonable limit.
+    /// Parse an LLM response and execute actions in sequential order.
+    /// Emotes (*asterisks*), commands ([cmd:...]), and speech ("quotes") are all
+    /// executed in the order they appear in the response.
     /// </summary>
     /// <param name="npcId">The NPC executing the actions.</param>
     /// <param name="response">The LLM response to parse and execute.</param>
@@ -73,97 +82,166 @@ public sealed class NpcCommandExecutor
 
         try
         {
-            // First, extract and execute any command markups [cmd:command args]
-            var commandMatches = CommandMarkupPattern.Matches(response);
-            var commandsExecuted = 0;
-            const int maxCommands = 2; // Limit commands per response to prevent spam
+            // Process goal markups [goal:type] or [goal:clear] - these don't produce visible actions
+            await ProcessGoalMarkupsAsync(npcId, response);
 
-            foreach (Match cmdMatch in commandMatches)
+            // Process plan/step markups [plan:...] or [step:done/skip] - these don't produce visible actions
+            await ProcessPlanMarkupsAsync(npcId, response);
+
+            // Collect all action elements with their positions for sequential execution
+            var actions = new List<(int Position, string Type, string Content, int EndPosition)>();
+
+            // Find all command markups [cmd:...]
+            foreach (Match match in CommandMarkupPattern.Matches(response))
             {
-                if (commandsExecuted >= maxCommands) break;
-
-                var command = cmdMatch.Groups[1].Value.Trim();
+                var command = match.Groups[1].Value.Trim();
                 if (!string.IsNullOrWhiteSpace(command))
                 {
                     // Check if command is forbidden
                     var cmdName = command.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant();
                     if (cmdName is not null && !ForbiddenCommands.Contains(cmdName))
                     {
-                        if (await ExecuteAsync(npcId, command))
-                        {
-                            commandsExecuted++;
-                        }
+                        actions.Add((match.Index, "command", command, match.Index + match.Length));
                     }
                 }
             }
 
-            // Process goal markups [goal:type] or [goal:clear]
-            await ProcessGoalMarkupsAsync(npcId, response);
-
-            // Process plan/step markups [plan:...] or [step:done/skip]
-            await ProcessPlanMarkupsAsync(npcId, response);
-
-            // Remove command, goal, and plan markups from response for further parsing
-            var cleanResponse = CommandMarkupPattern.Replace(response, "").Trim();
-            cleanResponse = GoalMarkupPattern.Replace(cleanResponse, "").Trim();
-            cleanResponse = PlanMarkupPattern.Replace(cleanResponse, "").Trim();
-            cleanResponse = StepActionPattern.Replace(cleanResponse, "").Trim();
-            if (string.IsNullOrWhiteSpace(cleanResponse))
-                return;
-
-            // Find the first emote match
-            var match = EmotePattern.Match(cleanResponse);
-
-            if (match.Success)
+            // Find all emote patterns *emote* or [emote] (but not [cmd:...], [goal:...], [plan:...], [step:...])
+            foreach (Match match in EmotePattern.Matches(response))
             {
-                // Check if there's speech BEFORE the first emote - prefer speech over emote
-                if (match.Index > 0 && canSpeak)
+                // Skip if this is a command, goal, plan, or step markup
+                var fullMatch = match.Value;
+                if (fullMatch.StartsWith("[cmd:", StringComparison.OrdinalIgnoreCase) ||
+                    fullMatch.StartsWith("{cmd:", StringComparison.OrdinalIgnoreCase) ||
+                    fullMatch.StartsWith("[goal:", StringComparison.OrdinalIgnoreCase) ||
+                    fullMatch.StartsWith("{goal:", StringComparison.OrdinalIgnoreCase) ||
+                    fullMatch.StartsWith("[plan:", StringComparison.OrdinalIgnoreCase) ||
+                    fullMatch.StartsWith("{plan:", StringComparison.OrdinalIgnoreCase) ||
+                    fullMatch.StartsWith("[step:", StringComparison.OrdinalIgnoreCase) ||
+                    fullMatch.StartsWith("{step:", StringComparison.OrdinalIgnoreCase))
                 {
-                    var rawSpeech = cleanResponse.Substring(0, match.Index).Trim();
-                    var speech = CleanSpeech(rawSpeech);
-                    if (!string.IsNullOrEmpty(speech))
-                    {
-                        // Execute ONLY the speech (one action per response)
-                        await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
-                        return;
-                    }
+                    continue;
                 }
 
-                // No speech before emote, check the emote content
-                // Groups[2] = text inside *asterisks*, Groups[3] = text inside [brackets]
+                // Get emote text: Groups[2] = *asterisks*, Groups[3] = [brackets]
                 var emoteText = match.Groups[2].Success
                     ? match.Groups[2].Value.Trim()
                     : match.Groups[3].Value.Trim();
 
-                // Check if the "emote" is actually speech wrapped in asterisks (e.g., *"Hello!"*)
-                // This happens when LLMs wrap speech in asterisks by mistake
-                if (canSpeak && LooksLikeSpeech(emoteText))
+                if (!string.IsNullOrWhiteSpace(emoteText))
                 {
-                    var speech = CleanSpeech(emoteText);
+                    actions.Add((match.Index, "emote", emoteText, match.Index + match.Length));
+                }
+            }
+
+            // Sort actions by position
+            actions.Sort((a, b) => a.Position.CompareTo(b.Position));
+
+            // Remove overlapping actions (keep the first one at each position)
+            var filteredActions = new List<(int Position, string Type, string Content, int EndPosition)>();
+            var lastEndPos = 0;
+            foreach (var action in actions)
+            {
+                if (action.Position >= lastEndPos)
+                {
+                    filteredActions.Add(action);
+                    lastEndPos = action.EndPosition;
+                }
+            }
+
+            // Create a version of response with markups removed for speech detection
+            var cleanResponse = CommandMarkupPattern.Replace(response, " ").Trim();
+            cleanResponse = GoalMarkupPattern.Replace(cleanResponse, " ").Trim();
+            cleanResponse = PlanMarkupPattern.Replace(cleanResponse, " ").Trim();
+            cleanResponse = StepActionPattern.Replace(cleanResponse, " ").Trim();
+
+            // If no actions found, treat entire cleaned response as speech
+            if (filteredActions.Count == 0)
+            {
+                if (canSpeak)
+                {
+                    var speech = CleanSpeech(cleanResponse.Trim());
                     if (!string.IsNullOrEmpty(speech))
                     {
                         await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
-                        return;
-                    }
-                }
-
-                // It's a real emote, execute it
-                if (canEmote)
-                {
-                    // Clean emote text - remove any inner asterisks or brackets the LLM may have added
-                    emoteText = CleanEmote(emoteText);
-                    if (!string.IsNullOrWhiteSpace(emoteText))
-                    {
-                        await ExecuteAsync(npcId, $"emote {emoteText}");
                     }
                 }
                 return;
             }
 
-            // No emotes found - treat as speech (allow multiple sentences up to limit)
-            if (canSpeak)
+            // Execute actions sequentially with speech between them
+            const int maxActions = 3;
+            var actionsExecuted = 0;
+            var currentPos = 0;
+
+            foreach (var action in filteredActions)
             {
-                var speech = CleanSpeech(cleanResponse.Trim());
+                if (actionsExecuted >= maxActions)
+                    break;
+
+                // Check for speech BEFORE this action
+                if (action.Position > currentPos && canSpeak)
+                {
+                    var rawSpeech = response.Substring(currentPos, action.Position - currentPos);
+                    // Remove any markup from the speech segment
+                    rawSpeech = CommandMarkupPattern.Replace(rawSpeech, " ");
+                    rawSpeech = GoalMarkupPattern.Replace(rawSpeech, " ");
+                    rawSpeech = PlanMarkupPattern.Replace(rawSpeech, " ");
+                    rawSpeech = StepActionPattern.Replace(rawSpeech, " ");
+                    var speech = CleanSpeech(rawSpeech.Trim());
+                    if (!string.IsNullOrEmpty(speech))
+                    {
+                        await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
+                        actionsExecuted++;
+                        if (actionsExecuted >= maxActions)
+                            break;
+                    }
+                }
+
+                // Execute the action
+                if (action.Type == "command")
+                {
+                    if (await ExecuteAsync(npcId, action.Content))
+                    {
+                        actionsExecuted++;
+                    }
+                }
+                else if (action.Type == "emote")
+                {
+                    // Check if the "emote" is actually speech wrapped in asterisks
+                    if (canSpeak && LooksLikeSpeech(action.Content))
+                    {
+                        var speech = CleanSpeech(action.Content);
+                        if (!string.IsNullOrEmpty(speech))
+                        {
+                            await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
+                            actionsExecuted++;
+                        }
+                    }
+                    else if (canEmote)
+                    {
+                        var emoteText = CleanEmote(action.Content);
+                        if (!string.IsNullOrWhiteSpace(emoteText))
+                        {
+                            await ExecuteAsync(npcId, $"emote {emoteText}");
+                            actionsExecuted++;
+                        }
+                    }
+                }
+
+                currentPos = action.EndPosition;
+            }
+
+            // Check for any remaining speech after the last action
+            if (actionsExecuted < maxActions && currentPos < response.Length && canSpeak)
+            {
+                var remainingSpeech = response.Substring(currentPos);
+                // Remove any markup from the speech segment
+                remainingSpeech = CommandMarkupPattern.Replace(remainingSpeech, " ");
+                remainingSpeech = GoalMarkupPattern.Replace(remainingSpeech, " ");
+                remainingSpeech = PlanMarkupPattern.Replace(remainingSpeech, " ");
+                remainingSpeech = StepActionPattern.Replace(remainingSpeech, " ");
+                var speech = CleanSpeech(remainingSpeech.Trim());
                 if (!string.IsNullOrEmpty(speech))
                 {
                     await ExecuteAsync(npcId, $"say {TruncateSpeech(speech)}");
@@ -337,6 +415,9 @@ public sealed class NpcCommandExecutor
             ? llmNpc.Capabilities
             : NpcCapabilities.Humanoid;
 
+        // Clear failure reason before execution
+        _lastFailureReason = null;
+
         var result = cmd switch
         {
             // Communication
@@ -368,13 +449,134 @@ public sealed class NpcCommandExecutor
             // Items
             "use" or "drink" or "eat" => ExecuteUse(npcId, npcName, roomId, args, capabilities),
 
-            _ => false
+            // Any other command - try as a local room command (well, shop, etc.)
+            _ => await ExecuteLocalCommandAsync(npcId, npcName, roomId, cmd, args, capabilities)
         };
 
         // Log command execution
         _state.LlmDebugger?.LogCommand(npcId, command, result);
 
+        // Record result for feedback to NPC on next turn (include failure reason if any)
+        RecordCommandResult(npcId, cmd, args, result, _lastFailureReason);
+
         return result;
+    }
+
+    /// <summary>
+    /// Sets a failure reason for command feedback.
+    /// </summary>
+    private bool Fail(string reason)
+    {
+        _lastFailureReason = reason;
+        return false;
+    }
+
+    /// <summary>
+    /// Sets a failure reason and returns a failed Task for async methods.
+    /// </summary>
+    private Task<bool> FailAsync(string reason)
+    {
+        _lastFailureReason = reason;
+        return Task.FromResult(false);
+    }
+
+    /// <summary>
+    /// Records a command result in the NPC's state for feedback on the next LLM call.
+    /// </summary>
+    private void RecordCommandResult(string npcId, string cmd, string[] args, bool success, string? reason = null)
+    {
+        var stateStore = _state.Objects?.GetStateStore(npcId);
+        if (stateStore is null)
+            return;
+
+        // Build result description
+        var argStr = args.Length > 0 ? string.Join(" ", args) : "";
+        string resultStr;
+        if (success)
+        {
+            resultStr = $"[OK] {cmd} {argStr}".Trim();
+        }
+        else
+        {
+            resultStr = reason is not null
+                ? $"[FAILED] {cmd} {argStr} - {reason}".Trim()
+                : $"[FAILED] {cmd} {argStr}".Trim();
+        }
+
+        // Get existing results and add new one
+        var results = stateStore.Get<List<string>>(LastCommandResultsKey) ?? new List<string>();
+        results.Add(resultStr);
+
+        // Keep only last 3 results to avoid bloat
+        if (results.Count > 3)
+            results = results.Skip(results.Count - 3).ToList();
+
+        stateStore.Set(LastCommandResultsKey, results);
+    }
+
+    /// <summary>
+    /// Gets and clears the last command results for an NPC.
+    /// Called by BuildNpcContextAsync to include feedback in the next prompt.
+    /// </summary>
+    public static List<string> GetAndClearCommandResults(IStateStore? stateStore)
+    {
+        if (stateStore is null)
+            return new List<string>();
+
+        var results = stateStore.Get<List<string>>(LastCommandResultsKey) ?? new List<string>();
+        if (results.Count > 0)
+        {
+            // Clear after reading so each result is only shown once
+            stateStore.Remove(LastCommandResultsKey);
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// Peeks at the last command results without clearing them.
+    /// Used for building memory queries before full context retrieval.
+    /// </summary>
+    public static List<string> PeekCommandResults(IStateStore? stateStore)
+    {
+        if (stateStore is null)
+            return new List<string>();
+
+        return stateStore.Get<List<string>>(LastCommandResultsKey) ?? new List<string>();
+    }
+
+    /// <summary>
+    /// Counts the number of consecutive failures from the end of the results list.
+    /// Used for "blocked detection" - if too many failures, NPC should re-plan.
+    /// </summary>
+    public static int CountConsecutiveFailures(IReadOnlyList<string> results)
+    {
+        int count = 0;
+        // Count from end backwards
+        for (int i = results.Count - 1; i >= 0; i--)
+        {
+            if (results[i].StartsWith("[FAILED]", StringComparison.OrdinalIgnoreCase))
+                count++;
+            else
+                break; // Stop at first success
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Extracts a summary of failed commands for memory query context.
+    /// Returns something like "Failed: go north, get water"
+    /// </summary>
+    public static string? BuildFailureSummary(IReadOnlyList<string> results)
+    {
+        var failures = results
+            .Where(r => r.StartsWith("[FAILED]", StringComparison.OrdinalIgnoreCase))
+            .Select(r => r.Replace("[FAILED]", "").Trim())
+            .ToList();
+
+        if (failures.Count == 0)
+            return null;
+
+        return $"Failed actions: {string.Join("; ", failures)}";
     }
 
     private bool ExecuteSay(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
@@ -428,31 +630,69 @@ public sealed class NpcCommandExecutor
     private Task<bool> ExecuteGoAsync(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
     {
         if (!capabilities.HasFlag(NpcCapabilities.CanWander))
-            return Task.FromResult(false);
+        {
+            _state.LlmDebugger?.Log($"GO_FAIL: {npcId} - no CanWander capability");
+            return FailAsync("cannot move");
+        }
 
         if (args.Length == 0)
-            return Task.FromResult(false);
+        {
+            _state.LlmDebugger?.Log($"GO_FAIL: {npcId} - no direction specified");
+            return FailAsync("no direction specified");
+        }
 
         var direction = args[0].ToLowerInvariant();
 
         // Get current room
         var room = _state.Objects?.Get<IRoom>(roomId);
         if (room is null)
-            return Task.FromResult(false);
+        {
+            _state.LlmDebugger?.Log($"GO_FAIL: {npcId} - room '{roomId}' not found");
+            return FailAsync("room not found");
+        }
 
         // Find matching exit
         var exitKey = room.Exits.Keys.FirstOrDefault(k =>
             k.Equals(direction, StringComparison.OrdinalIgnoreCase));
 
         if (exitKey is null)
-            return Task.FromResult(false);
+        {
+            var availableExits = string.Join(", ", room.Exits.Keys);
+            _state.LlmDebugger?.Log($"GO_FAIL: {npcId} - no exit '{direction}' in room (available: {availableExits})");
+            return FailAsync($"no exit '{direction}' (valid: {availableExits})");
+        }
 
         var destinationId = room.Exits[exitKey];
 
-        // Check if destination room exists
+        // Load destination room if not already loaded
         var destRoom = _state.Objects?.Get<IRoom>(destinationId);
         if (destRoom is null)
-            return Task.FromResult(false);
+        {
+            // Try to load the room
+            destRoom = _state.Objects?.LoadAsync<IRoom>(destinationId, _state).GetAwaiter().GetResult();
+            if (destRoom is null)
+            {
+                _state.LlmDebugger?.Log($"GO_FAIL: {npcId} - destination '{destinationId}' failed to load");
+                return FailAsync("destination blocked");
+            }
+        }
+
+        // Process spawns for the destination room (NPCs activate rooms like players do)
+        // This is safe because ProcessSpawnsAsync checks for existing instances globally
+        _ = _state.ProcessSpawnsAsync(destRoom.Id, _clock);
+
+        // Process spawns for any linked rooms (e.g., shop storage)
+        if (destRoom is IHasLinkedRooms hasLinkedRooms)
+        {
+            foreach (var linkedRoomId in hasLinkedRooms.LinkedRooms)
+            {
+                var linkedRoom = _state.Objects?.LoadAsync<IRoom>(linkedRoomId, _state).GetAwaiter().GetResult();
+                if (linkedRoom is not null)
+                {
+                    _ = _state.ProcessSpawnsAsync(linkedRoom.Id, _clock);
+                }
+            }
+        }
 
         // Trigger departure event in current room
         _ = TriggerRoomEventAsync(new RoomEvent
@@ -491,21 +731,21 @@ public sealed class NpcCommandExecutor
     private bool ExecuteGet(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
     {
         if (!capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
-            return false;
+            return Fail("cannot manipulate items");
 
         if (args.Length == 0)
-            return false;
+            return Fail("no item specified");
 
         var itemName = string.Join(" ", args);
 
         // Find item in room
         var itemId = FindItemInContainer(itemName, roomId);
         if (itemId is null)
-            return false;
+            return Fail($"'{itemName}' not found in room");
 
         var item = _state.Objects?.Get<IItem>(itemId);
         if (item is null)
-            return false;
+            return Fail("not a valid item");
 
         // Move item to NPC inventory
         _state.Containers.Move(itemId, npcId);
@@ -529,21 +769,21 @@ public sealed class NpcCommandExecutor
     private bool ExecuteDrop(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
     {
         if (!capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
-            return false;
+            return Fail("cannot manipulate items");
 
         if (args.Length == 0)
-            return false;
+            return Fail("no item specified");
 
         var itemName = string.Join(" ", args);
 
         // Find item in NPC inventory
         var itemId = FindItemInContainer(itemName, npcId);
         if (itemId is null)
-            return false;
+            return Fail($"'{itemName}' not in inventory");
 
         var item = _state.Objects?.Get<IItem>(itemId);
         if (item is null)
-            return false;
+            return Fail("not a valid item");
 
         // Move item to room
         _state.Containers.Move(itemId, roomId);
@@ -567,10 +807,10 @@ public sealed class NpcCommandExecutor
     private bool ExecuteAttack(string npcId, string npcName, string roomId, string[] args, NpcCapabilities capabilities)
     {
         if (!capabilities.HasFlag(NpcCapabilities.CanAttack))
-            return false;
+            return Fail("cannot attack");
 
         if (args.Length == 0)
-            return false;
+            return Fail("no target specified");
 
         var targetName = string.Join(" ", args).ToLowerInvariant();
 
@@ -595,7 +835,7 @@ public sealed class NpcCommandExecutor
         }
 
         if (targetId is null)
-            return false;
+            return Fail($"'{targetName}' not found in room");
 
         // Start combat
         _state.Combat.StartCombat(npcId, targetId, _clock.Now);
@@ -1093,12 +1333,25 @@ public sealed class NpcCommandExecutor
             return;
         }
 
+        // Build goal params - include plan from template if available
+        System.Text.Json.JsonDocument goalParams;
+        var planTemplate = hasDefaultGoal.DefaultPlanTemplate;
+        if (!string.IsNullOrWhiteSpace(planTemplate))
+        {
+            var plan = GoalPlan.FromSteps(planTemplate);
+            goalParams = plan.ToParams();
+        }
+        else
+        {
+            goalParams = System.Text.Json.JsonDocument.Parse("{}");
+        }
+
         // Restore the default goal
         var goal = new NpcGoal(
             NpcId: npcId,
             GoalType: defaultGoalType,
             TargetPlayer: hasDefaultGoal.DefaultGoalTarget,
-            Params: System.Text.Json.JsonDocument.Parse("{}"),
+            Params: goalParams,
             Status: "active",
             Importance: hasDefaultGoal.DefaultGoalImportance,
             UpdatedAt: DateTimeOffset.UtcNow);
@@ -1110,8 +1363,9 @@ public sealed class NpcCommandExecutor
     /// <summary>
     /// Process plan markups in the LLM response.
     /// [plan:step1|step2|step3] sets a plan for the highest priority goal.
-    /// [step:done] completes the current step and advances to the next.
-    /// [step:skip] skips the current step without completing it.
+    /// [plan:goalType:step1|step2|step3] sets a plan for a specific goal type.
+    /// [step:done] completes the current step for the top goal.
+    /// [step:goalType:done] completes the current step for a specific goal type.
     /// </summary>
     private async Task ProcessPlanMarkupsAsync(string npcId, string response)
     {
@@ -1119,38 +1373,63 @@ public sealed class NpcCommandExecutor
         if (memorySystem is null)
             return;
 
-        // Get the highest priority active goal
+        // Get all active goals
         var goals = await memorySystem.Goals.GetAllAsync(npcId);
-        var topGoal = goals.FirstOrDefault(g =>
-            string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase));
+        var activeGoals = goals.Where(g =>
+            string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase)).ToList();
 
-        if (topGoal is null)
+        if (activeGoals.Count == 0)
             return;
 
-        // Check for plan set: [plan:step1|step2|step3]
+        var topGoal = activeGoals.FirstOrDefault();
+
+        // Check for plan set: [plan:step1|step2|step3] or [plan:goalType:step1|step2|step3]
         var planMatch = PlanMarkupPattern.Match(response);
         if (planMatch.Success)
         {
             var planContent = planMatch.Groups[1].Value.Trim();
             if (!string.IsNullOrWhiteSpace(planContent))
             {
-                var plan = GoalPlan.FromSteps(planContent);
-                if (plan.HasPlan)
+                // Parse optional goalType: "goalType:step1|step2|..." or just "step1|step2|..."
+                var (targetGoalType, stepsContent) = ParseTargetedMarkup(planContent, '|');
+
+                // Find the target goal
+                var targetGoal = targetGoalType is not null
+                    ? activeGoals.FirstOrDefault(g => string.Equals(g.GoalType, targetGoalType, StringComparison.OrdinalIgnoreCase))
+                    : topGoal;
+
+                if (targetGoal is not null && !string.IsNullOrWhiteSpace(stepsContent))
                 {
-                    var newParams = plan.ToParams(topGoal.Params);
-                    await memorySystem.Goals.UpdateParamsAsync(npcId, topGoal.GoalType, newParams);
-                    _state.LlmDebugger?.LogGoalChange(npcId, "plan_set", topGoal.GoalType,
-                        $"{plan.Steps.Count} steps");
+                    var plan = GoalPlan.FromSteps(stepsContent);
+                    if (plan.HasPlan)
+                    {
+                        var newParams = plan.ToParams(targetGoal.Params);
+                        await memorySystem.Goals.UpdateParamsAsync(npcId, targetGoal.GoalType, newParams);
+                        _state.LlmDebugger?.LogGoalChange(npcId, "plan_set", targetGoal.GoalType,
+                            $"{plan.Steps.Count} steps");
+                    }
                 }
             }
         }
 
-        // Check for step action: [step:done], [step:skip], [step:next]
+        // Check for step action: [step:done], [step:skip], [step:goalType:done], [step:goalType:skip]
         var stepMatch = StepActionPattern.Match(response);
         if (stepMatch.Success)
         {
-            var action = stepMatch.Groups[1].Value.ToLowerInvariant();
-            var plan = GoalPlan.FromParams(topGoal.Params);
+            var stepContent = stepMatch.Groups[1].Value.Trim().ToLowerInvariant();
+
+            // Parse optional goalType: "goalType:done" or just "done"
+            var (targetGoalType, action) = ParseTargetedStepAction(stepContent);
+
+            // Find the target goal
+            var targetGoal = targetGoalType is not null
+                ? activeGoals.FirstOrDefault(g => string.Equals(g.GoalType, targetGoalType, StringComparison.OrdinalIgnoreCase))
+                : topGoal;
+
+            if (targetGoal is null)
+                return;
+
+            var plan = GoalPlan.FromParams(targetGoal.Params);
 
             if (!plan.HasPlan)
                 return;
@@ -1175,23 +1454,74 @@ public sealed class NpcCommandExecutor
             }
 
             // Update the plan in the goal
-            var newParams = plan.ToParams(topGoal.Params);
-            await memorySystem.Goals.UpdateParamsAsync(npcId, topGoal.GoalType, newParams);
+            var newParams = plan.ToParams(targetGoal.Params);
+            await memorySystem.Goals.UpdateParamsAsync(npcId, targetGoal.GoalType, newParams);
 
             if (plan.IsComplete)
             {
-                _state.LlmDebugger?.LogGoalChange(npcId, "plan_complete", topGoal.GoalType);
+                _state.LlmDebugger?.LogGoalChange(npcId, "plan_complete", targetGoal.GoalType);
                 // Goal plan is complete - mark goal as done
-                await memorySystem.Goals.ClearAsync(npcId, topGoal.GoalType);
-                _state.LlmDebugger?.LogGoalChange(npcId, "cleared", topGoal.GoalType);
-                await RestoreDefaultGoalIfNeededAsync(npcId, topGoal.GoalType);
+                await memorySystem.Goals.ClearAsync(npcId, targetGoal.GoalType);
+                _state.LlmDebugger?.LogGoalChange(npcId, "cleared", targetGoal.GoalType);
+                await RestoreDefaultGoalIfNeededAsync(npcId, targetGoal.GoalType);
             }
             else
             {
-                _state.LlmDebugger?.LogGoalChange(npcId, actionTaken, topGoal.GoalType,
+                _state.LlmDebugger?.LogGoalChange(npcId, actionTaken, targetGoal.GoalType,
                     plan.CurrentStepText ?? "unknown");
             }
         }
+    }
+
+    /// <summary>
+    /// Parses targeted markup like "goalType:content" or just "content".
+    /// For plans: checks if first segment before ':' is a goalType (doesn't contain pipe separator).
+    /// </summary>
+    private static (string? GoalType, string Content) ParseTargetedMarkup(string content, char stepsDelimiter)
+    {
+        // Check if content contains a goalType prefix: "goalType:step1|step2|..."
+        // The goalType itself should NOT contain the steps delimiter (pipe)
+        var colonIndex = content.IndexOf(':');
+        if (colonIndex > 0)
+        {
+            var possibleGoalType = content.Substring(0, colonIndex);
+            // If the part before ':' contains the steps delimiter, it's not a goalType
+            if (!possibleGoalType.Contains(stepsDelimiter))
+            {
+                var stepsContent = content.Substring(colonIndex + 1);
+                return (possibleGoalType, stepsContent);
+            }
+        }
+
+        // No goalType prefix found, use content as-is
+        return (null, content);
+    }
+
+    /// <summary>
+    /// Parses targeted step action like "goalType:done" or just "done".
+    /// </summary>
+    private static (string? GoalType, string Action) ParseTargetedStepAction(string content)
+    {
+        var validActions = new HashSet<string> { "done", "complete", "skip", "next" };
+
+        // Check if content is a simple action
+        if (validActions.Contains(content))
+            return (null, content);
+
+        // Check for "goalType:action" format
+        var colonIndex = content.LastIndexOf(':');
+        if (colonIndex > 0)
+        {
+            var action = content.Substring(colonIndex + 1);
+            if (validActions.Contains(action))
+            {
+                var goalType = content.Substring(0, colonIndex);
+                return (goalType, action);
+            }
+        }
+
+        // Unknown format, return as action (will be filtered by switch)
+        return (null, content);
     }
 
     /// <summary>
@@ -1217,5 +1547,54 @@ public sealed class NpcCommandExecutor
             : verb + "s";
 
         return string.IsNullOrEmpty(rest) ? thirdPerson : $"{thirdPerson} {rest}";
+    }
+
+    /// <summary>
+    /// Execute a local room command (like "draw" for well).
+    /// </summary>
+    private async Task<bool> ExecuteLocalCommandAsync(string npcId, string npcName, string roomId, string cmd, string[] args, NpcCapabilities capabilities)
+    {
+        if (!capabilities.HasFlag(NpcCapabilities.CanManipulateItems))
+            return Fail("cannot manipulate items");
+
+        // Get the room
+        var room = _state.Objects?.Get<IRoom>(roomId);
+        if (room is null)
+            return Fail("not in a room");
+
+        // Check if room has local commands
+        if (room is not IHasCommands roomWithCommands)
+            return Fail($"'{cmd}' not available here");
+
+        // Find the matching command
+        var localCmd = roomWithCommands.LocalCommands
+            .FirstOrDefault(c => c.Name.Equals(cmd, StringComparison.OrdinalIgnoreCase) ||
+                                  c.Aliases.Any(a => a.Equals(cmd, StringComparison.OrdinalIgnoreCase)));
+
+        if (localCmd is null)
+            return Fail($"'{cmd}' not available here");
+
+        // Create context and execute
+        try
+        {
+            var ctx = new MudContext(_state, _clock, _state.LlmService)
+            {
+                State = _state.Objects!.GetStateStore(roomId) ?? new DictionaryStateStore(),
+                CurrentObjectId = roomId,
+                RoomId = roomId
+            };
+
+            await roomWithCommands.HandleLocalCommandAsync(localCmd.Name, args, npcId, ctx);
+
+            // Record the action
+            _state.EventLog.Record(roomId, $"{npcName} uses the {localCmd.Name}.");
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _state.LlmDebugger?.Log($"LOCAL_CMD_FAIL: {npcId} - {cmd}: {ex.Message}");
+            return Fail($"'{cmd}' failed");
+        }
     }
 }

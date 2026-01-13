@@ -2,7 +2,7 @@
 
 This document details how to evolve JitRealm from its current state into a more complete lpMUD-like system while preserving its unique C#/hot-reload advantages.
 
-**Current Version: v0.20**
+**Current Version: v0.24**
 
 ## Design Philosophy
 

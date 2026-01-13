@@ -110,3 +110,107 @@ public interface IWeatherDaemon : IDaemon
     /// </summary>
     string WeatherDescription { get; }
 }
+
+/// <summary>
+/// Interface for path-finding daemons.
+/// Provides navigation assistance for NPCs to reach destination rooms.
+/// </summary>
+public interface IPathingDaemon : IDaemon
+{
+    /// <summary>
+    /// Maximum search depth for pathfinding (to prevent runaway searches).
+    /// </summary>
+    int MaxSearchDepth { get; }
+
+    /// <summary>
+    /// Find a path from one room to another.
+    /// </summary>
+    /// <param name="fromRoomId">The starting room ID (blueprint or instance).</param>
+    /// <param name="toRoomId">The destination room ID (blueprint or instance).</param>
+    /// <returns>A PathResult containing the route, or an empty result if no path found.</returns>
+    PathResult FindPath(string fromRoomId, string toRoomId);
+
+    /// <summary>
+    /// Get the next direction to move toward a destination.
+    /// This is the primary API for NPC navigation.
+    /// </summary>
+    /// <param name="fromRoomId">The current room ID.</param>
+    /// <param name="toRoomId">The destination room ID.</param>
+    /// <returns>The direction to move, or null if already there or no path exists.</returns>
+    string? GetNextDirection(string fromRoomId, string toRoomId);
+
+    /// <summary>
+    /// Check if a path exists between two rooms.
+    /// </summary>
+    /// <param name="fromRoomId">The starting room ID.</param>
+    /// <param name="toRoomId">The destination room ID.</param>
+    /// <returns>True if a path exists within MaxSearchDepth.</returns>
+    bool HasPath(string fromRoomId, string toRoomId);
+
+    /// <summary>
+    /// Clear the path cache (e.g., after room layout changes).
+    /// </summary>
+    void ClearCache();
+}
+
+/// <summary>
+/// Result of a pathfinding operation.
+/// </summary>
+public readonly struct PathResult
+{
+    /// <summary>
+    /// Whether a path was found.
+    /// </summary>
+    public bool Found { get; init; }
+
+    /// <summary>
+    /// The list of directions to travel (e.g., ["north", "east", "up"]).
+    /// Empty if no path found or already at destination.
+    /// </summary>
+    public IReadOnlyList<string> Directions { get; init; }
+
+    /// <summary>
+    /// The distance (number of rooms) to the destination.
+    /// -1 if no path found.
+    /// </summary>
+    public int Distance { get; init; }
+
+    /// <summary>
+    /// Whether the search was truncated due to MaxSearchDepth.
+    /// If true, a path might exist but wasn't found within the limit.
+    /// </summary>
+    public bool Truncated { get; init; }
+
+    /// <summary>
+    /// Creates a successful path result.
+    /// </summary>
+    public static PathResult Success(IReadOnlyList<string> directions) => new()
+    {
+        Found = true,
+        Directions = directions,
+        Distance = directions.Count,
+        Truncated = false
+    };
+
+    /// <summary>
+    /// Creates a "no path found" result.
+    /// </summary>
+    public static PathResult NotFound(bool truncated = false) => new()
+    {
+        Found = false,
+        Directions = Array.Empty<string>(),
+        Distance = -1,
+        Truncated = truncated
+    };
+
+    /// <summary>
+    /// Creates an "already at destination" result.
+    /// </summary>
+    public static PathResult AlreadyThere => new()
+    {
+        Found = true,
+        Directions = Array.Empty<string>(),
+        Distance = 0,
+        Truncated = false
+    };
+}

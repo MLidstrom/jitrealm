@@ -25,12 +25,14 @@ public static class StackHelper
     /// Add stackable items to a container, merging with existing piles of same StackKey.
     /// Returns the stack instance ID.
     /// </summary>
+    /// <param name="initialState">Optional state values to set on newly created stacks (e.g., coin material).</param>
     public static async Task<string?> AddStackAsync(
         WorldState state,
         string containerId,
         string blueprintId,
         string stackKey,
-        int amount)
+        int amount,
+        Dictionary<string, object>? initialState = null)
     {
         if (amount <= 0 || state.Objects is null)
             return null;
@@ -49,6 +51,16 @@ public static class StackHelper
             // Create new stack instance
             var newItem = await state.Objects.CloneAsync<IStackable>(blueprintId, state);
             var newItemState = state.Objects.GetStateStore(newItem.Id);
+
+            // Apply initial state values (e.g., material for coins)
+            if (initialState != null)
+            {
+                foreach (var (key, value) in initialState)
+                {
+                    newItemState?.Set(key, value);
+                }
+            }
+
             newItemState?.Set("amount", amount);
             state.Containers.Add(containerId, newItem.Id);
             return newItem.Id;
@@ -104,8 +116,15 @@ public static class StackHelper
             // Get blueprint from source item
             var blueprintId = GetBlueprintId(sourceItemId);
 
+            // For coins, preserve the material in the new stack
+            Dictionary<string, object>? initialState = null;
+            if (sourceStack is ICoin coin)
+            {
+                initialState = new Dictionary<string, object> { ["material"] = coin.Material.ToString() };
+            }
+
             // Add to destination (will merge with existing if present)
-            await AddStackToContainerAsync(state, toId, sourceStack.StackKey, blueprintId, amount);
+            await AddStackToContainerAsync(state, toId, sourceStack.StackKey, blueprintId, amount, initialState);
         }
 
         return true;
@@ -116,12 +135,14 @@ public static class StackHelper
     /// For stackable items, merges with existing stacks.
     /// For non-stackable items, just adds to container.
     /// </summary>
+    /// <param name="initialState">Optional state values to set on newly created stacks (e.g., coin material).</param>
     public static async Task AddStackToContainerAsync(
         WorldState state,
         string containerId,
         string stackKey,
         string blueprintId,
-        int amount)
+        int amount,
+        Dictionary<string, object>? initialState = null)
     {
         var existingId = FindStack(state, containerId, stackKey);
         if (existingId != null)
@@ -136,6 +157,16 @@ public static class StackHelper
             // Create new stack
             var newItem = await state.Objects!.CloneAsync<IStackable>(blueprintId, state);
             var newItemState = state.Objects.GetStateStore(newItem.Id);
+
+            // Apply initial state values (e.g., material for coins)
+            if (initialState != null)
+            {
+                foreach (var (key, value) in initialState)
+                {
+                    newItemState?.Set(key, value);
+                }
+            }
+
             newItemState?.Set("amount", amount);
             state.Containers.Add(containerId, newItem.Id);
         }

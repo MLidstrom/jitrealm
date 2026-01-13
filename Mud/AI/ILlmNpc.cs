@@ -43,10 +43,10 @@ public enum NpcCapabilities
     /// <summary>Intelligent humanoid: full capabilities.</summary>
     Humanoid = CanSpeak | CanEmote | CanAttack | CanFlee | CanManipulateItems | CanTrade | CanFollow | CanWander | CanUseDoors,
 
-    /// <summary>Beast/monster: attack, emote, flee.</summary>
+    /// <summary>Beast/monster: emote, attack, flee.</summary>
     Beast = CanEmote | CanAttack | CanFlee,
 
-    /// <summary>Merchant NPC: speak, trade, no combat.</summary>
+    /// <summary>Merchant NPC: speak, emote, trade, no combat.</summary>
     Merchant = CanSpeak | CanEmote | CanManipulateItems | CanTrade,
 }
 

@@ -125,6 +125,7 @@
   - `HeartbeatInterval` property — configurable tick rate (default 1 second)
   - Smart direction selection — 80% chance to avoid returning the way they came
   - Wandering skipped if NPC has pending LLM event (reacts first)
+  - NPCs activate room spawns when entering (same as players)
 - `NPCBase` standard library class — friendly NPCs ✅
   - High HP, fast regen, greetings via GetGreeting() ✅
   - NPCs don't die (full heal on damage) ✅
@@ -379,12 +380,14 @@
   - `post_office.cs` — Millbrook Post Office
   - `blacksmith.cs` — Millbrook Smithy with buy/sell weapons/armor
   - `blacksmith_storage.cs` — Hidden stockroom for smithy inventory
+  - `farmhouse.cs` — Tom Greenfield's farmhouse (west of meadow)
   - `start.cs` — Renamed to "A Worn Path", connects to village square
 
 - **New NPCs** ✅
   - `innkeeper.cs` — Bertram Stoutbarrel, jovial tavern owner
   - `postmaster.cs` — Cornelius Inksworth, fussy bureaucrat
   - `blacksmith.cs` — Greta Ironhand, gruff craftsman
+  - `villager_tom.cs` — Tom Greenfield, local farmer with key location wandering
 
 - **New Items** ✅
   - Consumables: `ale_mug.cs` (5 HP), `bread_loaf.cs` (8 HP), `meat_pie.cs` (15 HP)
@@ -393,10 +396,10 @@
 
 - **Village Map** ✅
   ```
-                        [Meadow]
-                           |
-                        [Start]
-                           |
+              [Farmhouse] ←── [Meadow]
+                                 |
+                              [Start]
+                                 |
   [Post Office] ←── [Village Square] ──→ [General Store]
                         /     \
                [Blacksmith]  [Tavern]
@@ -409,3 +412,71 @@
   - Aliases: `locate`, `find`
   - Searches by instance ID, name, or alias
   - Shows object name, full ID, and container location
+
+- **Goto NPC Teleportation** ✅
+  - `goto <npc-name>` — teleport to an NPC's location by name or alias
+  - Prioritizes exact matches over partial matches
+  - Helpful error messages when NPC not spawned yet
+  - Works with any living entity (NPCs, players, monsters)
+
+## NPC Goal Fulfillment & Autonomy ✅
+
+- **Feedback Loop (Phase 1)** ✅
+  - Command results injected into LLM prompt (`_npc_last_cmd_results`)
+  - NPCs stop repeating invalid commands (e.g., "go north" where no exit exists)
+  - Blocked detection: 2+ consecutive failures force re-planning
+  - `PeekCommandResults()`, `CountConsecutiveFailures()`, `BuildFailureSummary()` in NpcCommandExecutor
+
+- **Plan Targeting (Phase 2)** ✅
+  - Targeted plan markup: `[plan:goalType:step1|step2|...]`
+  - Targeted step actions: `[step:goalType:done]`, `[step:goalType:skip]`
+  - NPCs can manage multiple concurrent goals correctly
+  - Default plan templates via `IHasDefaultGoal.DefaultPlanTemplate`
+  - Plan templates for: Shopkeeper, VillagerTom, Blacksmith, Innkeeper, Postmaster
+
+- **Goal Evaluators (Phase 3)** ✅
+  - `IGoalEvaluator` interface for deterministic step completion
+  - `GoalEvaluatorRegistry` — registry of evaluators checked in order
+  - `ReachRoomEvaluator` — auto-completes "go to", "visit", "reach" steps
+  - `AcquireItemEvaluator` — auto-completes "get", "pick up", "acquire" steps
+  - Steps auto-advance without LLM when conditions met
+  - IMudContext: `EvaluateGoalStep()`, `AdvanceGoalStepAsync()`, `SkipGoalStepAsync()`
+
+- **Needs-to-Goals Derivation (Phase 4)** ✅
+  - `IHasNeedGoalMapping` interface for custom need→goal mapping
+  - `GetGoalForNeed()` — map need type to goal type
+  - `GetPlanTemplateForGoal()` — suggest plan for derived goals
+  - Convention: need type becomes goal type (e.g., "hunt" → "hunt")
+  - NPCs never sit idle — derive goals from top active need when none exist
+
+- **Pathing Daemon (Phase 5)** ✅
+  - `IPathingDaemon` interface — pathfinding API
+  - `PATHING_D` daemon — BFS-based room navigation
+  - `PathResult` struct — Found, Directions, Distance, Truncated
+  - `FindPath()` — compute path between rooms
+  - `GetNextDirection()` — get next direction toward destination
+  - `HasPath()` — check if path exists
+  - `ReachRoomEvaluator` integration — suggests `[cmd:go <dir>]` via pathing
+  - LRU path cache (max 1000 entries), configurable max depth (default 20)
+  - Room ID normalization (strips instance numbers for blueprint matching)
+
+- **Key Location Wandering (Phase 6)** ✅
+  - `IHasKeyLocations` interface for meaningful NPC patrol routes
+  - `DefaultKeyLocations` — list of room names to patrol (fuzzy-matched)
+  - `GetLocationsForGoal()` — goal-specific location overrides
+  - `DwellDuration` — how long to stay at each location (default: 5-10 min)
+  - `RandomizeOrder` — visit locations randomly or in sequence
+  - Integration with PATHING_D for navigation
+  - NPCs dwell at locations before moving on
+  - Falls back to random wandering if no path found
+  - Example: VillagerTom patrols farmhouse → meadow → village square → tavern
+
+## Stack Operations & Coin System ✅
+
+- **Partial Stack Operations** ✅
+  - `drop 5 gold coins` — drop only 5 from a larger stack
+  - `ParseQuantityAndName()` in DropCommand extracts quantity prefix
+  - Partial drops reduce source stack, create new stack in room
+  - Material preserved for coins via `initialState` parameter in StackHelper
+  - `AddStackToContainerAsync()` accepts optional `initialState` dictionary
+  - Same fix applied to GetCommand, GiveCommand, TransferStackAsync

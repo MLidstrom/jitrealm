@@ -436,6 +436,12 @@ File-based debug logging for real-time monitoring of LLM operations.
   - Wizard command: `goal <npc> plan <type> <steps>`
   - Plans shown in LLM context with current step
   - Auto-completion when all steps done
+- Stage 2d: Goal fulfillment and autonomy upgrade. ✅ (See [NPC_GOAL_FULFILLMENT_AND_AUTONOMY.plan.md](NPC_GOAL_FULFILLMENT_AND_AUTONOMY.plan.md))
+  - Feedback loop: command results injected into prompts, blocked detection
+  - Plan targeting: `[plan:goalType:...]`, `[step:goalType:...]` for multi-goal NPCs
+  - Goal evaluators: deterministic step completion without LLM
+  - Need-to-goal derivation: `IHasNeedGoalMapping` interface
+  - Pathing daemon: PATHING_D with BFS navigation for room-reaching goals
 - Stage 3: Add memory summarization and more advanced planning.
 - Stage 4: GraphRAG — combine vector search with knowledge graphs for relationship-aware retrieval.
 

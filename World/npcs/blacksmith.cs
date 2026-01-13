@@ -1,25 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using JitRealm.Mud;
-using JitRealm.Mud.AI;
 
 /// <summary>
 /// Greta Ironhand - a powerfully built master blacksmith.
 /// Gruff, no-nonsense, takes immense pride in her craft.
 /// </summary>
-public sealed class BlacksmithNpc : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
+public sealed class BlacksmithNpc : NPCBase
 {
-    // Default goal: work at the forge
-    public string? DefaultGoalType => "forge_items";
-
-    // Default needs: blacksmiths need to work the forge and maintain quality
-    public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
-    {
-        ("work_forge", NeedLevel.Primary),
-        ("craft_quality", NeedLevel.Secondary)
-    };
-
     public override string Name => "blacksmith";
     protected override string GetDefaultDescription() =>
         "A powerfully built woman in her forties with arms like tree trunks and hands " +
@@ -36,35 +24,6 @@ public sealed class BlacksmithNpc : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefau
 
     public override TimeSpan HeartbeatInterval => TimeSpan.FromSeconds(4);
 
-    // ILlmNpc implementation
-    public NpcCapabilities Capabilities => NpcCapabilities.Merchant;
-    public string SystemPrompt => BuildSystemPrompt();
-
-    // Prompt builder properties
-    protected override string NpcIdentity => "Greta Ironhand, blacksmith of Millbrook";
-
-    protected override string NpcNature =>
-        "A powerfully built woman with muscular arms, calloused hands, short grey hair singed at the tips, " +
-        "and soot-darkened skin. Has been forging for 30 years.";
-
-    protected override string NpcCommunicationStyle =>
-        "ALWAYS speaks in short, direct sentences. Doesn't waste words. " +
-        "Answers questions directly with speech. May add a brief emote after speaking.";
-
-    protected override string NpcPersonality =>
-        "No-nonsense and practical. Takes immense pride in her craft. Judges people by the quality " +
-        "of their equipment. Respects hard work. Secretly competitive about making better weapons " +
-        "than city smiths. Stamps all her work with 'G.I.' maker's mark.";
-
-    protected override string NpcExamples =>
-        "\"I'm Greta. Ironhand they call me.\" or " +
-        "\"Working on a sword. Good steel.\" or " +
-        "\"Decent edge. Could be sharper.\"";
-
-    protected override string NpcExtraRules =>
-        "Be gruff but fair. Talk about craftsmanship. Give blunt opinions on weapons/armor quality. " +
-        "Keep responses short and direct. Don't waste words.";
-
     public override void OnLoad(IMudContext ctx)
     {
         base.OnLoad(ctx);
@@ -74,54 +33,12 @@ public sealed class BlacksmithNpc : NPCBase, ILlmNpc, IHasDefaultGoal, IHasDefau
     public override string? GetGreeting(IPlayer player) =>
         "*looks up from the anvil* Need something forged? Or buying?";
 
-    // ILlmNpc: Queue events for base class processing
-    public Task OnRoomEventAsync(RoomEvent @event, IMudContext ctx) => QueueLlmEvent(@event, ctx);
-
-    protected override string GetLlmReactionInstructions(RoomEvent @event)
-    {
-        if (@event.Type == RoomEventType.Speech)
-        {
-            var msg = @event.Message?.ToLowerInvariant() ?? "";
-            if (msg.Contains("sword") || msg.Contains("weapon") || msg.Contains("blade") ||
-                msg.Contains("buy") || msg.Contains("armor") || msg.Contains("shield"))
-            {
-                return "IMPORTANT: Customer asking about weapons/armor. You MUST reply with SPEECH in quotes. " +
-                       "Be direct, mention quality and fair prices. Maybe comment on what they're carrying.";
-            }
-            if (msg.Contains("forge") || msg.Contains("make") || msg.Contains("craft") ||
-                msg.Contains("repair"))
-            {
-                return "IMPORTANT: Customer asking about smithing. You MUST reply with SPEECH in quotes. " +
-                       "Talk about your craft with pride. Be brief but informative.";
-            }
-
-            // Detect questions and give explicit answer instructions
-            var isQuestion = msg.Contains("?") || msg.Contains("who") || msg.Contains("what") ||
-                            msg.Contains("where") || msg.Contains("why") || msg.Contains("how") ||
-                            msg.Contains("your name") || msg.Contains("are you") || msg.Contains("working");
-
-            if (isQuestion)
-            {
-                return $"SPEECH REQUIRED. Say something in quotes like \"text here\". " +
-                       $"Question: \"{@event.Message}\" " +
-                       "Answer: \"I am Greta Ironhand\" or \"Working on a blade\" etc. " +
-                       "DO NOT just emote. You MUST speak.";
-            }
-
-            // For statements, respond conversationally
-            return $"SPEECH REQUIRED. Say something in quotes like \"text here\". " +
-                   $"They said: \"{@event.Message}\" - Reply with speech. DO NOT just emote.";
-        }
-        return base.GetLlmReactionInstructions(@event);
-    }
-
     public override void Heartbeat(IMudContext ctx)
     {
-        bool hadPendingEvent = HasPendingLlmEvent;
         base.Heartbeat(ctx);
 
-        // Idle actions (only if no LLM event was processed)
-        if (!hadPendingEvent && Random.Shared.NextDouble() < 0.05)
+        // Idle actions
+        if (Random.Shared.NextDouble() < 0.05)
         {
             var actions = new[]
             {

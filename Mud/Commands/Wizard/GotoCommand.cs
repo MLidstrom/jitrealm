@@ -5,14 +5,15 @@ namespace JitRealm.Mud.Commands.Wizard;
 /// <summary>
 /// Wizard command to teleport to locations.
 /// Supports "goto home" to teleport to the wizard's home room,
+/// "goto {npc-name}" to teleport to an NPC's location,
 /// or "goto {room-id}" to teleport to any room.
 /// </summary>
 public class GotoCommand : WizardCommandBase
 {
     public override string Name => "goto";
     public override IReadOnlyList<string> Aliases => new[] { "go", "teleport", "tp" };
-    public override string Usage => "goto <home|room-id>";
-    public override string Description => "Teleport to a location (home or room ID)";
+    public override string Usage => "goto <home|npc-name|room-id>";
+    public override string Description => "Teleport to a location (home, NPC, or room ID)";
 
     public override async Task ExecuteAsync(CommandContext context, string[] args)
     {
@@ -37,6 +38,35 @@ public class GotoCommand : WizardCommandBase
         }
         else
         {
+            // First, try to find a living (NPC/player) by name or alias
+            var search = string.Join(" ", args).ToLowerInvariant();
+            var foundLiving = FindLivingByNameOrAlias(context, search);
+
+            if (foundLiving is not null)
+            {
+                // Get the living's container (room)
+                var livingRoomId = context.State.Containers.GetContainer(foundLiving.Value.instanceId);
+                if (livingRoomId is null)
+                {
+                    context.Output($"{foundLiving.Value.name} is not in any room.");
+                    return;
+                }
+
+                // Get the room object
+                var livingRoom = context.State.Objects!.Get<IRoom>(livingRoomId);
+                if (livingRoom is null)
+                {
+                    context.Output($"Cannot find room for {foundLiving.Value.name}.");
+                    return;
+                }
+
+                // Teleport to that room
+                await TeleportToRoom(context, livingRoom);
+                context.Output($"You teleport to {foundLiving.Value.name}'s location.");
+                ShowRoom(context, livingRoom);
+                return;
+            }
+
             // Use the provided room ID directly
             roomBlueprintId = string.Join(" ", args);
 
@@ -48,23 +78,89 @@ public class GotoCommand : WizardCommandBase
         }
 
         // Try to load the destination room
-        IRoom destRoom;
+        IRoom? destRoom = null;
         try
         {
             destRoom = await context.State.Objects!.LoadAsync<IRoom>(roomBlueprintId, context.State);
         }
-        catch (Exception ex)
+        catch
         {
-            context.Output($"Cannot load room '{roomBlueprintId}': {ex.Message}");
-            return;
+            // Room load failed - will handle below
         }
 
         if (destRoom is null)
         {
-            context.Output($"Room not found: {roomBlueprintId}");
+            // Check if this might be an NPC name that isn't spawned yet
+            var search = string.Join(" ", args).ToLowerInvariant();
+            if (!search.Contains("/") && !search.Contains("room"))
+            {
+                context.Output($"No NPC '{search}' found (may not be spawned yet) and no room '{roomBlueprintId}' exists.");
+                context.Output("Hint: Visit the room where the NPC spawns first, or use 'where' to find loaded NPCs.");
+            }
+            else
+            {
+                context.Output($"Room not found: {roomBlueprintId}");
+            }
             return;
         }
 
+        await TeleportToRoom(context, destRoom);
+        context.Output($"You teleport to {destRoom.Name}.");
+        ShowRoom(context, destRoom);
+    }
+
+    /// <summary>
+    /// Find a living (NPC/player) by name or alias.
+    /// Prioritizes exact matches over partial matches.
+    /// </summary>
+    private static (string instanceId, string name)? FindLivingByNameOrAlias(CommandContext context, string search)
+    {
+        // First pass: exact matches
+        foreach (var instanceId in context.State.Objects!.ListInstanceIds())
+        {
+            var obj = context.State.Objects.Get<IMudObject>(instanceId);
+            if (obj is not ILiving living) continue;
+
+            // Exact name match
+            if (obj.Name?.Equals(search, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return (instanceId, obj.Name);
+            }
+
+            // Exact alias match
+            if (living.Aliases.Any(a => a.Equals(search, StringComparison.OrdinalIgnoreCase)))
+            {
+                return (instanceId, obj.Name ?? instanceId);
+            }
+        }
+
+        // Second pass: partial matches
+        foreach (var instanceId in context.State.Objects!.ListInstanceIds())
+        {
+            var obj = context.State.Objects.Get<IMudObject>(instanceId);
+            if (obj is not ILiving living) continue;
+
+            // Match by name containing search
+            if (obj.Name?.ToLowerInvariant().Contains(search) == true)
+            {
+                return (instanceId, obj.Name);
+            }
+
+            // Match by alias containing search
+            if (living.Aliases.Any(a => a.ToLowerInvariant().Contains(search)))
+            {
+                return (instanceId, obj.Name ?? instanceId);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Perform the actual teleportation to a room.
+    /// </summary>
+    private static async Task TeleportToRoom(CommandContext context, IRoom destRoom)
+    {
         var playerId = context.PlayerId;
         var currentRoomId = context.GetPlayerLocation();
 
@@ -107,10 +203,6 @@ public class GotoCommand : WizardCommandBase
 
         // Notify others in destination room
         BroadcastToRoom(context, destRoom.Id, $"{context.Session.PlayerName} appears in a puff of smoke.");
-
-        // Show the new room
-        context.Output($"You teleport to {destRoom.Name}.");
-        ShowRoom(context, destRoom);
     }
 
     private static void BroadcastToRoom(CommandContext context, string roomId, string message)

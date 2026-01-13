@@ -228,6 +228,37 @@ public interface IMudContext
     /// <returns>List of goals ordered by importance.</returns>
     Task<IReadOnlyList<NpcGoal>> GetAllGoalsAsync();
 
+    /// <summary>
+    /// Evaluate a goal step using deterministic evaluators.
+    /// Returns null if no evaluator applies, or the evaluation result.
+    /// </summary>
+    /// <param name="goal">The goal being pursued.</param>
+    /// <param name="stepText">The current step text.</param>
+    /// <returns>Evaluation result, or null if no evaluator applies.</returns>
+    StepEvaluation? EvaluateGoalStep(NpcGoal goal, string stepText);
+
+    /// <summary>
+    /// Advance the current step of a goal (equivalent to [step:done]).
+    /// </summary>
+    /// <param name="goalType">The goal type.</param>
+    /// <returns>True if step was advanced, false if no plan or already complete.</returns>
+    Task<bool> AdvanceGoalStepAsync(string goalType);
+
+    /// <summary>
+    /// Skip the current step of a goal (equivalent to [step:skip]).
+    /// </summary>
+    /// <param name="goalType">The goal type.</param>
+    /// <returns>True if step was skipped, false if no plan or already complete.</returns>
+    Task<bool> SkipGoalStepAsync(string goalType);
+
+    /// <summary>
+    /// Set a plan on an existing goal using pipe-separated steps.
+    /// </summary>
+    /// <param name="goalType">The goal type to set the plan on.</param>
+    /// <param name="planSteps">Pipe-separated plan steps (e.g., "step1|step2|step3").</param>
+    /// <returns>True if plan was set, false if goal doesn't exist.</returns>
+    Task<bool> SetGoalPlanAsync(string goalType, string planSteps);
+
     // Need/drive methods (for NPC needs)
 
     /// <summary>
@@ -244,4 +275,10 @@ public interface IMudContext
     /// Get all needs for the current NPC, ordered by level (lowest first).
     /// </summary>
     Task<IReadOnlyList<NpcNeed>> GetAllNeedsAsync();
+
+    /// <summary>
+    /// Log a debug message to the LLM debug log (if enabled).
+    /// Use for debugging NPC behavior, wandering, etc.
+    /// </summary>
+    void LogDebug(string message);
 }

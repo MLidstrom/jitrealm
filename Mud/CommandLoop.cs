@@ -112,24 +112,91 @@ public sealed class CommandLoop
         // Display MOTD if exists
         DisplayMotd();
 
-        while (true)
+        // Start background game loop for autonomous NPC processing
+        using var cts = new CancellationTokenSource();
+        var gameLoopTask = RunGameLoopAsync(cts.Token);
+
+        try
         {
-            // Process any due heartbeats
-            ProcessHeartbeats();
+            await RunInputLoopAsync(cts);
+        }
+        finally
+        {
+            // Signal the game loop to stop
+            await cts.CancelAsync();
+            try
+            {
+                await gameLoopTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on shutdown
+            }
+        }
+    }
 
-            // Process any due callouts
-            ProcessCallOuts();
+    /// <summary>
+    /// Background game loop that processes heartbeats, callouts, and combat continuously.
+    /// This allows NPCs to be autonomous even when waiting for player input.
+    /// </summary>
+    private async Task RunGameLoopAsync(CancellationToken cancellationToken)
+    {
+        var loopDelay = _settings.GameLoop.LoopDelayMs;
 
-            // Process any combat rounds
-            ProcessCombat();
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                // Process any due heartbeats
+                ProcessHeartbeats();
 
-            // Display any pending messages
-            DisplayMessages();
+                // Process any due callouts
+                ProcessCallOuts();
 
+                // Process any combat rounds
+                ProcessCombat();
+
+                // Display any pending messages
+                DisplayMessages();
+
+                // Wait before next tick (same interval as server mode)
+                await Task.Delay(loopDelay, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // Log but don't crash the game loop
+                Console.WriteLine($"[GameLoop] Error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Input loop that reads commands asynchronously without blocking the game loop.
+    /// </summary>
+    private async Task RunInputLoopAsync(CancellationTokenSource cts)
+    {
+        while (!cts.Token.IsCancellationRequested)
+        {
             Console.Write("> ");
             _waitingForInput = true;
-            var input = Console.ReadLine();
+
+            string? input;
+            try
+            {
+                // Read input asynchronously - this doesn't block the game loop task
+                input = await Task.Run(() => Console.ReadLine(), cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
             _waitingForInput = false;
+
             if (input is null)
             {
                 // When stdin is closed/redirected (e.g. background run), ReadLine() can return null immediately,
@@ -138,6 +205,7 @@ public sealed class CommandLoop
                 Console.WriteLine("Input closed. Exiting.");
                 return;
             }
+
             if (string.IsNullOrWhiteSpace(input))
                 continue;
 

@@ -258,7 +258,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// How often (seconds) this NPC may take an autonomous goal step when idle.
     /// Keep this relatively slow for scalability.
     /// </summary>
-    protected virtual double GoalThinkIntervalSeconds => 20.0;
+    protected virtual double GoalThinkIntervalSeconds => 10.0;
 
     /// <summary>
     /// The direction this living last came from.
@@ -311,6 +311,232 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     {
         return OppositeDirections.TryGetValue(direction, out var opposite) ? opposite : null;
     }
+
+    #region Key Location Wandering
+
+    /// <summary>
+    /// Current destination room name for key location wandering.
+    /// </summary>
+    protected string? WanderDestination => Ctx?.State.Get<string>("_wander_destination");
+
+    /// <summary>
+    /// Unix timestamp when the NPC should leave the current location.
+    /// </summary>
+    protected long WanderDwellUntil => Ctx?.State.Get<long>("_wander_dwell_until") ?? 0;
+
+    /// <summary>
+    /// Set the current wander destination.
+    /// </summary>
+    protected void SetWanderDestination(string? destination, IMudContext ctx)
+    {
+        if (destination is not null)
+            ctx.State.Set("_wander_destination", destination);
+        else if (ctx.State.Has("_wander_destination"))
+            ctx.State.Remove("_wander_destination");
+    }
+
+    /// <summary>
+    /// Set when the NPC should leave the current location.
+    /// </summary>
+    protected void SetWanderDwellUntil(long unixTimestamp, IMudContext ctx)
+    {
+        if (unixTimestamp > 0)
+            ctx.State.Set("_wander_dwell_until", unixTimestamp);
+        else if (ctx.State.Has("_wander_dwell_until"))
+            ctx.State.Remove("_wander_dwell_until");
+    }
+
+    /// <summary>
+    /// Check if the NPC is currently at a key location (fuzzy match on room name).
+    /// </summary>
+    protected bool IsAtKeyLocation(IReadOnlyList<string> keyLocations, IRoom currentRoom)
+    {
+        var roomName = currentRoom.Name?.ToLowerInvariant() ?? "";
+
+        foreach (var loc in keyLocations)
+        {
+            var locLower = loc.ToLowerInvariant();
+            if (roomName.Contains(locLower) || locLower.Contains(roomName))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Pick the next key location to visit.
+    /// </summary>
+    protected string? PickNextKeyLocation(IReadOnlyList<string> keyLocations, IRoom currentRoom, bool randomize)
+    {
+        if (keyLocations.Count == 0)
+            return null;
+
+        // Filter out current location
+        var roomName = currentRoom.Name?.ToLowerInvariant() ?? "";
+        var available = keyLocations
+            .Where(loc => !roomName.Contains(loc.ToLowerInvariant()) &&
+                         !loc.ToLowerInvariant().Contains(roomName))
+            .ToList();
+
+        if (available.Count == 0)
+        {
+            // All locations match current room, just pick any
+            available = keyLocations.ToList();
+        }
+
+        if (randomize)
+        {
+            return available[Random.Shared.Next(available.Count)];
+        }
+        else
+        {
+            // Sequential: find current index and get next
+            var currentIdx = -1;
+            var currentLoc = keyLocations
+                .Select((loc, idx) => (loc, idx))
+                .FirstOrDefault(x => roomName.Contains(x.loc.ToLowerInvariant()) ||
+                                     x.loc.ToLowerInvariant().Contains(roomName));
+
+            if (currentLoc.loc != null)
+                currentIdx = currentLoc.idx;
+
+            var nextIdx = (currentIdx + 1) % keyLocations.Count;
+            return keyLocations[nextIdx];
+        }
+    }
+
+    /// <summary>
+    /// Find a room ID by name (fuzzy match).
+    /// </summary>
+    protected string? FindRoomIdByName(string roomName, IMudContext ctx)
+    {
+        var targetLower = roomName.ToLowerInvariant();
+
+        foreach (var objId in ctx.World.ListObjectIds())
+        {
+            var room = ctx.World.GetObject<IRoom>(objId);
+            if (room is null)
+                continue;
+
+            var name = room.Name?.ToLowerInvariant() ?? "";
+            if (name.Contains(targetLower) ||
+                objId.Contains(targetLower, StringComparison.OrdinalIgnoreCase))
+            {
+                return objId;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Try to pick a destination based on the current plan step.
+    /// Returns the key location that best matches the step, or null if no match.
+    /// </summary>
+    private string? TryPickPlanBasedDestination(NpcGoal? goal, IReadOnlyList<string> locations, IRoom currentRoom, IMudContext ctx)
+    {
+        if (goal is null)
+            return null;
+
+        var plan = GoalPlan.FromParams(goal.Params);
+        if (!plan.HasPlan || plan.IsComplete)
+            return null;
+
+        var currentStep = plan.CurrentStepText;
+        if (string.IsNullOrEmpty(currentStep))
+            return null;
+
+        var stepLower = currentStep.ToLowerInvariant();
+        var currentRoomName = currentRoom.Name?.ToLowerInvariant() ?? "";
+
+        // Try to find a key location that matches the current step
+        foreach (var location in locations)
+        {
+            var locLower = location.ToLowerInvariant();
+
+            // Skip if we're already at this location
+            if (currentRoomName.Contains(locLower) || locLower.Contains(currentRoomName))
+                continue;
+
+            // Check if the step mentions this location
+            var locWords = locLower.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length > 2)
+                .ToList();
+
+            if (locWords.Any(word => stepLower.Contains(word)))
+            {
+                ctx.LogDebug($"WANDER: plan step '{currentStep}' matches location '{location}'");
+                return location;
+            }
+
+            // Also try to find the room and check its aliases
+            var roomId = FindRoomIdByName(location, ctx);
+            if (roomId is not null)
+            {
+                var targetRoom = ctx.World.GetObject<IRoom>(roomId);
+                if (targetRoom is not null && StepMatchesRoom(stepLower, targetRoom))
+                {
+                    ctx.LogDebug($"WANDER: plan step '{currentStep}' matches room '{targetRoom.Name}' (via aliases)");
+                    return location;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Auto-complete a plan step if it matches the location the NPC finished dwelling at.
+    /// Called when dwell time expires - the NPC has had time to complete activities at this location.
+    /// </summary>
+    protected async Task TryAutoCompletePlanStep(IMudContext ctx, NpcGoal goal, IRoom room)
+    {
+        var plan = GoalPlan.FromParams(goal.Params);
+        if (!plan.HasPlan || plan.IsComplete)
+            return;
+
+        var currentStep = plan.CurrentStepText;
+        if (string.IsNullOrEmpty(currentStep))
+            return;
+
+        var stepLower = currentStep.ToLowerInvariant();
+
+        // Check if the step mentions the room name or any of its aliases
+        if (!StepMatchesRoom(stepLower, room))
+            return;
+
+        // Auto-complete this step
+        var npcId = ctx.CurrentObjectId ?? "unknown";
+        ctx.LogDebug($"PLAN: {npcId} - auto-completing step '{currentStep}' (completed activities at '{room.Name}')");
+
+        await ctx.AdvanceGoalStepAsync(goal.GoalType);
+    }
+
+    /// <summary>
+    /// Check if a plan step mentions a room (by name or aliases).
+    /// </summary>
+    private static bool StepMatchesRoom(string stepLower, IRoom room)
+    {
+        // Collect all location words: room name + all aliases
+        var locationTerms = new List<string>();
+
+        // Add room name words
+        var nameLower = room.Name?.ToLowerInvariant() ?? "";
+        locationTerms.AddRange(nameLower.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 2));
+
+        // Add all aliases (lowercase)
+        foreach (var alias in room.Aliases)
+        {
+            var aliasLower = alias.ToLowerInvariant();
+            locationTerms.AddRange(aliasLower.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length > 2));
+        }
+
+        // Check if step contains any location term
+        return locationTerms.Any(term => stepLower.Contains(term));
+    }
+
+    #endregion
 
     /// <summary>
     /// Called when the living is loaded or created.
@@ -485,8 +711,48 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                     string.Equals(g.Status, "active", StringComparison.OrdinalIgnoreCase));
             }
 
+            // Phase 4: Need-to-goal derivation when no active goals exist
             if (!isHurt && goalToPursue is null)
-                return;
+            {
+                // Get all needs and derive a goal from the top need (lowest level = highest priority)
+                var needs = await ctx.GetAllNeedsAsync();
+                var topNeed = needs.FirstOrDefault(n =>
+                    !string.Equals(n.NeedType, "survive", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(n.Status, "active", StringComparison.OrdinalIgnoreCase));
+
+                if (topNeed is null)
+                    return;
+
+                // Derive goal type from need (check IHasNeedGoalMapping first, then use convention)
+                string? goalType = null;
+                string? planTemplate = null;
+
+                if (this is IHasNeedGoalMapping mapping)
+                {
+                    goalType = mapping.GetGoalForNeed(topNeed.NeedType);
+                    if (!string.IsNullOrWhiteSpace(goalType))
+                    {
+                        planTemplate = mapping.GetPlanTemplateForGoal(goalType);
+                    }
+                }
+
+                // Convention: need type becomes goal type (e.g., "hunt" -> "hunt", "tend_farm" -> "tend_farm")
+                if (string.IsNullOrWhiteSpace(goalType))
+                {
+                    goalType = topNeed.NeedType;
+                }
+
+                // Create the derived goal
+                await ctx.SetGoalAsync(goalType, targetPlayer: null, status: "active", importance: GoalImportance.Default);
+
+                // If we have a plan template, we could set it here but let's let the LLM do that
+                // The NPC will see they have a goal with no plan and create one on the next tick
+
+                // Continue with the newly created goal
+                goalToPursue = await ctx.GetGoalAsync();
+                if (goalToPursue is null)
+                    return;
+            }
 
             _lastGoalThinkTime = DateTime.UtcNow;
 
@@ -497,7 +763,151 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                     ? $"{goalToPursue.GoalType} ({goalToPursue.Status})"
                     : $"{goalToPursue.GoalType} -> {goalToPursue.TargetPlayer} ({goalToPursue.Status})";
 
-            var memoryQuery = $"Goal: {goalText}. NPC: {Name}. Room: {ctx.World.GetObjectLocation(ctx.CurrentObjectId ?? string.Empty)}";
+            // Phase 1b & 1c: Peek at last action results for memory query and blocked detection
+            var npcId = ctx.CurrentObjectId ?? string.Empty;
+            var npcStateStore = ctx.World.GetStateStore(npcId);
+            var recentResults = NpcCommandExecutor.PeekCommandResults(npcStateStore);
+            var consecutiveFailures = NpcCommandExecutor.CountConsecutiveFailures(recentResults);
+            var failureSummary = NpcCommandExecutor.BuildFailureSummary(recentResults);
+            var isBlocked = consecutiveFailures >= 2;
+
+            // Check if goal has a plan
+            GoalPlan? currentPlan = null;
+            string planInstructions = "";
+            string? suggestedAction = null; // Phase 5: pathing suggestion
+            if (!isHurt && goalToPursue is not null)
+            {
+                currentPlan = GoalPlan.FromParams(goalToPursue.Params);
+
+                // If no plan exists, try to apply a template from IHasDefaultNeeds
+                if (!currentPlan.HasPlan && this is IHasDefaultNeeds hasNeeds)
+                {
+                    var planTemplate = hasNeeds.GetPlanTemplateForGoal(goalToPursue.GoalType);
+                    if (!string.IsNullOrWhiteSpace(planTemplate))
+                    {
+                        // Apply the template using SetGoalPlanAsync (preserves other goal params)
+                        await ctx.SetGoalPlanAsync(goalToPursue.GoalType, planTemplate);
+
+                        // Re-fetch to get the updated plan
+                        goalToPursue = await ctx.GetGoalAsync();
+                        if (goalToPursue is not null)
+                        {
+                            currentPlan = GoalPlan.FromParams(goalToPursue.Params);
+                        }
+                    }
+                }
+
+                // Phase 3: Try deterministic evaluators before calling LLM
+                // Auto-advance steps that are clearly complete or blocked
+                if (goalToPursue is not null && currentPlan.HasPlan && !currentPlan.IsComplete && !isBlocked)
+                {
+                    var stepText = currentPlan.CurrentStepText ?? "";
+                    var evaluation = ctx.EvaluateGoalStep(goalToPursue, stepText);
+
+                    if (evaluation is not null)
+                    {
+                        switch (evaluation.Result)
+                        {
+                            case StepEvaluationResult.Complete:
+                                // Step is complete - auto-advance
+                                await ctx.AdvanceGoalStepAsync(goalToPursue.GoalType);
+
+                                // Re-fetch the plan to see if there are more steps
+                                var updatedGoal = await ctx.GetGoalAsync();
+                                if (updatedGoal is null)
+                                {
+                                    // Goal was cleared (plan complete), we're done
+                                    return;
+                                }
+                                currentPlan = GoalPlan.FromParams(updatedGoal.Params);
+                                goalToPursue = updatedGoal;
+                                break;
+
+                            case StepEvaluationResult.Blocked:
+                                // Step is blocked - skip it
+                                await ctx.SkipGoalStepAsync(goalToPursue.GoalType);
+
+                                // Re-fetch the plan
+                                var updatedGoal2 = await ctx.GetGoalAsync();
+                                if (updatedGoal2 is null)
+                                {
+                                    return;
+                                }
+                                currentPlan = GoalPlan.FromParams(updatedGoal2.Params);
+                                goalToPursue = updatedGoal2;
+                                break;
+
+                            case StepEvaluationResult.InProgress:
+                                // Phase 5: Capture suggested action from pathing daemon
+                                suggestedAction = evaluation.SuggestedAction;
+                                break;
+                        }
+                    }
+                }
+
+                // Phase 1c: If blocked (2+ consecutive failures), force re-plan even if we have a plan
+                if (isBlocked)
+                {
+                    planInstructions =
+                        "- BLOCKED: Your last 2+ attempts FAILED. You MUST create a NEW PLAN.\n" +
+                        "- Analyze WHY the actions failed and choose a DIFFERENT approach.\n" +
+                        "- Format: [plan:step1|step2|step3] (NOT [cmd:plan:...] - plans are separate from commands!)\n" +
+                        "- Output the [plan:...] markup with an optional brief emote. Nothing else.\n";
+                }
+                else if (currentPlan.HasPlan && !currentPlan.IsComplete)
+                {
+                    var step = currentPlan.CurrentStepText ?? "next step";
+                    // Phase 5: Include pathing suggestion if available
+                    var pathingHint = !string.IsNullOrEmpty(suggestedAction)
+                        ? $"- RECOMMENDED ACTION: {suggestedAction}\n"
+                        : "";
+                    // Tell NPCs with key locations that movement is automatic
+                    var movementNote = this is IHasKeyLocations
+                        ? "- IMPORTANT: Movement between locations is AUTOMATIC - do NOT use [cmd:go]. Just emote or speak naturally.\n"
+                        : "";
+                    planInstructions =
+                        $"- Your current plan step is: \"{step}\" ({currentPlan.Progress})\n" +
+                        pathingHint +
+                        movementNote +
+                        "- Focus on completing THIS step, then use [step:done] to advance.\n" +
+                        "- If this step is blocked, use [step:skip] to move on.\n";
+                }
+                else if (!currentPlan.HasPlan)
+                {
+                    // Check if NPC has a suggested plan template
+                    // First try IHasDefaultGoal, then IHasNeedGoalMapping for derived goals
+                    var planTemplate = (this as IHasDefaultGoal)?.DefaultPlanTemplate;
+                    if (string.IsNullOrWhiteSpace(planTemplate) && this is IHasNeedGoalMapping needMapping && goalToPursue is not null)
+                    {
+                        planTemplate = needMapping.GetPlanTemplateForGoal(goalToPursue.GoalType);
+                    }
+                    if (!string.IsNullOrWhiteSpace(planTemplate))
+                    {
+                        planInstructions =
+                            "- IMPORTANT: You have NO PLAN. Your task now is to CREATE A PLAN using [plan:...] markup.\n" +
+                            "- Format: [plan:step1|step2|step3] (NOT [cmd:plan:...] - plans are separate from commands!)\n" +
+                            $"- SUGGESTED TEMPLATE for your goal: [plan:{planTemplate}]\n" +
+                            "- Adapt this template to the current situation, or create your own plan.\n" +
+                            "- Output the [plan:...] markup with an optional brief emote. Nothing else.\n";
+                    }
+                    else
+                    {
+                        planInstructions =
+                            "- IMPORTANT: You have NO PLAN. Your task now is to CREATE A PLAN using [plan:...] markup.\n" +
+                            "- Format: [plan:step1|step2|step3] (NOT [cmd:plan:...] - plans are separate from commands!)\n" +
+                            "- Example for farmer: [plan:visit shop|buy supplies|return to farm|tend crops]\n" +
+                            "- Output the [plan:...] markup with an optional brief emote. Nothing else.\n";
+                    }
+                }
+            }
+
+            // Phase 1b: Include failure summary in memory query for semantic recall
+            // This helps retrieve memories about "how we solved similar problems before"
+            var memoryQuery = $"Goal: {goalText}. NPC: {Name}. Room: {ctx.World.GetObjectLocation(npcId)}";
+            if (!string.IsNullOrEmpty(failureSummary))
+            {
+                memoryQuery += $" {failureSummary}";
+            }
 
             var npcContext = await ctx.BuildNpcContextAsync(
                 this,
@@ -507,11 +917,17 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             var environmentDesc = npcContext.BuildEnvironmentDescription();
             var actionInstructions = npcContext.BuildActionInstructions();
 
+            // NPCs with key locations have automatic movement, so don't suggest [cmd:go]
+            var cmdHint = this is IHasKeyLocations
+                ? "- Use [cmd:...] for actions (give, get, say) but NOT for movement (automatic).\n"
+                : "- Prefer real game actions using [cmd:...] markup.\n";
             var pursueInstructions =
                 $"[Autonomous drive/goal pursuit]\n" +
                 $"- Current priority: {goalText}\n" +
+                planInstructions +
                 "- Take ONE concrete step toward this priority.\n" +
-                "- Prefer real game actions using [cmd:...] markup.\n" +
+                cmdHint +
+                "- If a command FAILED, make a [plan:step1|step2|...] to achieve it.\n" +
                 "- If the goal is complete, use [goal:done <type>] or [goal:clear <type>].\n" +
                 "- If you need to set a new goal, use [goal:<type> <optional target>].\n" +
                 "- If players are present, keep it natural and non-spammy (often a brief emote is enough).";
@@ -537,7 +953,8 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
     /// <summary>
     /// Attempt to wander to an adjacent room based on WanderChance.
-    /// Called each heartbeat. Direction least likely to go is where we came from.
+    /// If NPC implements IHasKeyLocations, wanders between key locations using PATHING_D.
+    /// Otherwise, uses random wandering with backtrack avoidance.
     /// </summary>
     protected virtual async void TryWander(IMudContext ctx)
     {
@@ -566,7 +983,173 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         if (room is null || room.Exits.Count == 0)
             return;
 
-        // Build list of possible exits, weighted against direction we came from
+        // Check if this NPC uses key location wandering
+        if (this is IHasKeyLocations keyLocNpc)
+        {
+            await TryKeyLocationWander(ctx, keyLocNpc, room, roomId);
+            return;
+        }
+
+        // Fall back to random wandering
+        await TryRandomWander(ctx, room);
+    }
+
+    /// <summary>
+    /// Key location wandering: travel between designated locations, dwell 5-10 min at each.
+    /// Uses PATHING_D for navigation.
+    /// </summary>
+    private async Task TryKeyLocationWander(IMudContext ctx, IHasKeyLocations keyLocNpc, IRoom room, string roomId)
+    {
+        var npcId = ctx.CurrentObjectId ?? "unknown";
+
+        // Get current goal to check for goal-specific locations
+        var currentGoal = await ctx.GetGoalAsync();
+        var goalType = currentGoal?.GoalType;
+
+        // Determine active locations (goal-specific or default)
+        var locations = (goalType != null ? keyLocNpc.GetLocationsForGoal(goalType) : null)
+                        ?? keyLocNpc.DefaultKeyLocations;
+
+        if (locations.Count == 0)
+        {
+            ctx.LogDebug($"WANDER: {npcId} - no key locations, random wander");
+            await TryRandomWander(ctx, room);
+            return;
+        }
+
+        var now = ctx.World.Now.ToUnixTimeSeconds();
+
+        // Check if we're at a key location
+        if (IsAtKeyLocation(locations, room))
+        {
+            // Check if we have a dwell time set
+            var dwellUntil = WanderDwellUntil;
+            if (dwellUntil == 0)
+            {
+                // Just arrived - set dwell time
+                var (minSec, maxSec) = keyLocNpc.DwellDuration;
+                var dwellSeconds = Random.Shared.Next(minSec, maxSec + 1);
+                SetWanderDwellUntil(now + dwellSeconds, ctx);
+                SetWanderDestination(null, ctx); // Clear destination, we've arrived
+                ctx.LogDebug($"WANDER: {npcId} - arrived at '{room.Name}', dwelling {dwellSeconds}s");
+                return; // Stay here
+            }
+
+            if (now < dwellUntil)
+            {
+                // Still dwelling, stay here (don't log every tick - too spammy)
+                return;
+            }
+
+            // Dwell time expired - try to complete plan step for this location
+            if (currentGoal != null)
+            {
+                await TryAutoCompletePlanStep(ctx, currentGoal, room);
+            }
+
+            // Re-fetch goal after potential plan step completion (goal may have updated params)
+            currentGoal = await ctx.GetGoalAsync();
+
+            // Pick next location - prefer plan-based, fall back to random
+            var nextLoc = TryPickPlanBasedDestination(currentGoal, locations, room, ctx);
+            if (nextLoc is null)
+            {
+                nextLoc = PickNextKeyLocation(locations, room, keyLocNpc.RandomizeOrder);
+            }
+            if (nextLoc != null)
+            {
+                SetWanderDestination(nextLoc, ctx);
+                SetWanderDwellUntil(0, ctx); // Clear dwell time
+                ctx.LogDebug($"WANDER: {npcId} - dwell expired at '{room.Name}', heading to '{nextLoc}'");
+            }
+        }
+
+        // Check if we have a destination
+        var destination = WanderDestination;
+        if (string.IsNullOrEmpty(destination))
+        {
+            // First, try to pick a destination based on current plan step
+            destination = TryPickPlanBasedDestination(currentGoal, locations, room, ctx);
+
+            // If no plan-based destination, pick randomly from key locations
+            if (destination is null)
+            {
+                destination = PickNextKeyLocation(locations, room, keyLocNpc.RandomizeOrder);
+            }
+
+            if (destination != null)
+            {
+                SetWanderDestination(destination, ctx);
+                ctx.LogDebug($"WANDER: {npcId} - picked destination '{destination}' (from '{room.Name}')");
+            }
+            else
+            {
+                ctx.LogDebug($"WANDER: {npcId} - no destination available, random wander");
+                await TryRandomWander(ctx, room);
+                return;
+            }
+        }
+
+        // Try to find the destination room and get path via PATHING_D
+        var destRoomId = FindRoomIdByName(destination, ctx);
+        if (destRoomId is null)
+        {
+            ctx.LogDebug($"WANDER: {npcId} - can't find room '{destination}', random wander");
+            SetWanderDestination(null, ctx);
+            await TryRandomWander(ctx, room);
+            return;
+        }
+
+        // Get pathing daemon
+        var pathingD = ctx.World.GetDaemon<IPathingDaemon>("PATHING_D");
+        if (pathingD is null)
+        {
+            ctx.LogDebug($"WANDER: {npcId} - no PATHING_D, random wander");
+            await TryRandomWander(ctx, room);
+            return;
+        }
+
+        // Get next direction toward destination
+        var nextDir = pathingD.GetNextDirection(roomId, destRoomId);
+        if (nextDir is null)
+        {
+            // No path found - might be already there or unreachable
+            var path = pathingD.FindPath(roomId, destRoomId);
+            if (path.Found && path.Directions.Count == 0)
+            {
+                // We're at the destination
+                SetWanderDestination(null, ctx);
+                var (minSec, maxSec) = keyLocNpc.DwellDuration;
+                var dwellSeconds = Random.Shared.Next(minSec, maxSec + 1);
+                SetWanderDwellUntil(now + dwellSeconds, ctx);
+                ctx.LogDebug($"WANDER: {npcId} - reached '{destination}', dwelling {dwellSeconds}s");
+                return;
+            }
+
+            ctx.LogDebug($"WANDER: {npcId} - no path to '{destination}', random wander");
+            SetWanderDestination(null, ctx);
+            await TryRandomWander(ctx, room);
+            return;
+        }
+
+        // Remember the opposite direction (where we'll be coming from after moving)
+        var opposite = GetOppositeDirection(nextDir);
+        if (opposite is not null)
+        {
+            SetLastCameFrom(opposite, ctx);
+        }
+
+        ctx.LogDebug($"WANDER: {npcId} - go {nextDir} toward '{destination}'");
+
+        // Execute the move command
+        await ctx.ExecuteCommandAsync($"go {nextDir}");
+    }
+
+    /// <summary>
+    /// Random wandering: pick a random adjacent room, avoiding backtracking.
+    /// </summary>
+    private async Task TryRandomWander(IMudContext ctx, IRoom room)
+    {
         var exits = room.Exits.Keys.ToList();
         if (exits.Count == 0)
             return;
@@ -1046,6 +1629,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             sb.AppendLine("- For actions/emotes: wrap in asterisks, START with a third-person VERB ending in 's'");
             sb.AppendLine("  CORRECT: *smiles warmly* or *waves at the customer* or *looks around*");
             sb.AppendLine("  WRONG: *nice greeting* or *friendly wave* or *I smile*");
+            sb.AppendLine("  NEVER emote 'to self/myself/himself' - that's meaningless. Just *nods* not *nods to self*");
             sb.AppendLine("  The first word MUST be an action verb like: smiles, nods, waves, looks, gestures, points");
         }
         if (canSpeak)
@@ -1089,9 +1673,20 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         {
             sb.AppendLine("Command Actions:");
             sb.AppendLine("- To ACTUALLY perform game actions, you MUST use [cmd:command] markup");
-            sb.AppendLine("- IMPORTANT: Emotes like *hands you the sword* only DESCRIBE actions - they do NOT execute them!");
-            sb.AppendLine("- To give an item, you MUST use [cmd:give item to player] - describing giving does nothing");
-            sb.AppendLine("- Example: \"Here you go!\" [cmd:give sword to player]");
+            sb.AppendLine("- CRITICAL: Emotes ONLY describe - they do NOT execute actions!");
+            // NPCs with key locations have automatic movement
+            if (this is IHasKeyLocations)
+            {
+                sb.AppendLine("- *walks toward the shop* is fine for flavor - movement is AUTOMATIC between your locations");
+                sb.AppendLine("- Do NOT use [cmd:go] - you will travel automatically to locations matching your plan");
+            }
+            else
+            {
+                sb.AppendLine("- *walks toward the shop* does NOTHING. To move: [cmd:go north]");
+            }
+            sb.AppendLine("- *hands you the sword* does NOTHING. To give: [cmd:give sword to player]");
+            sb.AppendLine("- NEVER emote giving, attacking, or other game actions (except movement for key-location NPCs)");
+            sb.AppendLine("- Only emote things that aren't game commands: *smiles*, *nods*, *scratches head*");
             sb.AppendLine();
             sb.AppendLine("Available commands:");
             if (canSpeak)
@@ -1113,7 +1708,15 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
             }
             if (canWander)
             {
-                sb.AppendLine("  [cmd:go <direction>] - move to another room");
+                // NPCs with key locations have automatic movement toward plan destinations
+                if (this is IHasKeyLocations)
+                {
+                    sb.AppendLine("  [cmd:go <direction>] - AUTOMATIC (do NOT use - you will travel to plan locations automatically)");
+                }
+                else
+                {
+                    sb.AppendLine("  [cmd:go <direction>] - move to another room");
+                }
             }
             if (canAttack)
             {
@@ -1138,10 +1741,11 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         // Plan markup section
         sb.AppendLine("Plan Management:");
         sb.AppendLine("- Create a plan for your current goal: [plan:step1|step2|step3]");
+        sb.AppendLine("- Target a SPECIFIC goal: [plan:goalType:step1|step2|step3]");
         sb.AppendLine("- Steps are separated by | (pipe character)");
-        sb.AppendLine("- Mark current step complete: [step:done] or [step:complete]");
-        sb.AppendLine("- Skip current step: [step:skip] or [step:next]");
-        sb.AppendLine("- Example: [plan:find customer|show wares|negotiate price|complete sale]");
+        sb.AppendLine("- Mark current step complete: [step:done] or [step:goalType:done]");
+        sb.AppendLine("- Skip current step: [step:skip] or [step:goalType:skip]");
+        sb.AppendLine("- Example: [plan:sell_items:greet customer|show wares|negotiate|complete sale]");
         sb.AppendLine("- Plans help you break down goals into actionable steps");
         sb.AppendLine();
 
@@ -1150,7 +1754,16 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         sb.AppendLine("- NEVER break character");
         sb.AppendLine("- Respond with exactly ONE short action per event - one emote OR one sentence");
         sb.AppendLine("- Do NOT chain multiple actions together");
-        sb.AppendLine("- When asked to give/get/drop items, you MUST use [cmd:...] - emotes alone do nothing");
+        sb.AppendLine("- Emotes are for expressions/gestures ONLY - *nods*, *smiles*, *looks around*");
+        // NPCs with key locations have automatic movement, so don't tell them to use [cmd:go]
+        if (this is IHasKeyLocations)
+        {
+            sb.AppendLine("- NEVER emote interactions: use [cmd:give/get/attack] instead (movement is automatic)");
+        }
+        else
+        {
+            sb.AppendLine("- NEVER emote movement or interactions: use [cmd:go/give/get/attack] instead");
+        }
         if (!string.IsNullOrWhiteSpace(NpcExtraRules))
         {
             sb.AppendLine($"- {NpcExtraRules}");

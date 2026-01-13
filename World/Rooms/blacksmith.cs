@@ -13,6 +13,11 @@ public sealed class Blacksmith : IndoorRoomBase, ISpawner, IHasCommands, IHasLin
 {
     protected override string GetDefaultName() => "Millbrook Smithy";
 
+    /// <summary>
+    /// Room aliases for location matching in NPC plans.
+    /// </summary>
+    public override IReadOnlyList<string> Aliases => new[] { "blacksmith", "smithy", "forge", "armory" };
+
     protected override string GetDefaultDescription() =>
         "The heat hits you like a wall as you enter the forge. A massive stone hearth " +
         "dominates the room, its coals glowing cherry-red. Hammers, tongs, and half-finished " +

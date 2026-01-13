@@ -6,8 +6,14 @@ public sealed class Meadow : OutdoorRoomBase, ISpawner
 {
     protected override string GetDefaultName() => "A Quiet Meadow";
 
+    /// <summary>
+    /// Room aliases for location matching in NPC plans.
+    /// </summary>
+    public override IReadOnlyList<string> Aliases => new[] { "meadow", "field", "farm", "crops", "farmland", "pasture" };
+
     protected override string GetDefaultDescription() => "Soft grass sways in a gentle breeze. The sky is a perfect ASCII-blue. " +
-                                  "Wildflowers dot the meadow in patches of color.";
+                                  "Wildflowers dot the meadow in patches of color. A modest farmhouse with a thatched roof " +
+                                  "sits at the western edge of the meadow.";
 
     public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
     {
@@ -22,12 +28,16 @@ public sealed class Meadow : OutdoorRoomBase, ISpawner
         ["wildflowers"] = "Colorful wildflowers are scattered throughout the meadow - " +
                           "bright yellows, deep purples, and soft pinks create a natural tapestry.",
         ["breeze"] = "A gentle breeze carries the sweet scent of grass and flowers. " +
-                     "It feels refreshing against your skin."
+                     "It feels refreshing against your skin.",
+        ["farmhouse"] = "A cozy farmhouse with whitewashed walls and a thatched roof sits at the meadow's " +
+                        "western edge. Smoke curls lazily from the chimney, and a small vegetable garden " +
+                        "grows beside the door. This is Tom Greenfield's home."
     };
 
     public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
     {
-        ["south"] = "Rooms/start.cs"
+        ["south"] = "Rooms/start.cs",
+        ["west"] = "Rooms/farmhouse.cs"
     };
 
     // ISpawner implementation - spawn one goblin in this room

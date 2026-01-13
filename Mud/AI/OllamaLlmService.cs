@@ -23,6 +23,20 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
             // Use the larger of NPC/story timeouts (story generations can take longer).
             Timeout = TimeSpan.FromMilliseconds(Math.Max(settings.TimeoutMs, settings.StoryTimeoutMs))
         };
+
+        // Add API key authentication if configured (for cloud endpoints)
+        var apiKey = settings.ApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            // Fall back to environment variable
+            apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        }
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            _httpClient.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -118,7 +132,9 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
                 _jsonOptions,
                 cancellationToken);
 
-            return result?.Message?.Content?.Trim();
+            // Try message.content first, then fall back to response field
+            var content = result?.Message?.Content ?? result?.Response;
+            return content?.Trim();
         }
         catch (TaskCanceledException)
         {
@@ -234,14 +250,16 @@ public sealed class OllamaLlmService : ILlmService, IDisposable
 
     private sealed class OllamaMessage
     {
-        public required string Role { get; set; }
-        public required string Content { get; set; }
+        public string? Role { get; set; }
+        public string? Content { get; set; }
     }
 
     private sealed class OllamaChatResponse
     {
         public OllamaMessage? Message { get; set; }
         public bool Done { get; set; }
+        // Some models/APIs return response directly instead of message.content
+        public string? Response { get; set; }
     }
 
     private sealed class OllamaEmbedRequest

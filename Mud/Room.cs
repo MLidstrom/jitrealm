@@ -15,4 +15,10 @@ public interface IRoom : IMudObject
     /// Whether this room is lit. Dark rooms require a light source.
     /// </summary>
     bool IsLit { get; }
+
+    /// <summary>
+    /// Alternative names for this room (for location matching).
+    /// Examples: "shop", "store", "general store" for a shop room.
+    /// </summary>
+    IReadOnlyList<string> Aliases { get; }
 }

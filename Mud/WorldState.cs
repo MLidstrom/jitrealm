@@ -43,6 +43,12 @@ public sealed class WorldState
     public LlmDebugLogger? LlmDebugger { get; set; }
 
     /// <summary>
+    /// Registry of goal evaluators for deterministic step completion.
+    /// Evaluators check if goal steps are complete without needing LLM.
+    /// </summary>
+    public GoalEvaluatorRegistry GoalEvaluators { get; } = GoalEvaluatorRegistry.CreateDefault();
+
+    /// <summary>
     /// The clock backing schedulers and time-based systems.
     /// Prefer reusing this clock instead of allocating new clocks per operation.
     /// </summary>

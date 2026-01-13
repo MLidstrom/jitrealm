@@ -61,6 +61,12 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     public virtual bool IsOutdoors => false;
 
     /// <summary>
+    /// Alternative names for this room (for location matching).
+    /// Override in subclasses to define aliases like "shop", "store" for a shop room.
+    /// </summary>
+    public virtual IReadOnlyList<string> Aliases => Array.Empty<string>();
+
+    /// <summary>
     /// Called when the room is loaded. Override for custom initialization.
     /// </summary>
     public virtual void OnLoad(IMudContext ctx)

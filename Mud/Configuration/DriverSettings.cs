@@ -277,7 +277,15 @@ public sealed class LlmSettings
     public string Provider { get; set; } = "ollama";
 
     /// <summary>
-    /// Ollama server URL.
+    /// API key for cloud providers (OpenAI, Anthropic).
+    /// For security, prefer using environment variable OPENAI_API_KEY instead.
+    /// </summary>
+    public string ApiKey { get; set; } = "";
+
+    /// <summary>
+    /// Ollama server URL. Also used for OpenAI-compatible endpoints.
+    /// For OpenAI cloud: "https://api.openai.com/v1"
+    /// For Ollama cloud models: use default Ollama URL.
     /// </summary>
     public string OllamaUrl { get; set; } = "http://localhost:11434";
 

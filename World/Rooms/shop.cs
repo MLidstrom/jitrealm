@@ -14,6 +14,11 @@ public sealed class Shop : IndoorRoomBase, ISpawner, IHasCommands, IHasLinkedRoo
 {
     protected override string GetDefaultName() => "The General Store";
 
+    /// <summary>
+    /// Room aliases for location matching in NPC plans.
+    /// </summary>
+    public override IReadOnlyList<string> Aliases => new[] { "shop", "store", "general store" };
+
     protected override string GetDefaultDescription() =>
         "A cluttered but cozy shop filled with all manner of goods. " +
         "Dusty shelves line the walls, stacked with potions, weapons, and curious trinkets. " +

@@ -8,7 +8,7 @@ using JitRealm.Mud.AI;
 /// Tom the Farmer - an advanced wandering villager with goals and environmental awareness.
 /// Demonstrates the full NPC capability system with persistent goals.
 /// </summary>
-public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds
+public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefaultNeeds, IHasKeyLocations
 {
     public override string Name => "farmer";
     public override IReadOnlyList<string> Aliases => new[] { "tom", "farmer", "villager", "man" };
@@ -19,6 +19,30 @@ public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefa
         ("tend_farm", NeedLevel.Primary),
         ("care_for_family", NeedLevel.Secondary)
     };
+
+    // Key locations Tom patrols between (village landmarks)
+    public IReadOnlyList<string> DefaultKeyLocations => new[]
+    {
+        "general store",
+        "tavern",
+        "village square",
+        "blacksmith"
+    };
+
+    // Goal-specific locations override defaults
+    public IReadOnlyList<string>? GetLocationsForGoal(string goalType) => goalType switch
+    {
+        "daily_routine" => new[] { "general store", "tavern", "village square", "meadow", "farmhouse" },
+        "tend_farm" => new[] { "meadow", "village square", "general store" },
+        "socialize" => new[] { "tavern", "village square", "blacksmith" },
+        _ => null // Use DefaultKeyLocations
+    };
+
+    // Stay 10-30 seconds at each location (reduced for testing - normally 300, 600)
+    public (int MinSeconds, int MaxSeconds) DwellDuration => (10, 30);
+
+    // Visit locations randomly
+    public bool RandomizeOrder => true;
 
     protected override string GetDefaultDescription() =>
         "A weathered farmer in his middle years, with sun-browned skin and calloused hands. " +
@@ -69,6 +93,18 @@ public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefa
     public string? DefaultGoalType => "daily_routine";
     public int DefaultGoalImportance => GoalImportance.Default; // 50
     public string DefaultGoalParams => "{\"task\": \"visit_shop\", \"reason\": \"need supplies\"}";
+
+    // Plan template for daily routine
+    public string? DefaultPlanTemplate => "visit shop|chat with villagers|check on crops|return home";
+
+    // Plan templates for need-derived goals
+    public string? GetPlanTemplateForGoal(string goalType) => goalType switch
+    {
+        "tend_farm" => "go to general store for supplies|travel to meadow|check the crops|water if needed|return to village square",
+        "care_for_family" => "check on home|talk to Martha|spend time with children|bring supplies home",
+        "daily_routine" => DefaultPlanTemplate,
+        _ => null
+    };
 
     // === Speech Responsiveness ===
     protected override double SpeechCooldownSeconds => 0.5;
