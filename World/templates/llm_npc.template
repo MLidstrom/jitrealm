@@ -1,0 +1,67 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using JitRealm.Mud;
+using JitRealm.Mud.AI;
+
+/// <summary>
+/// {{CLASS_NAME}} - an LLM-powered NPC with AI behavior.
+/// For simple NPCs without AI, use npc.template instead.
+/// </summary>
+public sealed class {{CLASS_NAME}} : NPCBase, ILlmNpc
+{
+    public override string Name => "{{NAME}}";
+    public override IReadOnlyList<string> Aliases => new[] { "{{NAME}}" };
+
+    protected override string GetDefaultDescription() =>
+        "{{DESCRIPTION}}";
+
+    // === LLM Configuration ===
+    public NpcCapabilities Capabilities =>
+        NpcCapabilities.Humanoid |
+        NpcCapabilities.CanManipulateItems;
+
+    public string SystemPrompt => BuildSystemPrompt();
+
+    protected override string NpcIdentity => "{{CLASS_NAME}}, a friendly villager";
+
+    protected override string NpcNature =>
+        "A friendly villager.";
+
+    protected override string NpcCommunicationStyle =>
+        "Speaks in a warm, friendly manner.";
+
+    protected override string NpcPersonality =>
+        "Kind, helpful, and always happy to chat.";
+
+    protected override string NpcExamples =>
+        "\"Hello there, traveler!\" or *smiles warmly*";
+
+    protected override string NpcExtraRules =>
+        "";
+
+    // === Event Handling ===
+    public Task OnRoomEventAsync(RoomEvent @event, IMudContext ctx)
+        => QueueLlmEvent(@event, ctx);
+
+    // === Optional: Wandering ===
+    // public override int WanderChance => 10; // 10% chance per heartbeat
+
+    // === Optional: Key Location Patrol (implement IHasKeyLocations) ===
+    // public IReadOnlyList<string> DefaultKeyLocations => new[]
+    // {
+    //     "tavern", "village square", "general store"
+    // };
+    // public (int MinSeconds, int MaxSeconds) DwellDuration => (300, 600);
+    // public bool RandomizeOrder => true;
+
+    // === Optional: Default Goal (implement IHasDefaultGoal) ===
+    // public string? DefaultGoalType => "greet_visitors";
+    // public int DefaultGoalImportance => GoalImportance.Default;
+
+    // === Optional: Needs/Drives (implement IHasDefaultNeeds) ===
+    // public IReadOnlyList<(string NeedType, int Level)> DefaultNeeds => new[]
+    // {
+    //     ("serve_customers", NeedLevel.Primary),
+    // };
+}

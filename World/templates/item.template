@@ -1,0 +1,27 @@
+namespace JitRealm.World.Items;
+
+using System;
+using System.Collections.Generic;
+using JitRealm.Mud;
+using JitRealm.World.Std;
+
+/// <summary>
+/// {{CLASS_NAME}} - a basic stackable item.
+/// </summary>
+public sealed class {{CLASS_NAME}} : ItemBase
+{
+    protected override string GetDefaultName() => "{{NAME}}";
+    protected override string GetDefaultShortDescription() => "a {{NAME}}";
+    protected override string GetDefaultDescription() => "{{DESCRIPTION}}";
+
+    public override IReadOnlyList<string> Aliases => new[] { "{{NAME}}" };
+
+    // Weight in arbitrary units (1 = light, 10 = heavy)
+    protected override int GetDefaultWeight() => 1;
+
+    // Value in copper coins
+    protected override int GetDefaultValue() => 10;
+
+    // === Optional: Make non-stackable ===
+    // public override string StackKey => Id; // Unique per instance
+}

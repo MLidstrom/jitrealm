@@ -135,6 +135,12 @@ public static class CommandFactory
         registry.Register(new GoalCommand());
         registry.Register(new KbCommand());
         registry.Register(new StoryCommand());
+        registry.Register(new TraceCommand());
+        registry.Register(new CreateCommand());
+        registry.Register(new ForceCommand());
+        registry.Register(new LinkCommand());
+        registry.Register(new UnlinkCommand());
+        registry.Register(new DigCommand());
         // Note: save/load commands are handled directly in CommandLoop
         // because they require access to _persistence which isn't in CommandContext
     }

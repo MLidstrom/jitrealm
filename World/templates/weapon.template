@@ -1,0 +1,38 @@
+namespace JitRealm.World.Items;
+
+using System;
+using System.Collections.Generic;
+using JitRealm.Mud;
+using JitRealm.World.Std;
+
+/// <summary>
+/// {{CLASS_NAME}} - an equippable weapon.
+/// </summary>
+public sealed class {{CLASS_NAME}} : WeaponBase
+{
+    protected override string GetDefaultName() => "{{NAME}}";
+    protected override string GetDefaultShortDescription() => "a {{NAME}}";
+    protected override string GetDefaultDescription() => "{{DESCRIPTION}}";
+
+    public override IReadOnlyList<string> Aliases => new[] { "{{NAME}}" };
+
+    // Damage range
+    public override int MinDamage => 2;
+    public override int MaxDamage => 8;
+
+    // Weapon type (melee, ranged, etc.)
+    public override string WeaponType => "melee";
+
+    // Equipment slot (MainHand, OffHand)
+    public override EquipmentSlot Slot => EquipmentSlot.MainHand;
+
+    // Weight and value
+    protected override int GetDefaultWeight() => 3;
+    protected override int GetDefaultValue() => 50;
+
+    // === Optional: Custom equip message ===
+    // public override void OnEquip(string whoId, IMudContext ctx)
+    // {
+    //     ctx.Say($"brandishes the {{NAME}} with confidence!");
+    // }
+}

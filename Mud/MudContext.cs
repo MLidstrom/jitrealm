@@ -931,4 +931,16 @@ public sealed class MudContext : IMudContext
     {
         _internalWorld.LlmDebugger?.Log(message);
     }
+
+    public void Trace(string category, string message)
+    {
+        if (CurrentObjectId is null)
+            return;
+
+        // Only emit if this NPC is being traced
+        if (!_internalWorld.NpcTracer.IsTraced(CurrentObjectId))
+            return;
+
+        _internalWorld.NpcTracer.Emit(CurrentObjectId, category, message, _internalWorld.Sessions);
+    }
 }

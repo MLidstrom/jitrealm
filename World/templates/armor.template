@@ -1,0 +1,37 @@
+namespace JitRealm.World.Items;
+
+using System;
+using System.Collections.Generic;
+using JitRealm.Mud;
+using JitRealm.World.Std;
+
+/// <summary>
+/// {{CLASS_NAME}} - an equippable armor piece.
+/// </summary>
+public sealed class {{CLASS_NAME}} : ArmorBase
+{
+    protected override string GetDefaultName() => "{{NAME}}";
+    protected override string GetDefaultShortDescription() => "a {{NAME}}";
+    protected override string GetDefaultDescription() => "{{DESCRIPTION}}";
+
+    public override IReadOnlyList<string> Aliases => new[] { "{{NAME}}" };
+
+    // Armor class (damage reduction)
+    public override int ArmorClass => 3;
+
+    // Armor type (cloth, leather, chain, plate)
+    public override string ArmorType => "leather";
+
+    // Equipment slot (Head, Body, Hands, Legs, Feet, OffHand)
+    public override EquipmentSlot Slot => EquipmentSlot.Body;
+
+    // Weight and value
+    protected override int GetDefaultWeight() => 5;
+    protected override int GetDefaultValue() => 75;
+
+    // === Optional: Custom equip message ===
+    // public override void OnEquip(string whoId, IMudContext ctx)
+    // {
+    //     ctx.Say($"puts on the {{NAME}}, feeling protected!");
+    // }
+}

@@ -823,6 +823,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                         {
                             case StepEvaluationResult.Complete:
                                 // Step is complete - auto-advance
+                                ctx.Trace(TraceCategory.Step, $"COMPLETE: \"{stepText}\" - {evaluation.Reason ?? "done"}");
                                 await ctx.AdvanceGoalStepAsync(goalToPursue.GoalType);
 
                                 // Re-fetch the plan to see if there are more steps
@@ -838,6 +839,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
                             case StepEvaluationResult.Blocked:
                                 // Step is blocked - skip it
+                                ctx.Trace(TraceCategory.Step, $"BLOCKED: \"{stepText}\" - {evaluation.Reason ?? "cannot proceed"}");
                                 await ctx.SkipGoalStepAsync(goalToPursue.GoalType);
 
                                 // Re-fetch the plan
@@ -851,7 +853,22 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                                 break;
 
                             case StepEvaluationResult.InProgress:
-                                // Phase 5: Capture suggested action from pathing daemon
+                                // If we have a pathing suggestion, execute it directly (no LLM needed)
+                                if (!string.IsNullOrEmpty(evaluation.SuggestedAction) &&
+                                    evaluation.SuggestedAction.StartsWith("[cmd:go "))
+                                {
+                                    // Extract and execute the go command directly
+                                    var cmdMatch = System.Text.RegularExpressions.Regex.Match(
+                                        evaluation.SuggestedAction, @"\[cmd:go\s+(\w+)\]");
+                                    if (cmdMatch.Success)
+                                    {
+                                        var direction = cmdMatch.Groups[1].Value;
+                                        ctx.Trace(TraceCategory.Path, $"AUTO-MOVE: go {direction} (step: \"{stepText}\")");
+                                        await ctx.ExecuteCommandAsync($"go {direction}");
+                                        return; // Done for this tick, re-evaluate next heartbeat
+                                    }
+                                }
+                                // Fallback: pass suggestion to LLM
                                 suggestedAction = evaluation.SuggestedAction;
                                 break;
                         }
@@ -947,9 +964,15 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
             var userPrompt = $"{environmentDesc}\n\n{actionInstructions}\n\n{pursueInstructions}";
 
+            ctx.Trace(TraceCategory.Llm, $"CALLING LLM for goal: {goalText}");
             var response = await ctx.LlmCompleteAsync(llmNpc.SystemPrompt, userPrompt);
             if (string.IsNullOrWhiteSpace(response))
+            {
+                ctx.Trace(TraceCategory.Llm, "RESPONSE: (empty)");
                 return;
+            }
+
+            ctx.Trace(TraceCategory.Llm, $"RESPONSE: {response.Replace("\n", " ").Substring(0, Math.Min(100, response.Length))}...");
 
             // Treat as a normal NPC response: execute bounded commands then optional speech/emote.
             _lastLlmResponseTime = DateTime.UtcNow;
@@ -1539,6 +1562,7 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
             var userPrompt = $"{environmentDesc}\n\n{actionInstructions}\n\n[Event: {eventToProcess.Description}]\n\n{reactionInstructions}";
 
+            ctx.Trace(TraceCategory.Event, $"REACTING to: {eventToProcess.Description}");
             var response = await ctx.LlmCompleteAsync(llmNpc.SystemPrompt, userPrompt);
 
             if (!string.IsNullOrEmpty(response))
@@ -1547,8 +1571,11 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
                 var lower = response.ToLowerInvariant();
                 if (lower.Contains("no reaction") || lower.Contains("ignores") || lower.Contains("doesn't react"))
                 {
+                    ctx.Trace(TraceCategory.Event, "IGNORED event (no reaction)");
                     return;
                 }
+
+                ctx.Trace(TraceCategory.Llm, $"RESPONSE: {response.Replace("\n", " ").Substring(0, Math.Min(100, response.Length))}...");
 
                 // Update cooldown timestamp
                 _lastLlmResponseTime = DateTime.UtcNow;

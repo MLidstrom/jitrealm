@@ -1,0 +1,28 @@
+using System.Collections.Generic;
+using JitRealm.Mud;
+
+/// <summary>
+/// {{CLASS_NAME}} - an indoor room.
+/// </summary>
+public sealed class {{CLASS_NAME}} : IndoorRoomBase
+{
+    protected override string GetDefaultName() => "{{NAME}}";
+
+    protected override string GetDefaultDescription() =>
+        "{{DESCRIPTION}}";
+
+    public override IReadOnlyDictionary<string, string> Exits => new Dictionary<string, string>
+    {
+        // ["north"] = "Rooms/other_room.cs",
+        // ["south"] = "Rooms/another_room.cs",
+    };
+
+    // Optional: define aliases for location matching
+    // public override IReadOnlyList<string> Aliases => new[] { "{{NAME}}" };
+
+    // Optional: define details for "look at X"
+    // public override IReadOnlyDictionary<string, string> Details => new Dictionary<string, string>
+    // {
+    //     ["wall"] = "The wall looks sturdy.",
+    // };
+}

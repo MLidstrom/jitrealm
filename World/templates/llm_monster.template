@@ -1,0 +1,58 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using JitRealm.Mud;
+using JitRealm.Mud.AI;
+
+/// <summary>
+/// {{CLASS_NAME}} - an LLM-powered aggressive monster with AI behavior.
+/// For simple monsters without AI, use monster.template instead.
+/// </summary>
+public sealed class {{CLASS_NAME}} : MonsterBase, ILlmNpc
+{
+    public override string Name => "{{NAME}}";
+    public override IReadOnlyList<string> Aliases => new[] { "{{NAME}}" };
+
+    protected override string GetDefaultDescription() =>
+        "{{DESCRIPTION}}";
+
+    // === Combat Stats ===
+    public override int MaxHP => 50;
+    public override int ExperienceValue => 25;
+    public override bool IsAggressive => true;
+    public override int AggroDelaySeconds => 2;
+    public override (int min, int max) WeaponDamage => (2, 6);
+    public override int TotalArmorClass => 2;
+
+    // === LLM Configuration ===
+    public NpcCapabilities Capabilities =>
+        NpcCapabilities.CanEmote |
+        NpcCapabilities.CanAttack |
+        NpcCapabilities.CanFlee;
+
+    public string SystemPrompt => BuildSystemPrompt();
+
+    protected override string NpcIdentity => "a hostile {{NAME}}";
+
+    protected override string NpcNature =>
+        "A dangerous creature with sharp claws and teeth.";
+
+    protected override string NpcCommunicationStyle =>
+        "Mostly growls and snarls. Cannot speak human language.";
+
+    protected override string NpcPersonality =>
+        "Aggressive, territorial, always hungry.";
+
+    protected override string NpcExamples =>
+        "*growls menacingly* or *lunges forward with claws extended*";
+
+    protected override string NpcExtraRules =>
+        "You are a wild creature. You cannot speak. React with instinctual behavior.";
+
+    // === Event Handling ===
+    public Task OnRoomEventAsync(RoomEvent @event, IMudContext ctx)
+        => QueueLlmEvent(@event, ctx);
+
+    // === Optional: Wandering ===
+    // public override int WanderChance => 15; // 15% chance per heartbeat
+}

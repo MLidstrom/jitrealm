@@ -1,0 +1,30 @@
+using System;
+using System.Collections.Generic;
+using JitRealm.Mud;
+
+/// <summary>
+/// {{CLASS_NAME}} - a simple NPC without AI.
+/// For LLM-powered NPCs, use llm_npc.template instead.
+/// </summary>
+public sealed class {{CLASS_NAME}} : NPCBase
+{
+    public override string Name => "{{NAME}}";
+    public override IReadOnlyList<string> Aliases => new[] { "{{NAME}}" };
+
+    protected override string GetDefaultDescription() =>
+        "{{DESCRIPTION}}";
+
+    // === Optional: Greeting when player enters ===
+    public override string? GetGreeting(IPlayer player)
+    {
+        return "Hello there!";
+        // Return null to skip greeting
+    }
+
+    // === Optional: Custom death behavior ===
+    // public override void Die(string? killerId, IMudContext ctx)
+    // {
+    //     ctx.Emote("staggers but remains standing!");
+    //     FullHeal(ctx);
+    // }
+}

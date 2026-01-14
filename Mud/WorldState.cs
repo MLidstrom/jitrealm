@@ -43,6 +43,12 @@ public sealed class WorldState
     public LlmDebugLogger? LlmDebugger { get; set; }
 
     /// <summary>
+    /// NPC trace manager for wizard debugging.
+    /// Allows wizards to subscribe to real-time NPC decision events.
+    /// </summary>
+    public NpcTraceManager NpcTracer { get; } = new();
+
+    /// <summary>
     /// Registry of goal evaluators for deterministic step completion.
     /// Evaluators check if goal steps are complete without needing LLM.
     /// </summary>

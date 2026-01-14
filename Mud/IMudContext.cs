@@ -281,4 +281,12 @@ public interface IMudContext
     /// Use for debugging NPC behavior, wandering, etc.
     /// </summary>
     void LogDebug(string message);
+
+    /// <summary>
+    /// Emit a trace event for wizard debugging (if the current object is being traced).
+    /// Use categories from TraceCategory constants (GOAL, PLAN, PATH, CMD, LLM, etc.).
+    /// </summary>
+    /// <param name="category">Event category (use TraceCategory constants).</param>
+    /// <param name="message">Event message.</param>
+    void Trace(string category, string message);
 }

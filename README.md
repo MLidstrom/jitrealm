@@ -136,6 +136,12 @@ These commands are visible in `help` and executable only for wizard users:
 - `ledit <file> [line# [text]]` — line-based editor (no ANSI required, see below)
 - `perf` — show driver loop timings and performance stats
 - `where <id|name|alias>` — find where an object is located (aliases: locate, find)
+- `trace <npc>` — watch NPC AI decisions live (off to stop)
+- `create <type> <name> [variant]` — scaffold new world objects from templates
+- `force <npc> <command>` — make an NPC execute a command
+- `link <dir> <room> [--oneway]` — link current room to an existing room
+- `unlink <dir> [--both]` — remove an exit from the current room
+- `dig <dir> <room> [outdoor] [--oneway]` — create a new room and link it
 - `save` — save world state to `save/world.json`
 - `load` — restore world state from save file
 
@@ -163,6 +169,39 @@ ledit start.cs +5 new line  # Insert "new line" after line 5
 ledit start.cs -5           # Delete line 5
 ledit start.cs append }     # Append "}" at end
 ```
+
+### Create Command (Scaffolding)
+The `create` command scaffolds new world objects from templates in `World/templates/`:
+- `create room <name>` — create indoor room (Rooms/name.cs)
+- `create room <name> outdoor` — create outdoor room (shows time/weather)
+- `create npc <name>` — create simple NPC (no AI)
+- `create npc <name> llm` — create LLM-powered NPC with AI behavior
+- `create monster <name>` — create simple aggressive monster
+- `create monster <name> llm` — create LLM-powered monster with AI
+- `create item <name>` — create basic stackable item
+- `create weapon <name>` — create equippable weapon
+- `create armor <name>` — create equippable armor
+
+Templates use placeholders (`{{NAME}}`, `{{CLASS_NAME}}`, `{{DESCRIPTION}}`) that are replaced when creating the file.
+
+### Room Building Commands (dig/link/unlink)
+These commands manage room connections by editing source files:
+
+**dig** — Create a new room and link it:
+- `dig north tavern` — create Rooms/tavern.cs with bidirectional exits
+- `dig east dungeon/cell1` — create in subdirectory
+- `dig up tower outdoor` — create outdoor room (shows time/weather)
+- `dig down basement --oneway` — one-way exit only
+
+**link** — Add exits to existing rooms:
+- `link north Rooms/tavern` — bidirectional link (creates exits in both directions)
+- `link east Rooms/shop --oneway` — one-way exit only
+
+**unlink** — Remove exits from rooms:
+- `unlink north` — remove exit from current room only
+- `unlink north --both` — remove both this exit and the reverse exit
+
+All commands edit room source files directly and trigger hot-reload.
 
 ### Wizard Homes
 Wizards can have personal home rooms at `World/Rooms/Homes/{letter}/{name}/home.cs`:
