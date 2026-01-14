@@ -6,6 +6,9 @@ out/
 # Player data (user-specific)
 players/
 
+# Wizard home rooms (user-specific)
+World/Rooms/Homes/
+
 # Build Results
 [Dd]ebug/
 [Dd]ebugPublic/

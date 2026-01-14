@@ -86,7 +86,8 @@ public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefa
         "You are going about your daily routine in the village. " +
         "Comment on your surroundings when you move to a new place. " +
         "If you see items on the ground, you might pick them up or comment on them. " +
-        "You have a wife named Martha and two children. Your farm is just outside the village. " +
+        "You have a wife named Martha and a daughter named Lily who is about 18 years old. " +
+        "Your farm is just outside the village. " +
         "You're in town today to visit the shop or inn, or just taking a break from fieldwork.";
 
     // === Goals System ===
@@ -101,7 +102,7 @@ public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefa
     public string? GetPlanTemplateForGoal(string goalType) => goalType switch
     {
         "tend_farm" => "go to general store for supplies|travel to meadow|check the crops|water if needed|return to village square",
-        "care_for_family" => "check on home|talk to Martha|spend time with children|bring supplies home",
+        "care_for_family" => "check on home|talk to Martha|spend time with Lily|bring supplies home",
         "daily_routine" => DefaultPlanTemplate,
         _ => null
     };
@@ -129,10 +130,10 @@ public sealed class VillagerTom : LivingBase, ILlmNpc, IHasDefaultGoal, IHasDefa
             }
 
             // Family topics
-            if (msg.Contains("family") || msg.Contains("wife") || msg.Contains("martha") || msg.Contains("children"))
+            if (msg.Contains("family") || msg.Contains("wife") || msg.Contains("martha") || msg.Contains("daughter") || msg.Contains("lily"))
             {
                 return "IMPORTANT: Someone asked about your family! You MUST reply with SPEECH in quotes. " +
-                       "Speak warmly about Martha and your two children. Family means everything to you.";
+                       "Speak warmly about Martha and your daughter Lily. Family means everything to you.";
             }
 
             // Village gossip

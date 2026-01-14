@@ -55,8 +55,10 @@ public class LookCommand : CommandBase
             }
         }
 
-        if (room.Exits.Count > 0)
-            context.Output("Exits: " + string.Join(", ", room.Exits.Keys));
+        // Filter out hidden exits
+        var visibleExits = room.Exits.Keys.Where(e => !room.HiddenExits.Contains(e)).ToList();
+        if (visibleExits.Count > 0)
+            context.Output("Exits: " + string.Join(", ", visibleExits));
 
         // Get contents from container registry
         var contents = context.State.Containers.GetContents(room.Id);

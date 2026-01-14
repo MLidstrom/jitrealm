@@ -4,6 +4,13 @@ public interface IRoom : IMudObject
 {
     new string Description { get; }
     IReadOnlyDictionary<string, string> Exits { get; }
+
+    /// <summary>
+    /// Exits that are hidden and not shown in room descriptions.
+    /// Players can still use these exits if they know about them.
+    /// </summary>
+    IReadOnlySet<string> HiddenExits { get; }
+
     IReadOnlyList<string> Contents { get; }
 
     /// <summary>

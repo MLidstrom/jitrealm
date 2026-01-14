@@ -41,6 +41,12 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     private readonly Dictionary<string, DateTime> _engagedWith = new();
 
     /// <summary>
+    /// Timestamp of last direct interaction with any player.
+    /// Used to pause wandering for a configurable duration after interaction.
+    /// </summary>
+    private DateTime _lastInteractionTime = DateTime.MinValue;
+
+    /// <summary>
     /// Cached context for property access.
     /// Set during OnLoad.
     /// </summary>
@@ -103,6 +109,13 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
     /// Default is 0 (no wandering).
     /// </summary>
     public virtual int WanderChance => 0;
+
+    /// <summary>
+    /// How long (seconds) to pause wandering after direct player interaction.
+    /// Prevents NPCs from wandering away during conversation.
+    /// Default is 300 seconds (5 minutes).
+    /// </summary>
+    protected virtual double WanderPauseAfterInteractionSeconds => 300.0;
 
     /// <summary>
     /// Alternative names players can use to reference this living being.
@@ -966,6 +979,11 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
         if (HasPendingLlmEvent)
             return;
 
+        // Skip if recently interacted with a player (pause wandering during conversation)
+        var timeSinceInteraction = (DateTime.UtcNow - _lastInteractionTime).TotalSeconds;
+        if (timeSinceInteraction < WanderPauseAfterInteractionSeconds)
+            return;
+
         // Roll against wander chance
         if (Random.Shared.Next(100) >= WanderChance)
             return;
@@ -1147,10 +1165,12 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
     /// <summary>
     /// Random wandering: pick a random adjacent room, avoiding backtracking.
+    /// Hidden exits are excluded - NPCs don't know about secret passages.
     /// </summary>
     private async Task TryRandomWander(IMudContext ctx, IRoom room)
     {
-        var exits = room.Exits.Keys.ToList();
+        // Filter out hidden exits - NPCs shouldn't use secret passages
+        var exits = room.Exits.Keys.Where(e => !room.HiddenExits.Contains(e)).ToList();
         if (exits.Count == 0)
             return;
 
@@ -1535,6 +1555,9 @@ public abstract class LivingBase : MudObjectBase, ILiving, IOnLoad, IHeartbeat
 
                 // Engage with the speaker for follow-up conversation
                 EngageWith(eventToProcess.ActorName);
+
+                // Pause wandering after direct interaction
+                _lastInteractionTime = DateTime.UtcNow;
 
                 // Parse and execute the response, passing the event actor as interactor
                 await ctx.ExecuteLlmResponseAsync(response,

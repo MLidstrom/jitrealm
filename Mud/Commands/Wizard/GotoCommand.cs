@@ -229,10 +229,11 @@ public class GotoCommand : WizardCommandBase
             room.Description
         };
 
-        // Show exits
-        if (room.Exits.Count > 0)
+        // Show exits (filter hidden ones)
+        var visibleExits = room.Exits.Keys.Where(e => !room.HiddenExits.Contains(e)).ToList();
+        if (visibleExits.Count > 0)
         {
-            lines.Add($"Exits: {string.Join(", ", room.Exits.Keys)}");
+            lines.Add($"Exits: {string.Join(", ", visibleExits)}");
         }
 
         // Show room contents (items and NPCs)

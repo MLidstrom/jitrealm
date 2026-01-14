@@ -5,6 +5,7 @@ using JitRealm.Mud.Network;
 using JitRealm.Mud.Persistence;
 using JitRealm.Mud.Players;
 using JitRealm.Mud.Security;
+using JitRealm.Mud.Commands.Wizard;
 
 namespace JitRealm.Mud;
 
@@ -470,6 +471,13 @@ public sealed class CommandLoop
         _session.PlayerId = _playerId;
         _session.PlayerName = playerName;
         _session.IsWizard = accountData.IsWizard;
+
+        // Restore wizard's working directory if saved
+        if (accountData.IsWizard && !string.IsNullOrEmpty(accountData.Cwd))
+        {
+            WizardFilesystem.SetWorkingDir(_session.SessionId, accountData.Cwd);
+        }
+
         _state.Sessions.Add(_session);
 
         // Create context and set player name
@@ -617,6 +625,12 @@ public sealed class CommandLoop
                 // Extract blueprint ID from instance ID
                 var blueprintId = itemId.Contains('#') ? itemId.Split('#')[0] : itemId;
                 accountData.Equipment[slot.ToString()] = blueprintId;
+            }
+
+            // Save wizard's current working directory
+            if (accountData.IsWizard)
+            {
+                accountData.Cwd = WizardFilesystem.GetWorkingDir(_session.SessionId);
             }
 
             // Save to file

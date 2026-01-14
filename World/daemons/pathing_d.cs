@@ -166,9 +166,13 @@ public sealed class PathingD : DaemonBase, IPathingDaemon
             if (room is null)
                 continue;
 
-            // Check each exit
+            // Check each exit (skip hidden exits - NPCs shouldn't use secret passages)
             foreach (var (direction, targetRoomId) in room.Exits)
             {
+                // Skip hidden exits
+                if (room.HiddenExits.Contains(direction))
+                    continue;
+
                 var targetNorm = NormalizeRoomId(targetRoomId);
 
                 // Found destination?

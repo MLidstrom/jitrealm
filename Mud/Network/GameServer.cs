@@ -8,6 +8,7 @@ using JitRealm.Mud.Formatting;
 using JitRealm.Mud.Persistence;
 using JitRealm.Mud.Players;
 using JitRealm.Mud.Security;
+using JitRealm.Mud.Commands.Wizard;
 using Spectre.Console;
 
 namespace JitRealm.Mud.Network;
@@ -446,6 +447,12 @@ public sealed class GameServer
             session.PlayerId = player.Id;
             session.PlayerName = playerName;
             session.IsWizard = accountData.IsWizard;
+
+            // Restore wizard's working directory if saved
+            if (accountData.IsWizard && !string.IsNullOrEmpty(accountData.Cwd))
+            {
+                WizardFilesystem.SetWorkingDir(session.SessionId, accountData.Cwd);
+            }
 
             // Restore player state from saved data
             RestorePlayerState(player.Id, accountData);
@@ -1115,6 +1122,12 @@ public sealed class GameServer
                 // Extract blueprint ID from instance ID
                 var blueprintId = itemId.Contains('#') ? itemId.Split('#')[0] : itemId;
                 accountData.Equipment[slot.ToString()] = blueprintId;
+            }
+
+            // Save wizard's current working directory
+            if (accountData.IsWizard)
+            {
+                accountData.Cwd = WizardFilesystem.GetWorkingDir(session.SessionId);
             }
 
             // Save to file

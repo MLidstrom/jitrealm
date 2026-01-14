@@ -63,4 +63,10 @@ public sealed class PlayerAccountData
     /// Equipment by slot name -> item ID.
     /// </summary>
     public Dictionary<string, string> Equipment { get; set; } = new();
+
+    /// <summary>
+    /// Wizard's current working directory (relative to World/).
+    /// Only used for wizard accounts.
+    /// </summary>
+    public string? Cwd { get; set; }
 }

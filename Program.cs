@@ -140,7 +140,12 @@ if (seedKbMode)
         return;
     }
 
+    // Try worldDir first (production), then current working directory (development)
     var seedFile = Path.Combine(worldDir, "data", "kb_seed.txt");
+    if (!File.Exists(seedFile))
+    {
+        seedFile = Path.Combine(Directory.GetCurrentDirectory(), "World", "data", "kb_seed.txt");
+    }
     await KbSeeder.SeedFromFileAsync(seedFile, memorySystem.WorldKnowledge);
 
     if (memorySystem is not null)

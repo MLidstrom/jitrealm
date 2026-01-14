@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using JitRealm.Mud;
 
 /// <summary>
@@ -44,6 +45,13 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     /// Exits from this room. Keys are direction names, values are destination IDs.
     /// </summary>
     public abstract IReadOnlyDictionary<string, string> Exits { get; }
+
+    /// <summary>
+    /// Exits that are hidden and not shown in room descriptions.
+    /// Players can still use these exits if they know about them.
+    /// Override in subclasses to hide secret passages or private exits.
+    /// </summary>
+    public virtual IReadOnlySet<string> HiddenExits => new HashSet<string>();
 
     /// <summary>
     /// Static contents defined in code. Actual room contents come from ContainerRegistry.
@@ -94,12 +102,13 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     }
 
     /// <summary>
-    /// Get a formatted exit list string.
+    /// Get a formatted exit list string (excludes hidden exits).
     /// </summary>
     protected string GetExitString()
     {
-        if (Exits.Count == 0) return "There are no obvious exits.";
-        return "Exits: " + string.Join(", ", Exits.Keys);
+        var visibleExits = Exits.Keys.Where(e => !HiddenExits.Contains(e)).ToList();
+        if (visibleExits.Count == 0) return "There are no obvious exits.";
+        return "Exits: " + string.Join(", ", visibleExits);
     }
 
     /// <summary>
