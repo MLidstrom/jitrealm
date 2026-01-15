@@ -6,6 +6,7 @@ namespace JitRealm.Mud.Commands.Wizard;
 public class PwdCommand : WizardCommandBase
 {
     public override string Name => "pwd";
+    public override string[] Aliases => new[] { "cwd" };
     public override string Usage => "pwd";
     public override string Description => "Print current working directory";
 

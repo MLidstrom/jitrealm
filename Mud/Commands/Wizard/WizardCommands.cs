@@ -107,7 +107,7 @@ public class UnloadCommand : WizardCommandBase
 public class CloneCommand : WizardCommandBase
 {
     public override string Name => "clone";
-    public override string Usage => "clone <blueprintId>";
+    public override string Usage => "clone <blueprintId> [to <destination>]";
     public override string Description => "Create a new instance from a blueprint";
 
     public override async Task ExecuteAsync(CommandContext context, string[] args)
@@ -115,18 +115,108 @@ public class CloneCommand : WizardCommandBase
         if (!RequireArgs(context, args, 1)) return;
 
         var blueprintId = args[0];
-        var cloned = await context.State.Objects!.CloneAsync<IMudObject>(blueprintId, context.State);
-        var playerLocation = context.GetPlayerLocation();
 
-        if (cloned is not null && playerLocation is not null)
+        // Parse optional "to <destination>"
+        string? destinationId = null;
+        if (args.Length >= 3 && args[1].Equals("to", StringComparison.OrdinalIgnoreCase))
         {
-            context.State.Containers.Add(playerLocation, cloned.Id);
-            context.Output($"Cloned {blueprintId} -> {cloned.Id}");
+            var destRef = string.Join(" ", args.Skip(2));
+
+            if (destRef.Equals("me", StringComparison.OrdinalIgnoreCase) ||
+                destRef.Equals("self", StringComparison.OrdinalIgnoreCase))
+            {
+                destinationId = context.PlayerId;
+            }
+            else if (destRef.Equals("here", StringComparison.OrdinalIgnoreCase))
+            {
+                destinationId = context.GetPlayerLocation();
+            }
+            else
+            {
+                destinationId = context.ResolveObjectId(destRef);
+
+                // Try finding NPC/container in room by name
+                if (destinationId is null)
+                {
+                    var roomId = context.GetPlayerLocation();
+                    if (roomId is not null)
+                    {
+                        destinationId = FindDestinationInRoom(context, destRef.ToLowerInvariant(), roomId);
+                    }
+                }
+
+                // Try loading as room blueprint
+                if (destinationId is null)
+                {
+                    var roomBlueprintId = destRef.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+                        ? destRef
+                        : destRef + ".cs";
+                    try
+                    {
+                        var room = await context.State.Objects!.LoadAsync<IRoom>(roomBlueprintId, context.State);
+                        destinationId = room?.Id;
+                    }
+                    catch
+                    {
+                        // Not a valid room
+                    }
+                }
+            }
+
+            if (destinationId is null)
+            {
+                context.Output($"Cannot find destination: {destRef}");
+                return;
+            }
+        }
+
+        // Default destination is player's current location
+        destinationId ??= context.GetPlayerLocation();
+
+        var cloned = await context.State.Objects!.CloneAsync<IMudObject>(blueprintId, context.State);
+
+        if (cloned is not null && destinationId is not null)
+        {
+            context.State.Containers.Add(destinationId, cloned.Id);
+
+            // Get destination name for output
+            var destObj = context.State.Objects?.Get<IMudObject>(destinationId);
+            var destName = destObj?.Name ?? destinationId;
+
+            context.Output($"Cloned {blueprintId} -> {cloned.Id} (in {destName})");
         }
         else
         {
             context.Output($"Failed to clone {blueprintId}");
         }
+    }
+
+    private static string? FindDestinationInRoom(CommandContext context, string name, string roomId)
+    {
+        var contents = context.State.Containers.GetContents(roomId);
+        foreach (var objId in contents)
+        {
+            var obj = context.State.Objects?.Get<IMudObject>(objId);
+            if (obj is null)
+                continue;
+
+            // Only match livings or containers
+            if (obj is not ILiving && obj is not IContainer)
+                continue;
+
+            if (obj.Name.ToLowerInvariant().Contains(name))
+                return objId;
+
+            if (obj is ILiving living)
+            {
+                foreach (var alias in living.Aliases)
+                {
+                    if (alias.ToLowerInvariant().Contains(name))
+                        return objId;
+                }
+            }
+        }
+        return null;
     }
 }
 

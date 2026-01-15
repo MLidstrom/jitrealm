@@ -73,15 +73,19 @@ public class DigCommand : WizardCommandBase
         }
 
         // Determine new room blueprint ID and file path
-        // Support subdirectories: "dungeon/cell1" -> "Rooms/dungeon/cell1.cs"
+        // Uses current working directory as default, or Rooms/ if at root
+        var cwd = WizardFilesystem.GetWorkingDir(context.Session.SessionId);
+        var baseDir = cwd == "/" ? "Rooms" : cwd.TrimStart('/');
+
+        // Support subdirectories: "dungeon/cell1" -> "baseDir/dungeon/cell1.cs"
         var newRoomRelativePath = roomName.Contains('/') ? roomName : roomName;
-        var newBlueprintId = $"Rooms/{newRoomRelativePath}";
-        var newFilePath = Path.Combine(worldRoot, "Rooms", newRoomRelativePath.Replace('/', Path.DirectorySeparatorChar) + ".cs");
+        var newBlueprintId = $"{baseDir}/{newRoomRelativePath}.cs";
+        var newFilePath = Path.Combine(worldRoot, baseDir.Replace('/', Path.DirectorySeparatorChar), newRoomRelativePath.Replace('/', Path.DirectorySeparatorChar) + ".cs");
 
         // Check if new room file already exists
         if (File.Exists(newFilePath))
         {
-            context.Output($"{newBlueprintId}.cs already exists.");
+            context.Output($"{newBlueprintId} already exists.");
             context.Output($"Use 'link {normalizedDir} {newBlueprintId}' to connect to it instead.");
             return;
         }
@@ -126,7 +130,7 @@ public class DigCommand : WizardCommandBase
 
         // Write new room file
         await File.WriteAllTextAsync(newFilePath, newRoomContent);
-        context.Output($"Created: {newBlueprintId}.cs (class: {className})");
+        context.Output($"Created: {newBlueprintId} (class: {className})");
 
         // Add exit to current room
         var result = await RoomFileEditor.AddExitAsync(currentFilePath, normalizedDir, newBlueprintId);

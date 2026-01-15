@@ -42,7 +42,8 @@ public class LookCommand : CommandBase
             room = await context.State.Objects!.LoadAsync<IRoom>(roomId, context.State);
         }
 
-        context.Output(room.Name);
+        context.Output("");
+        context.Output($"=== {room.Name} ===");
         context.Output(room.Description);
 
         // Show time and weather for outdoor rooms

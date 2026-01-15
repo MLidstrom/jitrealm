@@ -88,6 +88,12 @@ public sealed class WorldState
     public DaemonRegistry Daemons { get; } = new();
 
     /// <summary>
+    /// Optional ban manager for player access control.
+    /// Set during server initialization.
+    /// </summary>
+    public BanManager? BanManager { get; set; }
+
+    /// <summary>
     /// Create a MudContext for a specific object.
     /// </summary>
     /// <param name="objectId">The object ID to create the context for</param>

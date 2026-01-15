@@ -63,7 +63,7 @@ public class GotoCommand : WizardCommandBase
                 // Teleport to that room
                 await TeleportToRoom(context, livingRoom);
                 context.Output($"You teleport to {foundLiving.Value.name}'s location.");
-                ShowRoom(context, livingRoom);
+                await new Navigation.LookCommand().ExecuteAsync(context, Array.Empty<string>());
                 return;
             }
 
@@ -106,7 +106,7 @@ public class GotoCommand : WizardCommandBase
 
         await TeleportToRoom(context, destRoom);
         context.Output($"You teleport to {destRoom.Name}.");
-        ShowRoom(context, destRoom);
+        await new Navigation.LookCommand().ExecuteAsync(context, Array.Empty<string>());
     }
 
     /// <summary>
@@ -221,60 +221,4 @@ public class GotoCommand : WizardCommandBase
         }
     }
 
-    private static void ShowRoom(CommandContext context, IRoom room)
-    {
-        var lines = new List<string>
-        {
-            $"=== {room.Name} ===",
-            room.Description
-        };
-
-        // Show exits (filter hidden ones)
-        var visibleExits = room.Exits.Keys.Where(e => !room.HiddenExits.Contains(e)).ToList();
-        if (visibleExits.Count > 0)
-        {
-            lines.Add($"Exits: {string.Join(", ", visibleExits)}");
-        }
-
-        // Show room contents (items and NPCs)
-        var contents = context.State.Containers.GetContents(room.Id);
-        var items = new List<string>();
-        var beings = new List<string>();
-
-        foreach (var objId in contents)
-        {
-            if (objId == context.PlayerId)
-                continue;
-
-            var obj = context.State.Objects!.Get<IMudObject>(objId);
-            if (obj is null)
-                continue;
-
-            if (obj is IPlayer)
-            {
-                var session = context.State.Sessions.GetByPlayerId(objId);
-                beings.Add(session?.PlayerName ?? obj.Name);
-            }
-            else if (obj is ILiving)
-            {
-                beings.Add(obj.Name);
-            }
-            else if (obj is IItem item)
-            {
-                items.Add(item.ShortDescription);
-            }
-        }
-
-        if (beings.Count > 0)
-        {
-            lines.Add($"You see: {string.Join(", ", beings)}");
-        }
-
-        if (items.Count > 0)
-        {
-            lines.Add($"Items: {string.Join(", ", items)}");
-        }
-
-        context.Output(string.Join("\n", lines));
-    }
 }

@@ -141,6 +141,18 @@ public static class CommandFactory
         registry.Register(new LinkCommand());
         registry.Register(new UnlinkCommand());
         registry.Register(new DigCommand());
+
+        // New wizard commands (v0.28)
+        registry.Register(new HealCommand());
+        registry.Register(new ZapCommand());
+        registry.Register(new EchoCommand());
+        registry.Register(new MoveCommand());
+        registry.Register(new SummonCommand());
+        registry.Register(new UsersCommand());
+        registry.Register(new BanCommand());
+        registry.Register(new UnbanCommand());
+        registry.Register(new ShutdownCommand());
+
         // Note: save/load commands are handled directly in CommandLoop
         // because they require access to _persistence which isn't in CommandContext
     }

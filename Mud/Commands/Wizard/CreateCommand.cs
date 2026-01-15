@@ -88,16 +88,26 @@ public class CreateCommand : WizardCommandBase
             return;
         }
 
-        // Determine output path
+        // Determine output path - use current working directory as default
+        var cwd = WizardFilesystem.GetWorkingDir(context.Session.SessionId);
         var className = ToPascalCase(objectName);
         var fileName = $"{objectName.ToLowerInvariant()}.cs";
-        var outputDir = Path.Combine(worldRoot, mapping.Directory);
+
+        // If cwd is root ("/"), use the type's default directory, otherwise use cwd
+        var outputDir = cwd == "/"
+            ? Path.Combine(worldRoot, mapping.Directory)
+            : Path.Combine(worldRoot, cwd.TrimStart('/'));
         var outputPath = Path.Combine(outputDir, fileName);
+
+        // Compute relative path for display
+        var relativePath = cwd == "/"
+            ? $"{mapping.Directory}/{fileName}"
+            : $"{cwd.TrimStart('/')}/{fileName}";
 
         // Check if file already exists
         if (File.Exists(outputPath))
         {
-            context.Output($"File already exists: {mapping.Directory}/{fileName}");
+            context.Output($"File already exists: {relativePath}");
             context.Output("Use a different name or delete the existing file first.");
             return;
         }
@@ -117,7 +127,6 @@ public class CreateCommand : WizardCommandBase
         // Write file
         await File.WriteAllTextAsync(outputPath, content);
 
-        var relativePath = $"{mapping.Directory}/{fileName}";
         context.Output($"Created: {relativePath}");
         context.Output($"Class: {className}");
         context.Output($"Template: {templateFile}");

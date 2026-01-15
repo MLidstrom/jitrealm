@@ -113,9 +113,10 @@ public static class RoomFileEditor
         var exits = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         // Pattern 1: new Dictionary<string, string> { ["dir"] = "target", ... }
-        // Pattern 2: new() { ["dir"] = "target", ... }
-        // Both can span multiple lines
-        var dictPattern = @"Exits\s*(?:=>|=)\s*new\s*(?:Dictionary<string,\s*string>)?\s*\(\s*\)\s*\{([^}]*)\}";
+        // Pattern 2: new Dictionary<string, string>() { ... } (with parentheses)
+        // Pattern 3: new() { ["dir"] = "target", ... }
+        // All can span multiple lines, parentheses are optional
+        var dictPattern = @"Exits\s*(?:=>|=)\s*new\s*(?:Dictionary<string,\s*string>)?\s*(?:\(\s*\))?\s*\{([^}]*)\}";
         var match = Regex.Match(content, dictPattern, RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
         if (match.Success)
@@ -142,8 +143,8 @@ public static class RoomFileEditor
     /// </summary>
     private static string? AddExitToContent(string content, string direction, string targetRoom)
     {
-        // Find the Exits property with dictionary initializer
-        var dictPattern = @"(Exits\s*(?:=>|=)\s*new\s*(?:Dictionary<string,\s*string>)?\s*\(\s*\)\s*\{)([^}]*)(\})";
+        // Find the Exits property with dictionary initializer (parentheses optional)
+        var dictPattern = @"(Exits\s*(?:=>|=)\s*new\s*(?:Dictionary<string,\s*string>)?\s*(?:\(\s*\))?\s*\{)([^}]*)(\})";
         var match = Regex.Match(content, dictPattern, RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
         if (!match.Success)
@@ -190,8 +191,8 @@ public static class RoomFileEditor
         // Handle both with and without trailing comma
         var entryPattern = $@",?\s*\[""{Regex.Escape(direction)}""\]\s*=\s*""[^""]+""[,\s]*";
 
-        // First try to find the Exits dictionary
-        var dictPattern = @"(Exits\s*(?:=>|=)\s*new\s*(?:Dictionary<string,\s*string>)?\s*\(\s*\)\s*\{)([^}]*)(\})";
+        // First try to find the Exits dictionary (parentheses optional)
+        var dictPattern = @"(Exits\s*(?:=>|=)\s*new\s*(?:Dictionary<string,\s*string>)?\s*(?:\(\s*\))?\s*\{)([^}]*)(\})";
         var dictMatch = Regex.Match(content, dictPattern, RegexOptions.Singleline | RegexOptions.IgnoreCase);
 
         if (!dictMatch.Success)

@@ -108,6 +108,10 @@ if (settings.Memory.Enabled)
     }
 }
 
+// Set up ban manager
+state.BanManager = new BanManager(saveDir);
+Console.WriteLine("[BanManager] Player ban system initialized.");
+
 // Set up persistence
 var provider = new JsonPersistenceProvider(savePath);
 var persistence = new WorldStatePersistence(provider);

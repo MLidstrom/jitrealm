@@ -7,9 +7,9 @@ using JitRealm.Mud;
 /// Base class for all rooms in the game world.
 /// Provides common room functionality and sensible defaults.
 ///
-/// State stored in IStateStore:
-/// - name: Room name (can be patched)
-/// - description: Room description (can be patched)
+/// State stored in IStateStore (only when explicitly patched):
+/// - name: Room name override (if patched)
+/// - description: Room description override (if patched)
 /// - visited_by: List of player IDs who have visited
 /// - last_reset: When the room was last reset
 /// </summary>
@@ -22,9 +22,11 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     protected IMudContext? Ctx { get; private set; }
 
     /// <summary>
-    /// The room's display name. Can be patched via state.
+    /// The room's display name. Uses code default unless explicitly patched.
     /// </summary>
-    public override string Name => Ctx?.State.Get<string>("name") ?? GetDefaultName();
+    public override string Name => Ctx?.State.Has("name") == true
+        ? Ctx.State.Get<string>("name") ?? GetDefaultName()
+        : GetDefaultName();
 
     /// <summary>
     /// Default name when not overridden in state. Override in subclasses.
@@ -32,9 +34,11 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     protected abstract string GetDefaultName();
 
     /// <summary>
-    /// The room's description when looked at. Can be patched via state.
+    /// The room's description when looked at. Uses code default unless explicitly patched.
     /// </summary>
-    public override string Description => Ctx?.State.Get<string>("description") ?? GetDefaultDescription();
+    public override string Description => Ctx?.State.Has("description") == true
+        ? Ctx.State.Get<string>("description") ?? GetDefaultDescription()
+        : GetDefaultDescription();
 
     /// <summary>
     /// Default description when not overridden in state. Override in subclasses.
@@ -80,16 +84,8 @@ public abstract class RoomBase : MudObjectBase, IRoom, IOnLoad, IResettable
     public virtual void OnLoad(IMudContext ctx)
     {
         Ctx = ctx;
-
-        // Initialize patchable state properties
-        if (!ctx.State.Has("name"))
-        {
-            ctx.State.Set("name", GetDefaultName());
-        }
-        if (!ctx.State.Has("description"))
-        {
-            ctx.State.Set("description", GetDefaultDescription());
-        }
+        // State properties (name, description) are only used as overrides.
+        // Code defaults are used unless explicitly patched via wizard commands.
     }
 
     /// <summary>

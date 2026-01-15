@@ -65,6 +65,33 @@ dotnet run -- --server            # Multi-player server (port 4000)
 dotnet run -- --server --port 23  # Custom port
 ```
 
+### Single-Player Console Options
+
+```bash
+dotnet run                                    # Interactive login prompt
+dotnet run -- --player mats                   # Auto-login as player "mats"
+dotnet run -- --player mats --password secret # Auto-login with password
+dotnet run -- -u mats -pw secret              # Short form
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--player <name>` | `-u` | Auto-login with specified player name |
+| `--password <pw>` | `-pw` | Password for auto-login (skips prompt) |
+
+### Multi-Player Server Options
+
+```bash
+dotnet run -- --server                        # Start server on port 4000
+dotnet run -- --server --port 23              # Custom port
+dotnet run -- -s -p 2323                      # Short form
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--server` | `-s` | Enable multi-player telnet server mode |
+| `--port <num>` | `-p` | Server port (default: 4000) |
+
 To connect as a player, use telnet: `telnet localhost 4000`
 
 ## Commands
