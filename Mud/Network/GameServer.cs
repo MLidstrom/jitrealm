@@ -746,27 +746,6 @@ public sealed class GameServer
         // Telnet-specific commands not in the registry
         switch (cmd)
         {
-            // Persistence commands - require access to _persistence
-            case "save":
-                if (!session.IsWizard)
-                {
-                    await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands.");
-                    break;
-                }
-                await _persistence.SaveAsync(_state);
-                await session.WriteLineAsync("World state saved.");
-                break;
-
-            case "load":
-                if (!session.IsWizard)
-                {
-                    await session.WriteLineAsync("Unknown command. Type 'help' for a list of commands.");
-                    break;
-                }
-                await _persistence.LoadAsync(_state);
-                await session.WriteLineAsync("World state loaded.");
-                break;
-
             case "quit":
             case "exit":
             case "q":

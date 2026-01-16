@@ -73,14 +73,36 @@ public class DigCommand : WizardCommandBase
         }
 
         // Determine new room blueprint ID and file path
-        // Uses current working directory as default, or Rooms/ if at root
+        // Path resolution:
+        //   /dungeon/cell1  -> World/dungeon/cell1.cs (absolute from World/)
+        //   dungeon/cell1   -> World/{cwd}/dungeon/cell1.cs (relative to cwd)
+        //   cell1           -> World/{cwd}/cell1.cs (in cwd, or Rooms/ if at root)
         var cwd = WizardFilesystem.GetWorkingDir(context.Session.SessionId);
-        var baseDir = cwd == "/" ? "Rooms" : cwd.TrimStart('/');
 
-        // Support subdirectories: "dungeon/cell1" -> "baseDir/dungeon/cell1.cs"
-        var newRoomRelativePath = roomName.Contains('/') ? roomName : roomName;
-        var newBlueprintId = $"{baseDir}/{newRoomRelativePath}.cs";
-        var newFilePath = Path.Combine(worldRoot, baseDir.Replace('/', Path.DirectorySeparatorChar), newRoomRelativePath.Replace('/', Path.DirectorySeparatorChar) + ".cs");
+        string newBlueprintId;
+        string newFilePath;
+
+        if (roomName.StartsWith("/"))
+        {
+            // Absolute path from World root
+            var absolutePath = roomName.TrimStart('/');
+            newBlueprintId = absolutePath + ".cs";
+            newFilePath = Path.Combine(worldRoot, absolutePath.Replace('/', Path.DirectorySeparatorChar) + ".cs");
+        }
+        else if (roomName.Contains('/'))
+        {
+            // Relative path with subdirectories
+            var baseDir = cwd == "/" ? "" : cwd.TrimStart('/') + "/";
+            newBlueprintId = baseDir + roomName + ".cs";
+            newFilePath = Path.Combine(worldRoot, (baseDir + roomName).Replace('/', Path.DirectorySeparatorChar) + ".cs");
+        }
+        else
+        {
+            // Simple name - use cwd or Rooms/ if at root
+            var baseDir = cwd == "/" ? "Rooms" : cwd.TrimStart('/');
+            newBlueprintId = $"{baseDir}/{roomName}.cs";
+            newFilePath = Path.Combine(worldRoot, baseDir.Replace('/', Path.DirectorySeparatorChar), roomName + ".cs");
+        }
 
         // Check if new room file already exists
         if (File.Exists(newFilePath))
@@ -109,8 +131,10 @@ public class DigCommand : WizardCommandBase
 
         // Read template and generate new room content
         var template = await File.ReadAllTextAsync(templatePath);
-        var className = ToPascalCase(Path.GetFileNameWithoutExtension(newRoomRelativePath));
-        var displayName = FormatDisplayName(Path.GetFileNameWithoutExtension(newRoomRelativePath));
+        // Get just the filename part for class name (e.g., "dungeon/cell1" -> "cell1")
+        var baseName = roomName.Contains('/') ? roomName[(roomName.LastIndexOf('/') + 1)..] : roomName;
+        var className = ToPascalCase(baseName);
+        var displayName = FormatDisplayName(baseName);
 
         var newRoomContent = template
             .Replace("{{NAME}}", displayName)

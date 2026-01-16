@@ -115,12 +115,31 @@ Console.WriteLine("[BanManager] Player ban system initialized.");
 // Set up persistence
 var provider = new JsonPersistenceProvider(savePath);
 var persistence = new WorldStatePersistence(provider);
+state.Persistence = persistence;
 
 // Load daemons (long-lived service objects like TIME_D, WEATHER_D)
 var daemonCount = await state.LoadDaemonsAsync(worldDir);
 if (daemonCount > 0)
 {
     Console.WriteLine($"[Daemons] Loaded {daemonCount} daemon(s)");
+}
+
+// Auto-load world state if a save file exists
+if (await persistence.ExistsAsync())
+{
+    try
+    {
+        var loaded = await persistence.LoadAsync(state);
+        if (loaded)
+        {
+            Console.WriteLine("[Persistence] World state restored from save file.");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Persistence] Failed to load world state: {ex.Message}");
+        Console.WriteLine("[Persistence] Starting with fresh world state.");
+    }
 }
 
 if (perfBenchMode)
@@ -195,6 +214,17 @@ else
     // CommandLoop now handles player creation as a world object
     var loop = new CommandLoop(state, persistence, settings, autoPlayer, autoPassword);
     await loop.RunAsync();
+}
+
+// Auto-save world state on shutdown
+try
+{
+    await persistence.SaveAsync(state);
+    Console.WriteLine("[Persistence] World state saved.");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[Persistence] Failed to save world state: {ex.Message}");
 }
 
 // Shutdown daemons

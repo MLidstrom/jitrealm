@@ -88,21 +88,43 @@ public class CreateCommand : WizardCommandBase
             return;
         }
 
-        // Determine output path - use current working directory as default
+        // Determine output path based on name argument
+        // Path resolution:
+        //   /dungeon/cell1  -> World/dungeon/cell1.cs (absolute from World/)
+        //   dungeon/cell1   -> World/{cwd}/dungeon/cell1.cs (relative to cwd)
+        //   cell1           -> World/{cwd}/cell1.cs (in cwd, or type default if at root)
         var cwd = WizardFilesystem.GetWorkingDir(context.Session.SessionId);
-        var className = ToPascalCase(objectName);
-        var fileName = $"{objectName.ToLowerInvariant()}.cs";
 
-        // If cwd is root ("/"), use the type's default directory, otherwise use cwd
-        var outputDir = cwd == "/"
-            ? Path.Combine(worldRoot, mapping.Directory)
-            : Path.Combine(worldRoot, cwd.TrimStart('/'));
-        var outputPath = Path.Combine(outputDir, fileName);
+        // Get just the filename part for class name (e.g., "dungeon/cell1" -> "cell1")
+        var baseName = objectName.Contains('/') ? objectName[(objectName.LastIndexOf('/') + 1)..] : objectName;
+        var className = ToPascalCase(baseName);
 
-        // Compute relative path for display
-        var relativePath = cwd == "/"
-            ? $"{mapping.Directory}/{fileName}"
-            : $"{cwd.TrimStart('/')}/{fileName}";
+        string outputPath;
+        string relativePath;
+
+        if (objectName.StartsWith("/"))
+        {
+            // Absolute path from World root
+            var absolutePath = objectName.TrimStart('/');
+            relativePath = absolutePath + ".cs";
+            outputPath = Path.Combine(worldRoot, absolutePath.Replace('/', Path.DirectorySeparatorChar) + ".cs");
+        }
+        else if (objectName.Contains('/'))
+        {
+            // Relative path with subdirectories
+            var baseDir = cwd == "/" ? "" : cwd.TrimStart('/') + "/";
+            relativePath = baseDir + objectName + ".cs";
+            outputPath = Path.Combine(worldRoot, (baseDir + objectName).Replace('/', Path.DirectorySeparatorChar) + ".cs");
+        }
+        else
+        {
+            // Simple name - use cwd or type's default directory if at root
+            var baseDir = cwd == "/" ? mapping.Directory : cwd.TrimStart('/');
+            relativePath = $"{baseDir}/{objectName}.cs";
+            outputPath = Path.Combine(worldRoot, baseDir.Replace('/', Path.DirectorySeparatorChar), objectName + ".cs");
+        }
+
+        var outputDir = Path.GetDirectoryName(outputPath);
 
         // Check if file already exists
         if (File.Exists(outputPath))
@@ -113,16 +135,19 @@ public class CreateCommand : WizardCommandBase
         }
 
         // Ensure output directory exists
-        Directory.CreateDirectory(outputDir);
+        if (!string.IsNullOrEmpty(outputDir))
+        {
+            Directory.CreateDirectory(outputDir);
+        }
 
         // Read template
         var template = await File.ReadAllTextAsync(templatePath);
 
-        // Replace placeholders
+        // Replace placeholders (use baseName for the display name, not full path)
         var content = template
-            .Replace("{{NAME}}", objectName.ToLowerInvariant())
+            .Replace("{{NAME}}", baseName.ToLowerInvariant())
             .Replace("{{CLASS_NAME}}", className)
-            .Replace("{{DESCRIPTION}}", $"A {objectName.ToLowerInvariant()}.");
+            .Replace("{{DESCRIPTION}}", $"A {baseName.ToLowerInvariant()}.");
 
         // Write file
         await File.WriteAllTextAsync(outputPath, content);
@@ -146,12 +171,17 @@ public class CreateCommand : WizardCommandBase
         context.Output("  weapon <name>             - Create an equippable weapon");
         context.Output("  armor <name>              - Create an equippable armor piece");
         context.Output("");
+        context.Output("Name can include path:");
+        context.Output("  name           - Creates in cwd (or type default if at root)");
+        context.Output("  dir/name       - Creates in cwd/dir/ (relative path)");
+        context.Output("  /dir/name      - Creates in World/dir/ (absolute path)");
+        context.Output("");
         context.Output("Examples:");
-        context.Output("  create room tavern              - Create Rooms/tavern.cs");
+        context.Output("  create room tavern              - Create Rooms/tavern.cs (at root)");
         context.Output("  create room meadow outdoor      - Create outdoor Rooms/meadow.cs");
+        context.Output("  create room dungeon/cell1       - Create dungeon/cell1.cs in cwd");
+        context.Output("  create room /Rooms/special/boss - Create Rooms/special/boss.cs");
         context.Output("  create npc shopkeeper llm       - Create LLM NPC npcs/shopkeeper.cs");
-        context.Output("  create monster goblin           - Create simple npcs/goblin.cs");
-        context.Output("  create weapon sword             - Create Items/sword.cs");
     }
 
     private static string ToPascalCase(string name)

@@ -153,7 +153,8 @@ public static class CommandFactory
         registry.Register(new UnbanCommand());
         registry.Register(new ShutdownCommand());
 
-        // Note: save/load commands are handled directly in CommandLoop
-        // because they require access to _persistence which isn't in CommandContext
+        // Persistence commands
+        registry.Register(new SaveCommand());
+        registry.Register(new LoadCommand());
     }
 }

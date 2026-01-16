@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using JitRealm.Mud.AI;
 using JitRealm.Mud.Diagnostics;
 using JitRealm.Mud.Network;
+using JitRealm.Mud.Persistence;
 
 namespace JitRealm.Mud;
 
@@ -92,6 +93,12 @@ public sealed class WorldState
     /// Set during server initialization.
     /// </summary>
     public BanManager? BanManager { get; set; }
+
+    /// <summary>
+    /// Optional persistence service for saving/loading world state.
+    /// Set during server initialization.
+    /// </summary>
+    public WorldStatePersistence? Persistence { get; set; }
 
     /// <summary>
     /// Create a MudContext for a specific object.

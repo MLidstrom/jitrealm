@@ -222,30 +222,7 @@ public sealed class CommandLoop
                     return;
                 }
 
-                // Console-only commands that need _persistence
-                if (cmd == "save" && _session.IsWizard)
-                {
-                    await _persistence.SaveAsync(_state, _session);
-                    Console.WriteLine("World state saved.");
-                    continue;
-                }
-                if (cmd == "load" && _session.IsWizard)
-                {
-                    var loaded = await _persistence.LoadAsync(_state, _session);
-                    if (loaded)
-                    {
-                        _playerId = _session.PlayerId;
-                        Console.WriteLine("World state loaded.");
-                        await TryExecuteRegisteredCommandAsync("look", Array.Empty<string>());
-                    }
-                    else
-                    {
-                        Console.WriteLine("No saved state found.");
-                    }
-                    continue;
-                }
-
-                // All other commands are handled through the registry
+                // All commands are handled through the registry
                 if (!await TryExecuteRegisteredCommandAsync(cmd, parts.Skip(1).ToArray()))
                 {
                     // Try local commands from room/inventory/equipment

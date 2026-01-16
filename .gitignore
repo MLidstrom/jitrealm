@@ -582,3 +582,7 @@ secrets.json
 
 # Local AI assistant instructions (repo-specific)
 /CLAUDE.md
+WARP.md
+.brv/
+.claude/
+tmpclaude-*

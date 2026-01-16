@@ -13,7 +13,7 @@ that are compiled and loaded **at runtime**, and can be **unloaded/reloaded** wi
 - **Driver hooks** (v0.3): IOnEnter, IOnLeave, IHeartbeat, IResettable, IOnReload
 - **Messaging** (v0.3): Tell, Say, Emote via IMudContext
 - **Callouts** (v0.4): CallOut, Every, CancelCallOut for scheduled method calls
-- **Persistence** (v0.5): Save/load world state to JSON, auto-load on startup
+- **Persistence** (v0.5): Save/load world state to JSON, auto-save on shutdown, auto-load on startup
 - **Multi-user** (v0.6): Telnet server, multiple concurrent players, sessions
 - **Security** (v0.7): Sandboxed world code with blocked dangerous APIs, execution timeouts
 - **Living objects** (v0.8): ILiving interface, HP/damage/heal system, World/std/living.cs base class
@@ -169,8 +169,19 @@ These commands are visible in `help` and executable only for wizard users:
 - `link <dir> <room> [--oneway]` — link current room to an existing room
 - `unlink <dir> [--both]` — remove an exit from the current room
 - `dig <dir> <room> [outdoor] [--oneway]` — create a new room and link it
-- `save` — save world state to `save/world.json`
-- `load` — restore world state from save file
+- `save` — save world state to `save/world.json` (also auto-saves on shutdown)
+- `load` — restore world state from save file (also auto-loads on startup)
+- `goal <npc> [type [importance] [target]]` — view or set NPC goals
+- `kb <get|set|search|delete> ...` — manage world knowledge base
+- `story <prompt>` — generate lore/story text using LLM
+- `heal <target> [amount|full]` — restore HP to a target
+- `zap <target> [--force]` — instantly kill a target
+- `echo [to <room>] <message>` — send message to room without attribution
+- `move <object> to <dest>` — move object to another container
+- `summon <target>` — bring player or NPC to your location
+- `users` — list connected sessions
+- `ban <player> [reason]` / `unban <player>` — manage player bans
+- `shutdown [delay]` — initiate graceful server shutdown
 
 ### Wizard Filesystem
 Wizards can navigate the `World/` directory using Unix-like commands:
@@ -255,11 +266,12 @@ Edit `appsettings.json` to customize driver settings:
     "MaxConnections": 0,
     "WelcomeMessage": "Welcome to JitRealm, {PlayerName}!",
     "MudName": "JitRealm",
-    "Version": "0.20"
+    "Version": "0.28"
   },
   "Paths": {
     "WorldDirectory": "World",
     "SaveDirectory": "save",
+    "SaveFileName": "world.json",
     "PlayersDirectory": "players",
     "StartRoom": "Rooms/start",
     "PlayerBlueprint": "std/player"
